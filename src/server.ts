@@ -8,6 +8,37 @@ import { generateSpeech } from "./services/generateSpeech.js";
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const upload = multer({ storage: multer.memoryStorage() });
+const SUPPORTED_TTS_LANGUAGES: Record<string, string> = {
+  en: "English",
+  english: "English",
+  fr: "French",
+  french: "French",
+  es: "Spanish",
+  spanish: "Spanish",
+  pt: "Portuguese",
+  portuguese: "Portuguese",
+  it: "Italian",
+  italian: "Italian",
+  nl: "Dutch",
+  dutch: "Dutch",
+  de: "German",
+  german: "German",
+  hi: "Hindi",
+  hindi: "Hindi",
+  ar: "Arabic",
+  arabic: "Arabic",
+};
+const CANONICAL_TTS_LANGUAGES = [
+  "English",
+  "French",
+  "Spanish",
+  "Portuguese",
+  "Italian",
+  "Dutch",
+  "German",
+  "Hindi",
+  "Arabic",
+] as const;
 
 app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
@@ -21,6 +52,10 @@ app.post(
   ]),
   async (req, res) => {
     const targetLanguage = req.body?.targetLanguage;
+    const normalizedTargetLanguage =
+      typeof targetLanguage === "string"
+        ? SUPPORTED_TTS_LANGUAGES[targetLanguage.trim().toLowerCase()]
+        : undefined;
     const uploadedFiles = req.files as
       | {
           sourceAudio?: Express.Multer.File[];
@@ -32,6 +67,13 @@ app.post(
 
     if (typeof targetLanguage !== "string" || !targetLanguage.trim()) {
       return res.status(400).json({ error: "targetLanguage is required" });
+    }
+
+    if (!normalizedTargetLanguage) {
+      return res.status(400).json({
+        error: "targetLanguage is not supported",
+        supportedLanguages: CANONICAL_TTS_LANGUAGES,
+      });
     }
 
     if (!sourceAudioFile) {
@@ -50,7 +92,7 @@ app.post(
 
       const translation = await translateText({
         text: transcript,
-        targetLanguage: targetLanguage.trim(),
+        targetLanguage: normalizedTargetLanguage,
       });
 
       const audioBuffer = await generateSpeech({
