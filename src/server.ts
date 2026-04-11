@@ -2,6 +2,8 @@ import express from "express";
 import "dotenv/config";
 import multer from "multer";
 import { transcribeAudio } from "./services/transcribeAudio.js";
+import { translateText } from "./services/translateText.js";
+import { generateSpeech } from "./services/generateSpeech.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -46,15 +48,25 @@ app.post(
         filename: sourceAudioFile.originalname,
       });
 
-      return res.status(200).json({
-        ok: true,
+      const translation = await translateText({
+        text: transcript,
         targetLanguage: targetLanguage.trim(),
-        transcript,
-        voiceSampleFilename: voiceSampleFile.originalname,
       });
+
+      const audioBuffer = await generateSpeech({
+        text: translation,
+        voiceSampleBuffer: voiceSampleFile.buffer,
+      });
+
+      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader(
+        "Content-Disposition",
+        'inline; filename="translated-speech.mp3"',
+      );
+      return res.status(200).send(audioBuffer);
     } catch (error) {
-      console.error("Transcription failed", error);
-      return res.status(502).json({ error: "Transcription failed" });
+      console.error("Speech pipeline failed", error);
+      return res.status(502).json({ error: "Speech pipeline failed" });
     }
   },
 );

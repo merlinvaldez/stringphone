@@ -1,4 +1,3 @@
-import { transcript } from "@elevenlabs/elevenlabs-js/api/resources/dubbing/index.js";
 import { mistral } from "../lib/mistral.js";
 
 export type TranscribeAudioInput = {
