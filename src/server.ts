@@ -2,12 +2,19 @@ import express from "express";
 import "dotenv/config";
 import multer from "multer";
 import { generateSpeech } from "./services/generateSpeech.js";
-import { translateSpeechWithVoxtral } from "./services/translateSpeechWithVoxtral.js";
+import { prepareVoiceReference } from "./services/prepareVoiceReference.js";
+import { transcribeAudio } from "./services/transcribeAudio.js";
+import { translateText } from "./services/translateText.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const upload = multer({ storage: multer.memoryStorage() });
-const allowedOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5174";
+const allowedOrigins = new Set(
+  (process.env.CLIENT_ORIGIN ?? "http://localhost:5173,http://localhost:5174,http://localhost:5175")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 const SUPPORTED_TTS_LANGUAGES: Record<string, string> = {
   en: "English",
   english: "English",
@@ -27,6 +34,9 @@ const SUPPORTED_TTS_LANGUAGES: Record<string, string> = {
   hindi: "Hindi",
   ar: "Arabic",
   arabic: "Arabic",
+  fa: "Persian",
+  farsi: "Persian",
+  persian: "Persian",
 };
 const CANONICAL_TTS_LANGUAGES = [
   "English",
@@ -38,10 +48,16 @@ const CANONICAL_TTS_LANGUAGES = [
   "German",
   "Hindi",
   "Arabic",
+  "Persian",
 ] as const;
 
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", allowedOrigin);
+  const requestOrigin = req.header("Origin");
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    res.header("Access-Control-Allow-Origin", requestOrigin);
+  }
+
   res.header("Vary", "Origin");
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
@@ -102,14 +118,25 @@ app.post(
     }
 
     try {
-      const { transcript, translation } = await translateSpeechWithVoxtral({
+      const transcript = await transcribeAudio({
         audioBuffer: sourceAudioFile.buffer,
+        filename: sourceAudioFile.originalname,
+      });
+
+      const translation = await translateText({
+        text: transcript,
         targetLanguage: normalizedTargetLanguage,
+      });
+
+      const voiceReferenceBuffer = await prepareVoiceReference({
+        audioBuffer: voiceSampleFile.buffer,
+        originalFilename: voiceSampleFile.originalname,
+        mimeType: voiceSampleFile.mimetype,
       });
 
       const audioBuffer = await generateSpeech({
         text: translation,
-        voiceSampleBuffer: voiceSampleFile.buffer,
+        voiceSampleBuffer: voiceReferenceBuffer,
       });
 
       if (wantsJson) {

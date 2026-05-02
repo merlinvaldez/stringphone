@@ -12,9 +12,11 @@ StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each s
 - Split Mode for face-to-face use, with portrait top-bottom layout and landscape/desktop side-by-side layout
 - Browser `MediaRecorder` capture per turn
 - `POST /speech/translate` supports MP3 output and frontend JSON output
-- Voxtral chat handles speech-to-translation from the recorded audio
+- Voxtral transcription turns the recorded audio into text
+- Mistral chat translates the transcript into the target language
 - Voxtral TTS uses the same turn recording as `refAudio`
 - Supported V1 languages: English, Spanish, French, German, Portuguese, Italian, Dutch, Hindi, and Arabic
+- Experimental V1 language: Farsi/Persian
 
 ## Local Development
 
@@ -26,7 +28,7 @@ This Windows environment uses the explicit Node install path because `npm` is no
 
 The app runs at:
 
-- Frontend: `http://localhost:5174`
+- Frontend: `http://localhost:5173`, or the next available Vite port such as `http://localhost:5174` / `http://localhost:5175`
 - Backend: `http://localhost:3001`
 
 To run only one side:

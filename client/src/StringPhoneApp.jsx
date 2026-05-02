@@ -24,10 +24,10 @@ const LANGUAGES = [
   { code: "nl", name: "Nederlands", flag: "🇳🇱" },
   { code: "hi", name: "हिन्दी", flag: "🇮🇳" },
   { code: "ar", name: "العربية", flag: "🇸🇦" },
+  { code: "fa", name: "Farsi", flag: "FA" },
 ];
 
 const MAX_RECORDING_TIME = 30;
-const HOLD_DURATION = 800;
 
 function getSupportedMimeType() {
   const candidates = [
@@ -149,39 +149,6 @@ function useRecorder() {
   useEffect(() => cancel, []);
 
   return { start, stop, cancel };
-}
-
-function useHoldToStart({ disabled, onReady }) {
-  const [holdProgress, setHoldProgress] = useState(0);
-  const intervalRef = useRef(null);
-
-  const clearHold = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    setHoldProgress(0);
-  };
-
-  const startHold = () => {
-    if (disabled || intervalRef.current) return;
-
-    let elapsed = 0;
-    intervalRef.current = setInterval(() => {
-      elapsed += 20;
-      const progress = Math.min((elapsed / HOLD_DURATION) * 100, 100);
-      setHoldProgress(progress);
-
-      if (elapsed >= HOLD_DURATION) {
-        clearHold();
-        onReady();
-      }
-    }, 20);
-  };
-
-  useEffect(() => clearHold, []);
-
-  return { holdProgress, startHold, clearHold };
 }
 
 function useCountdown({ active, onExpire }) {
@@ -403,35 +370,6 @@ function AudioWave({ active, colorClass = "bg-zinc-300" }) {
   );
 }
 
-function HoldRing({ progress, color = "#ef4444" }) {
-  if (progress <= 0) return null;
-
-  return (
-    <svg className="pointer-events-none absolute left-0 top-0 z-0 h-full w-full -rotate-90 scale-[1.15] transform drop-shadow-xl">
-      <circle
-        cx="50%"
-        cy="50%"
-        r="48%"
-        fill="none"
-        stroke="rgba(255,255,255,0.05)"
-        strokeWidth="3"
-      />
-      <circle
-        cx="50%"
-        cy="50%"
-        r="48%"
-        fill="none"
-        stroke={color}
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeDasharray="300"
-        strokeDashoffset={300 - (300 * progress) / 100}
-        className="transition-all duration-75 ease-linear"
-      />
-    </svg>
-  );
-}
-
 function ErrorNotice({ message, onDismiss }) {
   if (!message) return null;
 
@@ -470,14 +408,6 @@ function UserSection({
   onStartInteraction,
   onStopInteraction,
 }) {
-  const ignoreNextClickRef = useRef(false);
-  const { holdProgress, startHold, clearHold } = useHoldToStart({
-    disabled: isLocked || userState !== "idle",
-    onReady: () => {
-      ignoreNextClickRef.current = true;
-      onStartInteraction();
-    },
-  });
   const recordingTimer = useCountdown({
     active: userState === "recording" && isActiveSpeaker,
     onExpire: onStopInteraction,
@@ -542,17 +472,11 @@ function UserSection({
         </div>
 
         <div className="group relative flex items-center justify-center">
-          <HoldRing progress={holdProgress} color="#f43f5e" />
           <button
             type="button"
-            onMouseDown={startHold}
-            onMouseUp={clearHold}
-            onMouseLeave={clearHold}
-            onTouchStart={startHold}
-            onTouchEnd={clearHold}
             onClick={() => {
-              if (ignoreNextClickRef.current) {
-                ignoreNextClickRef.current = false;
+              if (userState === "idle") {
+                onStartInteraction();
                 return;
               }
 
@@ -579,7 +503,7 @@ function UserSection({
               <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
                 <Mic size={36} className="mb-2 text-zinc-200" strokeWidth={1.5} />
                 <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
-                  HOLD
+                  TAP
                 </span>
               </div>
             )}
@@ -676,26 +600,9 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
 function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   const flow = useTranslationFlow();
   const activeAction = flow.currentRun?.action ?? null;
-  const ignoreSpeakClickRef = useRef(false);
-  const ignoreListenClickRef = useRef(false);
   const recordingTimer = useCountdown({
     active: flow.status === "recording",
     onExpire: flow.stopRecording,
-  });
-
-  const speakHold = useHoldToStart({
-    disabled: flow.status !== "idle",
-    onReady: () => {
-      ignoreSpeakClickRef.current = true;
-      flow.startRecording({ action: "speak", targetLanguage: theirLang });
-    },
-  });
-  const listenHold = useHoldToStart({
-    disabled: flow.status !== "idle",
-    onReady: () => {
-      ignoreListenClickRef.current = true;
-      flow.startRecording({ action: "listen", targetLanguage: myLang });
-    },
   });
 
   return (
@@ -752,11 +659,10 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
           status={flow.status}
           activeAction={activeAction}
           color="rose"
-          holdProgress={speakHold.holdProgress}
-          onHoldStart={speakHold.startHold}
-          onHoldEnd={speakHold.clearHold}
+          onStart={() =>
+            flow.startRecording({ action: "speak", targetLanguage: theirLang })
+          }
           onStop={flow.stopRecording}
-          ignoreNextClickRef={ignoreSpeakClickRef}
         />
         <ActionColumn
           action="listen"
@@ -767,11 +673,10 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
           status={flow.status}
           activeAction={activeAction}
           color="indigo"
-          holdProgress={listenHold.holdProgress}
-          onHoldStart={listenHold.startHold}
-          onHoldEnd={listenHold.clearHold}
+          onStart={() =>
+            flow.startRecording({ action: "listen", targetLanguage: myLang })
+          }
           onStop={flow.stopRecording}
-          ignoreNextClickRef={ignoreListenClickRef}
         />
       </div>
 
@@ -789,11 +694,8 @@ function ActionColumn({
   status,
   activeAction,
   color,
-  holdProgress,
-  onHoldStart,
-  onHoldEnd,
+  onStart,
   onStop,
-  ignoreNextClickRef,
 }) {
   const inactive = status !== "idle" && activeAction !== action;
   const isActive = activeAction === action;
@@ -812,17 +714,11 @@ function ActionColumn({
       }`}
     >
       <div className="group relative">
-        <HoldRing progress={holdProgress} color={ringColor} />
         <button
           type="button"
-          onMouseDown={onHoldStart}
-          onMouseUp={onHoldEnd}
-          onMouseLeave={onHoldEnd}
-          onTouchStart={onHoldStart}
-          onTouchEnd={onHoldEnd}
           onClick={() => {
-            if (ignoreNextClickRef.current) {
-              ignoreNextClickRef.current = false;
+            if (status === "idle") {
+              onStart();
               return;
             }
 
