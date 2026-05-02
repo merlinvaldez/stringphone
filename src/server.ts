@@ -1,9 +1,8 @@
 import express from "express";
 import "dotenv/config";
 import multer from "multer";
-import { transcribeAudio } from "./services/transcribeAudio.js";
-import { translateText } from "./services/translateText.js";
 import { generateSpeech } from "./services/generateSpeech.js";
+import { translateSpeechWithVoxtral } from "./services/translateSpeechWithVoxtral.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -103,13 +102,8 @@ app.post(
     }
 
     try {
-      const transcript = await transcribeAudio({
+      const { transcript, translation } = await translateSpeechWithVoxtral({
         audioBuffer: sourceAudioFile.buffer,
-        filename: sourceAudioFile.originalname,
-      });
-
-      const translation = await translateText({
-        text: transcript,
         targetLanguage: normalizedTargetLanguage,
       });
 

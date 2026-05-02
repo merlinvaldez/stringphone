@@ -2,7 +2,7 @@
 
 Talk to your grandma... even if you don't speak her language.
 
-StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each speaker records a phrase in the browser, the backend transcribes and translates it with Mistral, and Mistral instant voice cloning uses that same recording as the voice reference for translated playback.
+StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each speaker records a phrase in the browser, Voxtral analyzes that audio directly to produce the original transcript and target-language translation, and Voxtral TTS uses the same recording as the instant voice-cloning reference for translated playback.
 
 ## MVP V1
 
@@ -12,6 +12,8 @@ StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each s
 - Split Mode for face-to-face use, with portrait top-bottom layout and landscape/desktop side-by-side layout
 - Browser `MediaRecorder` capture per turn
 - `POST /speech/translate` supports MP3 output and frontend JSON output
+- Voxtral chat handles speech-to-translation from the recorded audio
+- Voxtral TTS uses the same turn recording as `refAudio`
 - Supported V1 languages: English, Spanish, French, German, Portuguese, Italian, Dutch, Hindi, and Arabic
 
 ## Local Development
@@ -56,7 +58,7 @@ When `responseMode=json`, the backend returns:
 ```json
 {
   "transcript": "Hello, how are you?",
-  "translation": "Hola, ¿cómo estás?",
+  "translation": "Hola, como estas?",
   "targetLanguage": "Spanish",
   "audio": {
     "mimeType": "audio/mpeg",
