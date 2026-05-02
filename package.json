@@ -4,11 +4,11 @@
   "description": "Talk to your grandma... Even if you don't speak her language.",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"tsx watch src/server.ts\" \"C:\\\\Progra~1\\\\nodejs\\\\npm.cmd --prefix client run dev\"",
+    "dev": "concurrently \"tsx watch src/server.ts\" \"npm --prefix client run dev\"",
     "dev:server": "tsx watch src/server.ts",
-    "dev:client": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run dev",
-    "build": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run build",
-    "test": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run build",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "test": "npm --prefix client run build",
     "start": "tsx src/server.ts"
   },
   "repository": {
