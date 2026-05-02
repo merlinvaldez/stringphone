@@ -4,8 +4,11 @@
   "description": "Talk to your grandma... Even if you don't speak her language.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx watch src/server.ts",
+    "dev": "concurrently \"tsx watch src/server.ts\" \"C:\\\\Progra~1\\\\nodejs\\\\npm.cmd --prefix client run dev\"",
+    "dev:server": "tsx watch src/server.ts",
+    "dev:client": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run dev",
+    "build": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run build",
+    "test": "C:\\Progra~1\\nodejs\\npm.cmd --prefix client run build",
     "start": "tsx src/server.ts"
   },
   "repository": {
@@ -30,6 +33,7 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.6.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }

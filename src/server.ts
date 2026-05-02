@@ -8,6 +8,7 @@ import { generateSpeech } from "./services/generateSpeech.js";
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
 const upload = multer({ storage: multer.memoryStorage() });
+const allowedOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5174";
 const SUPPORTED_TTS_LANGUAGES: Record<string, string> = {
   en: "English",
   english: "English",
@@ -40,6 +41,19 @@ const CANONICAL_TTS_LANGUAGES = [
   "Arabic",
 ] as const;
 
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", allowedOrigin);
+  res.header("Vary", "Origin");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  return next();
+});
+
 app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
 });
@@ -52,6 +66,10 @@ app.post(
   ]),
   async (req, res) => {
     const targetLanguage = req.body?.targetLanguage;
+    const responseMode = req.body?.responseMode;
+    const wantsJson =
+      typeof responseMode === "string" &&
+      responseMode.trim().toLowerCase() === "json";
     const normalizedTargetLanguage =
       typeof targetLanguage === "string"
         ? SUPPORTED_TTS_LANGUAGES[targetLanguage.trim().toLowerCase()]
@@ -99,6 +117,18 @@ app.post(
         text: translation,
         voiceSampleBuffer: voiceSampleFile.buffer,
       });
+
+      if (wantsJson) {
+        return res.status(200).json({
+          transcript,
+          translation,
+          targetLanguage: normalizedTargetLanguage,
+          audio: {
+            mimeType: "audio/mpeg",
+            base64: audioBuffer.toString("base64"),
+          },
+        });
+      }
 
       res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader(

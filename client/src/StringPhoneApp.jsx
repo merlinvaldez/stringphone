@@ -1,0 +1,934 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Ear,
+  Globe,
+  Loader2,
+  Mic,
+  Phone,
+  User,
+  Users,
+  Volume2,
+} from "lucide-react";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
+  "http://localhost:3001";
+
+const LANGUAGES = [
+  { code: "en", name: "English", flag: "🇺🇸" },
+  { code: "es", name: "Español", flag: "🇪🇸" },
+  { code: "fr", name: "Français", flag: "🇫🇷" },
+  { code: "de", name: "Deutsch", flag: "🇩🇪" },
+  { code: "pt", name: "Português", flag: "🇵🇹" },
+  { code: "it", name: "Italiano", flag: "🇮🇹" },
+  { code: "nl", name: "Nederlands", flag: "🇳🇱" },
+  { code: "hi", name: "हिन्दी", flag: "🇮🇳" },
+  { code: "ar", name: "العربية", flag: "🇸🇦" },
+];
+
+const MAX_RECORDING_TIME = 30;
+const HOLD_DURATION = 800;
+
+function getSupportedMimeType() {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/mpeg",
+  ];
+
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+}
+
+function base64ToBlob(base64, mimeType) {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return new Blob([bytes], { type: mimeType });
+}
+
+async function translateSpeech({ recording, targetLanguage }) {
+  const formData = new FormData();
+  const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
+  const fileName = `stringphone-turn.${extension}`;
+
+  formData.append("targetLanguage", targetLanguage.code);
+  formData.append("responseMode", "json");
+  formData.append("sourceAudio", recording.blob, fileName);
+  formData.append("voiceSample", recording.blob, fileName);
+
+  const response = await fetch(`${API_BASE_URL}/speech/translate`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = "Speech translation failed.";
+    try {
+      const body = await response.json();
+      message = body.error ?? message;
+    } catch {
+      message = response.statusText || message;
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+function useRecorder() {
+  const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
+
+  const stopTracks = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  };
+
+  const start = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      throw new Error("This browser does not support audio recording.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = getSupportedMimeType();
+    const mediaRecorder = new MediaRecorder(
+      stream,
+      mimeType ? { mimeType } : undefined,
+    );
+
+    streamRef.current = stream;
+    chunksRef.current = [];
+    mediaRecorderRef.current = mediaRecorder;
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.start();
+  };
+
+  const stop = async () =>
+    new Promise((resolve, reject) => {
+      const recorder = mediaRecorderRef.current;
+
+      if (!recorder || recorder.state === "inactive") {
+        stopTracks();
+        reject(new Error("No active recording to stop."));
+        return;
+      }
+
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        mediaRecorderRef.current = null;
+        stopTracks();
+        resolve({ blob, mimeType: type });
+      };
+
+      recorder.stop();
+    });
+
+  const cancel = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
+    stopTracks();
+  };
+
+  useEffect(() => cancel, []);
+
+  return { start, stop, cancel };
+}
+
+function useHoldToStart({ disabled, onReady }) {
+  const [holdProgress, setHoldProgress] = useState(0);
+  const intervalRef = useRef(null);
+
+  const clearHold = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setHoldProgress(0);
+  };
+
+  const startHold = () => {
+    if (disabled || intervalRef.current) return;
+
+    let elapsed = 0;
+    intervalRef.current = setInterval(() => {
+      elapsed += 20;
+      const progress = Math.min((elapsed / HOLD_DURATION) * 100, 100);
+      setHoldProgress(progress);
+
+      if (elapsed >= HOLD_DURATION) {
+        clearHold();
+        onReady();
+      }
+    }, 20);
+  };
+
+  useEffect(() => clearHold, []);
+
+  return { holdProgress, startHold, clearHold };
+}
+
+function useCountdown({ active, onExpire }) {
+  const [recordingTimer, setRecordingTimer] = useState(MAX_RECORDING_TIME);
+  const onExpireRef = useRef(onExpire);
+
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
+
+  useEffect(() => {
+    if (!active) {
+      setRecordingTimer(MAX_RECORDING_TIME);
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setRecordingTimer((prev) => {
+        if (prev <= 1) {
+          onExpireRef.current();
+          return MAX_RECORDING_TIME;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [active]);
+
+  return recordingTimer;
+}
+
+function useTranslationFlow() {
+  const recorder = useRecorder();
+  const [status, setStatus] = useState("idle");
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const currentRunRef = useRef(null);
+  const audioUrlRef = useRef(null);
+  const playerRef = useRef(null);
+
+  const resetAudio = () => {
+    if (playerRef.current) {
+      playerRef.current.pause();
+      playerRef.current = null;
+    }
+
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  };
+
+  const reset = () => {
+    resetAudio();
+    setStatus("idle");
+    setResult(null);
+    setError("");
+    currentRunRef.current = null;
+  };
+
+  const startRecording = async (run) => {
+    if (status !== "idle") return;
+
+    try {
+      resetAudio();
+      setResult(null);
+      setError("");
+      currentRunRef.current = run;
+      await recorder.start();
+      setStatus("recording");
+    } catch (recordingError) {
+      currentRunRef.current = null;
+      setStatus("idle");
+      setError(recordingError.message);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (status !== "recording" || !currentRunRef.current) return;
+
+    const run = currentRunRef.current;
+    setStatus("processing");
+
+    try {
+      const recording = await recorder.stop();
+      const data = await translateSpeech({
+        recording,
+        targetLanguage: run.targetLanguage,
+      });
+      const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const player = new Audio(audioUrl);
+
+      resetAudio();
+      audioUrlRef.current = audioUrl;
+      playerRef.current = player;
+
+      setResult({
+        transcript: data.transcript,
+        translation: data.translation,
+        targetLanguage: data.targetLanguage,
+      });
+      setStatus("playing");
+
+      player.onended = reset;
+      await player.play();
+    } catch (translationError) {
+      recorder.cancel();
+      setError(translationError.message);
+      currentRunRef.current = null;
+      setStatus("idle");
+    }
+  };
+
+  useEffect(() => resetAudio, []);
+
+  return {
+    status,
+    result,
+    error,
+    currentRun: currentRunRef.current,
+    startRecording,
+    stopRecording,
+    clearError: () => setError(""),
+  };
+}
+
+function LanguageSelector({ selected, onSelect, disabled, orientation }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  let positionClasses = "top-full mt-3";
+  if (orientation === "up") {
+    positionClasses = "bottom-full mb-3";
+  } else if (orientation === "top") {
+    positionClasses =
+      "bottom-full mb-3 landscape:top-full landscape:bottom-auto landscape:mt-3 landscape:mb-0";
+  }
+
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
+  return (
+    <div className={`relative ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        className="flex w-full min-w-[120px] items-center justify-center space-x-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10"
+      >
+        <Globe size={14} className="text-zinc-400" strokeWidth={1.5} />
+        <span className="text-xs font-medium tracking-wide">
+          {selected.flag} {selected.name}
+        </span>
+      </button>
+
+      {isOpen && (
+        <div
+          className={`absolute left-1/2 z-50 w-44 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl transition-all duration-200 animate-zoom-in landscape:left-0 landscape:translate-x-0 ${positionClasses}`}
+        >
+          <div className="p-1.5">
+            {LANGUAGES.map((lang) => (
+              <button
+                type="button"
+                key={lang.code}
+                onClick={() => {
+                  onSelect(lang);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-all ${
+                  selected.code === lang.code
+                    ? "bg-white/10 font-medium text-white"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                }`}
+              >
+                <span className="text-base">{lang.flag}</span>
+                <span>{lang.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AudioWave({ active, colorClass = "bg-zinc-300" }) {
+  const bars = useMemo(
+    () => [
+      { height: 36, duration: 0.45 },
+      { height: 68, duration: 0.52 },
+      { height: 44, duration: 0.38 },
+      { height: 92, duration: 0.6 },
+      { height: 58, duration: 0.48 },
+      { height: 76, duration: 0.54 },
+      { height: 40, duration: 0.42 },
+    ],
+    [],
+  );
+
+  return (
+    <div
+      className={`flex h-10 items-center justify-center space-x-1.5 transition-all duration-500 ${
+        active ? "scale-100 opacity-100" : "scale-90 opacity-0"
+      }`}
+    >
+      {bars.map((bar, i) => (
+        <div
+          key={bar.height}
+          className={`w-1.5 animate-pulse rounded-full ${colorClass}`}
+          style={{
+            height: active ? `${bar.height}%` : "4px",
+            animationDuration: `${bar.duration}s`,
+            animationDelay: `${i * 0.1}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HoldRing({ progress, color = "#ef4444" }) {
+  if (progress <= 0) return null;
+
+  return (
+    <svg className="pointer-events-none absolute left-0 top-0 z-0 h-full w-full -rotate-90 scale-[1.15] transform drop-shadow-xl">
+      <circle
+        cx="50%"
+        cy="50%"
+        r="48%"
+        fill="none"
+        stroke="rgba(255,255,255,0.05)"
+        strokeWidth="3"
+      />
+      <circle
+        cx="50%"
+        cy="50%"
+        r="48%"
+        fill="none"
+        stroke={color}
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeDasharray="300"
+        strokeDashoffset={300 - (300 * progress) / 100}
+        className="transition-all duration-75 ease-linear"
+      />
+    </svg>
+  );
+}
+
+function ErrorNotice({ message, onDismiss }) {
+  if (!message) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onDismiss}
+      className="absolute bottom-5 left-1/2 z-[60] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-full border border-rose-500/25 bg-rose-950/80 px-4 py-2 text-xs font-medium text-rose-100 shadow-2xl backdrop-blur-md"
+    >
+      {message}
+    </button>
+  );
+}
+
+function TranscriptCard({ result }) {
+  return (
+    <div className="w-full animate-slide-up rounded-[2rem] border border-white/[0.05] bg-white/[0.03] px-7 py-5 text-center shadow-2xl backdrop-blur-md">
+      <p className="mb-2 text-xl font-medium leading-snug tracking-tight text-white md:text-2xl">
+        &ldquo;{result.translation}&rdquo;
+      </p>
+      <p className="text-sm text-zinc-500 md:text-base">
+        &ldquo;{result.transcript}&rdquo;
+      </p>
+    </div>
+  );
+}
+
+function UserSection({
+  position,
+  userState,
+  isActiveSpeaker,
+  isLocked,
+  language,
+  setLanguage,
+  result,
+  onStartInteraction,
+  onStopInteraction,
+}) {
+  const ignoreNextClickRef = useRef(false);
+  const { holdProgress, startHold, clearHold } = useHoldToStart({
+    disabled: isLocked || userState !== "idle",
+    onReady: () => {
+      ignoreNextClickRef.current = true;
+      onStartInteraction();
+    },
+  });
+  const recordingTimer = useCountdown({
+    active: userState === "recording" && isActiveSpeaker,
+    onExpire: onStopInteraction,
+  });
+  const isTop = position === "top";
+
+  return (
+    <section
+      className={`relative flex flex-1 flex-col items-center justify-between p-8 pt-20 transition-all duration-700 ease-in-out ${
+        isTop ? "rotate-180 landscape:rotate-0" : ""
+      } ${
+        isLocked ? "pointer-events-none opacity-40 grayscale-[0.5]" : "opacity-100"
+      } ${
+        isActiveSpeaker && userState === "playing"
+          ? "bg-zinc-900/50"
+          : "bg-transparent"
+      }`}
+    >
+      <div className="flex w-full items-start justify-between">
+        <LanguageSelector
+          selected={language}
+          onSelect={setLanguage}
+          disabled={isLocked || userState !== "idle"}
+          orientation={position}
+        />
+        <div className="flex h-6 items-center">
+          {userState === "recording" && isActiveSpeaker && (
+            <div className="flex animate-fade-in items-center space-x-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-rose-500" />
+              <span className="font-mono text-xs font-medium text-rose-400">
+                {recordingTimer}s
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="relative flex w-full flex-col items-center justify-center">
+        <div className="mb-6 flex h-10 items-center justify-center">
+          {isActiveSpeaker && (
+            <span
+              className={`animate-pulse text-xs font-medium uppercase tracking-[0.2em] ${
+                userState === "recording"
+                  ? "text-rose-400"
+                  : userState === "processing"
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+              }`}
+            >
+              {userState === "recording"
+                ? "Listening"
+                : userState === "processing"
+                  ? "Translating"
+                  : "Speaking"}
+            </span>
+          )}
+          {isLocked && !isActiveSpeaker && (
+            <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
+              Partner&apos;s Turn
+            </span>
+          )}
+        </div>
+
+        <div className="group relative flex items-center justify-center">
+          <HoldRing progress={holdProgress} color="#f43f5e" />
+          <button
+            type="button"
+            onMouseDown={startHold}
+            onMouseUp={clearHold}
+            onMouseLeave={clearHold}
+            onTouchStart={startHold}
+            onTouchEnd={clearHold}
+            onClick={() => {
+              if (ignoreNextClickRef.current) {
+                ignoreNextClickRef.current = false;
+                return;
+              }
+
+              if (userState === "recording" && isActiveSpeaker) {
+                onStopInteraction();
+              }
+            }}
+            disabled={
+              isLocked ||
+              userState === "processing" ||
+              userState === "playing"
+            }
+            className={`relative z-10 flex h-32 w-32 items-center justify-center rounded-full transition-all duration-300 ${
+              userState === "recording" && isActiveSpeaker
+                ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
+                : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
+            } ${userState === "processing" ? "cursor-wait bg-zinc-800/80 backdrop-blur-md" : ""} ${
+              userState === "playing"
+                ? "border-emerald-500/30 bg-zinc-800 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+                : ""
+            }`}
+          >
+            {userState === "idle" && (
+              <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
+                <Mic size={36} className="mb-2 text-zinc-200" strokeWidth={1.5} />
+                <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
+                  HOLD
+                </span>
+              </div>
+            )}
+            {userState === "recording" && isActiveSpeaker && (
+              <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
+            )}
+            {userState === "processing" && isActiveSpeaker && (
+              <Loader2
+                size={36}
+                className="animate-spin text-amber-400"
+                strokeWidth={1.5}
+              />
+            )}
+            {userState === "playing" && isActiveSpeaker && (
+              <Volume2
+                size={36}
+                className="animate-pulse text-emerald-400"
+                strokeWidth={1.5}
+              />
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex h-24 w-full items-center justify-center">
+        {userState === "playing" && isActiveSpeaker && result ? (
+          <div className="w-full max-w-sm">
+            <TranscriptCard result={result} />
+          </div>
+        ) : (
+          <AudioWave
+            active={userState === "recording" && isActiveSpeaker}
+            colorClass="bg-rose-400"
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
+  const flow = useTranslationFlow();
+  const activeSpeaker = flow.currentRun?.speaker ?? null;
+
+  const startRecording = (speaker) => {
+    flow.startRecording({
+      speaker,
+      targetLanguage: speaker === "top" ? myLang : theirLang,
+    });
+  };
+
+  return (
+    <div className="flex h-full w-full flex-col landscape:flex-row">
+      <UserSection
+        position="top"
+        userState={flow.status}
+        isActiveSpeaker={activeSpeaker === "top"}
+        isLocked={activeSpeaker === "bottom"}
+        language={theirLang}
+        setLanguage={setTheirLang}
+        result={flow.result}
+        onStartInteraction={() => startRecording("top")}
+        onStopInteraction={flow.stopRecording}
+      />
+
+      <div className="group relative z-10 flex h-2 w-full shrink-0 items-center justify-center landscape:h-full landscape:w-2">
+        <div className="absolute inset-0 bg-zinc-950" />
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent landscape:bg-gradient-to-b" />
+        <div className="flex whitespace-nowrap rounded-full border border-white/10 bg-zinc-900 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-400 shadow-xl backdrop-blur-md landscape:-rotate-90">
+          <span className="flex items-center gap-2.5">
+            <Phone size={14} className="text-amber-500/70" />
+            StringPhone
+          </span>
+        </div>
+      </div>
+
+      <UserSection
+        position="bottom"
+        userState={flow.status}
+        isActiveSpeaker={activeSpeaker === "bottom"}
+        isLocked={activeSpeaker === "top"}
+        language={myLang}
+        setLanguage={setMyLang}
+        result={flow.result}
+        onStartInteraction={() => startRecording("bottom")}
+        onStopInteraction={flow.stopRecording}
+      />
+
+      <ErrorNotice message={flow.error} onDismiss={flow.clearError} />
+    </div>
+  );
+}
+
+function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
+  const flow = useTranslationFlow();
+  const activeAction = flow.currentRun?.action ?? null;
+  const ignoreSpeakClickRef = useRef(false);
+  const ignoreListenClickRef = useRef(false);
+  const recordingTimer = useCountdown({
+    active: flow.status === "recording",
+    onExpire: flow.stopRecording,
+  });
+
+  const speakHold = useHoldToStart({
+    disabled: flow.status !== "idle",
+    onReady: () => {
+      ignoreSpeakClickRef.current = true;
+      flow.startRecording({ action: "speak", targetLanguage: theirLang });
+    },
+  });
+  const listenHold = useHoldToStart({
+    disabled: flow.status !== "idle",
+    onReady: () => {
+      ignoreListenClickRef.current = true;
+      flow.startRecording({ action: "listen", targetLanguage: myLang });
+    },
+  });
+
+  return (
+    <div className="relative flex h-full w-full flex-col items-center justify-between overflow-y-auto p-6 pb-12 pt-28">
+      <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
+        <div className="relative flex min-h-[160px] w-full max-w-lg flex-col items-center justify-center">
+          <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
+            {flow.status === "recording" && (
+              <div className="flex items-center space-x-2 rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1 backdrop-blur-sm">
+                <div
+                  className={`h-2 w-2 animate-pulse rounded-full ${
+                    activeAction === "speak" ? "bg-rose-500" : "bg-indigo-500"
+                  }`}
+                />
+                <span className="font-mono text-xs font-medium text-zinc-300">
+                  {recordingTimer}s
+                </span>
+              </div>
+            )}
+            {flow.status === "processing" && (
+              <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
+                Translating
+              </span>
+            )}
+          </div>
+
+          <div className="mt-6 flex h-full w-full flex-col items-center justify-center">
+            {flow.status === "idle" ? (
+              <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
+                <Phone size={14} className="text-amber-500/50" />
+                StringPhone
+              </div>
+            ) : flow.status === "playing" && flow.result ? (
+              <TranscriptCard result={flow.result} />
+            ) : (
+              <AudioWave
+                active={flow.status === "recording"}
+                colorClass={
+                  activeAction === "speak" ? "bg-rose-400" : "bg-indigo-400"
+                }
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-12 flex w-full max-w-md items-end justify-center space-x-6 md:space-x-12">
+        <ActionColumn
+          action="speak"
+          label="SPEAK"
+          Icon={Mic}
+          language={myLang}
+          setLanguage={setMyLang}
+          status={flow.status}
+          activeAction={activeAction}
+          color="rose"
+          holdProgress={speakHold.holdProgress}
+          onHoldStart={speakHold.startHold}
+          onHoldEnd={speakHold.clearHold}
+          onStop={flow.stopRecording}
+          ignoreNextClickRef={ignoreSpeakClickRef}
+        />
+        <ActionColumn
+          action="listen"
+          label="LISTEN"
+          Icon={Ear}
+          language={theirLang}
+          setLanguage={setTheirLang}
+          status={flow.status}
+          activeAction={activeAction}
+          color="indigo"
+          holdProgress={listenHold.holdProgress}
+          onHoldStart={listenHold.startHold}
+          onHoldEnd={listenHold.clearHold}
+          onStop={flow.stopRecording}
+          ignoreNextClickRef={ignoreListenClickRef}
+        />
+      </div>
+
+      <ErrorNotice message={flow.error} onDismiss={flow.clearError} />
+    </div>
+  );
+}
+
+function ActionColumn({
+  action,
+  label,
+  Icon,
+  language,
+  setLanguage,
+  status,
+  activeAction,
+  color,
+  holdProgress,
+  onHoldStart,
+  onHoldEnd,
+  onStop,
+  ignoreNextClickRef,
+}) {
+  const inactive = status !== "idle" && activeAction !== action;
+  const isActive = activeAction === action;
+  const activeGradient =
+    color === "rose"
+      ? "from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
+      : "from-indigo-600 to-blue-500 shadow-[0_0_50px_rgba(99,102,241,0.4)]";
+  const ringColor = color === "rose" ? "#f43f5e" : "#6366f1";
+
+  return (
+    <div
+      className={`flex flex-col items-center gap-4 transition-opacity duration-500 ${
+        inactive
+          ? "pointer-events-none opacity-30 grayscale-[0.5]"
+          : "opacity-100"
+      }`}
+    >
+      <div className="group relative">
+        <HoldRing progress={holdProgress} color={ringColor} />
+        <button
+          type="button"
+          onMouseDown={onHoldStart}
+          onMouseUp={onHoldEnd}
+          onMouseLeave={onHoldEnd}
+          onTouchStart={onHoldStart}
+          onTouchEnd={onHoldEnd}
+          onClick={() => {
+            if (ignoreNextClickRef.current) {
+              ignoreNextClickRef.current = false;
+              return;
+            }
+
+            if (status === "recording" && isActive) {
+              onStop();
+            }
+          }}
+          disabled={status !== "idle" && !(status === "recording" && isActive)}
+          className={`relative z-10 flex h-28 w-28 items-center justify-center rounded-full transition-all duration-300 md:h-36 md:w-36 ${
+            status === "recording" && isActive
+              ? `scale-105 bg-gradient-to-tr ${activeGradient}`
+              : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
+          }`}
+        >
+          {status === "idle" && (
+            <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
+              <Icon size={32} className="mb-2 text-zinc-200" strokeWidth={1.5} />
+              <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
+                {label}
+              </span>
+            </div>
+          )}
+          {status === "recording" && isActive && (
+            <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
+          )}
+          {status === "processing" && isActive && (
+            <Loader2
+              size={36}
+              className="animate-spin text-white"
+              strokeWidth={1.5}
+            />
+          )}
+          {status === "playing" && isActive && (
+            <Volume2
+              size={36}
+              className="animate-pulse text-white"
+              strokeWidth={1.5}
+            />
+          )}
+        </button>
+      </div>
+      <LanguageSelector
+        selected={language}
+        onSelect={setLanguage}
+        orientation="up"
+        disabled={status !== "idle"}
+      />
+    </div>
+  );
+}
+
+export default function StringPhoneApp() {
+  const [appMode, setAppMode] = useState("single");
+  const [myLang, setMyLang] = useState(LANGUAGES[0]);
+  const [theirLang, setTheirLang] = useState(LANGUAGES[1]);
+
+  return (
+    <main className="relative flex h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100">
+      <div className="absolute left-1/2 top-6 z-50 flex -translate-x-1/2 space-x-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
+        <button
+          type="button"
+          onClick={() => setAppMode("single")}
+          className={`relative z-10 flex items-center justify-center rounded-full px-8 py-2.5 transition-all duration-300 ${
+            appMode === "single"
+              ? "text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+          title="Single Mode"
+        >
+          <User size={18} strokeWidth={2.5} />
+          {appMode === "single" && (
+            <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setAppMode("conversation")}
+          className={`relative z-10 flex items-center justify-center rounded-full px-8 py-2.5 transition-all duration-300 ${
+            appMode === "conversation"
+              ? "text-white"
+              : "text-zinc-500 hover:text-zinc-300"
+          }`}
+          title="Split Mode"
+        >
+          <Users size={18} strokeWidth={2.5} />
+          {appMode === "conversation" && (
+            <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
+          )}
+        </button>
+      </div>
+
+      {appMode === "conversation" ? (
+        <ConversationScreen
+          myLang={myLang}
+          setMyLang={setMyLang}
+          theirLang={theirLang}
+          setTheirLang={setTheirLang}
+        />
+      ) : (
+        <SingleModeScreen
+          myLang={myLang}
+          setMyLang={setMyLang}
+          theirLang={theirLang}
+          setTheirLang={setTheirLang}
+        />
+      )}
+    </main>
+  );
+}
