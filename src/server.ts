@@ -1,10 +1,7 @@
 import express from "express";
 import "dotenv/config";
 import multer from "multer";
-import { generateSpeech } from "./services/generateSpeech.js";
-import { prepareVoiceReference } from "./services/prepareVoiceReference.js";
-import { transcribeAudio } from "./services/transcribeAudio.js";
-import { translateText } from "./services/translateText.js";
+import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -15,42 +12,6 @@ const allowedOrigins = new Set(
     .map((origin) => origin.trim())
     .filter(Boolean),
 );
-const SUPPORTED_TTS_LANGUAGES: Record<string, string> = {
-  en: "English",
-  english: "English",
-  fr: "French",
-  french: "French",
-  es: "Spanish",
-  spanish: "Spanish",
-  pt: "Portuguese",
-  portuguese: "Portuguese",
-  it: "Italian",
-  italian: "Italian",
-  nl: "Dutch",
-  dutch: "Dutch",
-  de: "German",
-  german: "German",
-  hi: "Hindi",
-  hindi: "Hindi",
-  ar: "Arabic",
-  arabic: "Arabic",
-  fa: "Persian",
-  farsi: "Persian",
-  persian: "Persian",
-};
-const CANONICAL_TTS_LANGUAGES = [
-  "English",
-  "French",
-  "Spanish",
-  "Portuguese",
-  "Italian",
-  "Dutch",
-  "German",
-  "Hindi",
-  "Arabic",
-  "Persian",
-] as const;
-
 app.use((req, res, next) => {
   const requestOrigin = req.header("Origin");
 
@@ -80,15 +41,6 @@ app.post(
     { name: "voiceSample", maxCount: 1 },
   ]),
   async (req, res) => {
-    const targetLanguage = req.body?.targetLanguage;
-    const responseMode = req.body?.responseMode;
-    const wantsJson =
-      typeof responseMode === "string" &&
-      responseMode.trim().toLowerCase() === "json";
-    const normalizedTargetLanguage =
-      typeof targetLanguage === "string"
-        ? SUPPORTED_TTS_LANGUAGES[targetLanguage.trim().toLowerCase()]
-        : undefined;
     const uploadedFiles = req.files as
       | {
           sourceAudio?: Express.Multer.File[];
@@ -98,55 +50,38 @@ app.post(
     const sourceAudioFile = uploadedFiles?.sourceAudio?.[0];
     const voiceSampleFile = uploadedFiles?.voiceSample?.[0];
 
-    if (typeof targetLanguage !== "string" || !targetLanguage.trim()) {
-      return res.status(400).json({ error: "targetLanguage is required" });
-    }
-
-    if (!normalizedTargetLanguage) {
-      return res.status(400).json({
-        error: "targetLanguage is not supported",
-        supportedLanguages: CANONICAL_TTS_LANGUAGES,
-      });
-    }
-
-    if (!sourceAudioFile) {
-      return res.status(400).json({ error: "sourceAudio file is required" });
-    }
-
-    if (!voiceSampleFile) {
-      return res.status(400).json({ error: "voiceSample file is required" });
-    }
-
     try {
-      const transcript = await transcribeAudio({
-        audioBuffer: sourceAudioFile.buffer,
-        filename: sourceAudioFile.originalname,
+      const result = await runSpeechTranslation({
+        responseMode: req.body?.responseMode,
+        targetLanguage: req.body?.targetLanguage,
+        sourceAudioFile: sourceAudioFile
+          ? {
+              buffer: sourceAudioFile.buffer,
+              filename: sourceAudioFile.originalname,
+              mimeType: sourceAudioFile.mimetype,
+            }
+          : undefined,
+        voiceSampleFile: voiceSampleFile
+          ? {
+              buffer: voiceSampleFile.buffer,
+              filename: voiceSampleFile.originalname,
+              mimeType: voiceSampleFile.mimetype,
+            }
+          : undefined,
       });
 
-      const translation = await translateText({
-        text: transcript,
-        targetLanguage: normalizedTargetLanguage,
-      });
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
 
-      const voiceReferenceBuffer = await prepareVoiceReference({
-        audioBuffer: voiceSampleFile.buffer,
-        originalFilename: voiceSampleFile.originalname,
-        mimeType: voiceSampleFile.mimetype,
-      });
-
-      const audioBuffer = await generateSpeech({
-        text: translation,
-        voiceSampleBuffer: voiceReferenceBuffer,
-      });
-
-      if (wantsJson) {
+      if (result.wantsJson) {
         return res.status(200).json({
-          transcript,
-          translation,
-          targetLanguage: normalizedTargetLanguage,
+          transcript: result.transcript,
+          translation: result.translation,
+          targetLanguage: result.targetLanguage,
           audio: {
             mimeType: "audio/mpeg",
-            base64: audioBuffer.toString("base64"),
+            base64: result.audioBuffer.toString("base64"),
           },
         });
       }
@@ -156,7 +91,7 @@ app.post(
         "Content-Disposition",
         'inline; filename="translated-speech.mp3"',
       );
-      return res.status(200).send(audioBuffer);
+      return res.status(200).send(result.audioBuffer);
     } catch (error) {
       console.error("Speech pipeline failed", error);
       return res.status(502).json({ error: "Speech pipeline failed" });

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { unlink, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import ffmpegPath from "ffmpeg-static";
 
 export type PrepareVoiceReferenceInput = {
   audioBuffer: Buffer;
@@ -26,7 +27,12 @@ function isSupportedReferenceFormat(input: PrepareVoiceReferenceInput) {
 
 function runFfmpeg(inputPath: string, outputPath: string) {
   return new Promise<void>((resolve, reject) => {
-    const ffmpeg = spawn("ffmpeg", [
+    if (!ffmpegPath) {
+      reject(new Error("ffmpeg binary is not available."));
+      return;
+    }
+
+    const ffmpeg = spawn(ffmpegPath, [
       "-y",
       "-i",
       inputPath,
