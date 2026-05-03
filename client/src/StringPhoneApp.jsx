@@ -381,7 +381,10 @@ function useTranslationFlow() {
 function LanguageSelector({ selected, onSelect, disabled, orientation }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  let positionClasses = "top-full mt-3";
+  let positionClasses = "top-full mt-3 left-0";
+  if (orientation === "up") {
+    positionClasses = "bottom-full mb-3 left-1/2 -translate-x-1/2 origin-bottom";
+  }
 
   useEffect(() => {
     if (disabled) setIsOpen(false);
@@ -404,7 +407,7 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
 
       {isOpen && (
         <div
-          className={`absolute left-0 z-50 w-44 max-h-[35vh] sm:max-h-[50vh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl transition-all duration-200 animate-zoom-in [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${positionClasses}`}
+          className={`absolute z-50 w-44 max-h-[35vh] sm:max-h-[50vh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl transition-all duration-200 animate-zoom-in [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${positionClasses}`}
         >
           <div className="p-1.5">
             {LANGUAGES.map((lang) => (
