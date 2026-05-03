@@ -449,6 +449,7 @@ function ErrorNotice({ message, onDismiss }) {
       type="button"
       onClick={onDismiss}
       className="absolute bottom-5 left-1/2 z-[60] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-full border border-rose-500/25 bg-rose-950/80 px-4 py-2 text-xs font-medium text-rose-100 shadow-2xl backdrop-blur-md"
+      style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1.25rem)" }}
     >
       {message}
     </button>
@@ -677,7 +678,13 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   });
 
   return (
-    <div className="relative flex h-full w-full flex-col items-center justify-between overflow-y-auto p-6 pb-12 pt-28">
+    <div
+      className="relative flex h-full w-full flex-col items-center justify-between overflow-y-auto px-6 py-6"
+      style={{
+        paddingTop: "calc(env(safe-area-inset-top, 0px) + 7rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 3rem)",
+      }}
+    >
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
         <div className="relative flex min-h-[160px] w-full max-w-lg flex-col items-center justify-center">
           <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
@@ -847,8 +854,14 @@ export default function StringPhoneApp() {
   const [theirLang, setTheirLang] = useState(LANGUAGES[1]);
 
   return (
-    <main className="relative flex h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100">
-      <div className="absolute left-1/2 top-6 z-50 flex -translate-x-1/2 space-x-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
+    <main
+      className="relative flex min-h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
+      style={{ minHeight: "100svh", height: "100dvh" }}
+    >
+      <div
+        className="absolute left-1/2 z-50 flex -translate-x-1/2 space-x-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl"
+        style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
+      >
         <button
           type="button"
           onClick={() => setAppMode("single")}
