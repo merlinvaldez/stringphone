@@ -488,11 +488,12 @@ function ErrorNotice({ message, onDismiss }) {
   );
 }
 
-function TranscriptCard({ result, onClick, isActive = false }) {
+const TranscriptCard = React.forwardRef(({ result, onClick, isActive = false }, ref) => {
   const Component = onClick ? "button" : "div";
 
   return (
     <Component
+      ref={ref}
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={`w-full snap-center animate-slide-up rounded-2xl sm:rounded-[2rem] border px-4 py-3 sm:px-7 sm:py-5 text-center shadow-lg transition-all duration-300 ${
@@ -516,7 +517,7 @@ function TranscriptCard({ result, onClick, isActive = false }) {
       </p>
     </Component>
   );
-}
+});
 
 function TranscriptCarousel({
   history,
@@ -524,30 +525,52 @@ function TranscriptCarousel({
   onReplay,
   className = "",
 }) {
+  const lastCardRef = useRef(null);
+
   const scrollRef = useRef(null);
 
   useEffect(() => {
     const container = scrollRef.current;
-    if (!container) return;
+    const card = lastCardRef.current;
+    if (!container || !card) return;
 
-    container.scrollTop = container.scrollHeight;
+    // setTimeout bypasses mobile rendering layout quirks before measuring
+    setTimeout(() => {
+      const containerHeight = container.clientHeight;
+      const cardHeight = card.offsetHeight;
+      const cardTop = card.offsetTop;
+
+      // Manually calculate target scroll to perfectly center the card
+      const targetScroll = cardTop - (containerHeight / 2) + (cardHeight / 2);
+
+      container.scrollTo({
+        top: Math.max(0, targetScroll),
+        behavior: "smooth",
+      });
+    }, 50);
   }, [history.length]);
 
   return (
     <div className={`relative w-full overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] ${className}`}>
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto px-2 py-4 sm:py-8 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="relative h-full overflow-y-auto px-2 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div className="flex min-h-full flex-col justify-end gap-3 sm:gap-4">
-          {history.map((item) => (
-            <TranscriptCard
-              key={item.id}
-              result={item}
-              onClick={() => onReplay(item)}
-              isActive={item.id === activeResultId}
-            />
-          ))}
+        <div className="flex flex-col gap-3 sm:gap-4">
+          <div className="h-[40vh] shrink-0" />
+          {history.map((item, index) => {
+            const isLast = index === history.length - 1;
+            return (
+              <TranscriptCard
+                key={item.id}
+                ref={isLast ? lastCardRef : null}
+                result={item}
+                onClick={() => onReplay(item)}
+                isActive={item.id === activeResultId}
+              />
+            );
+          })}
+          <div className="h-[40vh] shrink-0" />
         </div>
       </div>
     </div>
@@ -577,7 +600,7 @@ function UserSection({
 
   return (
     <section
-      className={`relative flex flex-1 flex-col items-center justify-between pt-6 pb-2 px-2 sm:p-8 sm:pt-12 transition-all duration-700 ease-in-out ${
+      className={`relative flex min-h-0 flex-1 flex-col items-center justify-between pt-6 pb-2 px-2 sm:p-8 sm:pt-12 transition-all duration-700 ease-in-out ${
         isTop ? "rotate-180 landscape:rotate-0" : ""
       } ${
         isLocked
@@ -693,7 +716,7 @@ function UserSection({
         </div>
       </div>
 
-      <div className="flex min-h-[5rem] sm:min-h-[8rem] w-full flex-1 items-center justify-center">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
         {userState === "recording" || userState === "processing" ? (
           <AudioWave
             active={userState === "recording" && isActiveSpeaker}
@@ -719,10 +742,7 @@ function UserSection({
 function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   const flow = useTranslationFlow();
   const activeSpeaker = flow.currentRun?.speaker ?? null;
-  const topHistory = flow.history.filter((item) => item.run?.speaker === "top");
-  const bottomHistory = flow.history.filter(
-    (item) => item.run?.speaker === "bottom",
-  );
+  const history = flow.history;
 
   const startRecording = (speaker) => {
     flow.startRecording({
@@ -747,7 +767,7 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
         language={theirLang}
         setLanguage={setTheirLang}
         result={flow.result}
-        history={topHistory}
+        history={history}
         activeResultId={flow.result?.id ?? null}
         onReplay={flow.replayHistoryItem}
         onStartInteraction={() => startRecording("top")}
@@ -773,7 +793,7 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
         language={myLang}
         setLanguage={setMyLang}
         result={flow.result}
-        history={bottomHistory}
+        history={history}
         activeResultId={flow.result?.id ?? null}
         onReplay={flow.replayHistoryItem}
         onStartInteraction={() => startRecording("bottom")}
