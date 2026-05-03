@@ -382,12 +382,6 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
   const [isOpen, setIsOpen] = useState(false);
 
   let positionClasses = "top-full mt-3";
-  if (orientation === "up") {
-    positionClasses = "bottom-full mb-3";
-  } else if (orientation === "top") {
-    positionClasses =
-      "bottom-full mb-3 landscape:top-full landscape:bottom-auto landscape:mt-3 landscape:mb-0";
-  }
 
   useEffect(() => {
     if (disabled) setIsOpen(false);
@@ -410,7 +404,7 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
 
       {isOpen && (
         <div
-          className={`absolute left-1/2 z-50 w-44 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl transition-all duration-200 animate-zoom-in landscape:left-0 landscape:translate-x-0 ${positionClasses}`}
+          className={`absolute left-0 z-50 w-44 max-h-[35vh] sm:max-h-[50vh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl transition-all duration-200 animate-zoom-in [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${positionClasses}`}
         >
           <div className="p-1.5">
             {LANGUAGES.map((lang) => (
