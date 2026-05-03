@@ -186,10 +186,42 @@ function useTranslationFlow() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const currentRunRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const audioSourceRef = useRef(null);
   const audioUrlRef = useRef(null);
   const playerRef = useRef(null);
 
+  const ensureAudioContext = async () => {
+    const AudioContextClass =
+      window.AudioContext ?? window.webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return null;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass();
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+
+    return audioContextRef.current;
+  };
+
   const resetAudio = () => {
+    if (audioSourceRef.current) {
+      audioSourceRef.current.onended = null;
+      try {
+        audioSourceRef.current.stop();
+      } catch {
+        // Ignore stop errors when the source has already finished.
+      }
+      audioSourceRef.current.disconnect();
+      audioSourceRef.current = null;
+    }
+
     if (playerRef.current) {
       playerRef.current.pause();
       playerRef.current = null;
@@ -199,6 +231,41 @@ function useTranslationFlow() {
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
     }
+  };
+
+  const playTranslatedAudio = async (audioBlob) => {
+    const audioContext = audioContextRef.current;
+
+    if (audioContext && audioContext.state !== "closed") {
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const source = audioContext.createBufferSource();
+
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.onended = () => {
+        if (audioSourceRef.current === source) {
+          audioSourceRef.current = null;
+        }
+        reset();
+      };
+
+      audioSourceRef.current = source;
+      source.start(0);
+      return;
+    }
+
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const player = new Audio(audioUrl);
+
+    audioUrlRef.current = audioUrl;
+    playerRef.current = player;
+    player.onended = reset;
+    await player.play();
   };
 
   const reset = () => {
@@ -217,6 +284,7 @@ function useTranslationFlow() {
       setResult(null);
       setError("");
       currentRunRef.current = run;
+      await ensureAudioContext();
       await recorder.start();
       setStatus("recording");
     } catch (recordingError) {
@@ -239,12 +307,8 @@ function useTranslationFlow() {
         targetLanguage: run.targetLanguage,
       });
       const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const player = new Audio(audioUrl);
 
       resetAudio();
-      audioUrlRef.current = audioUrl;
-      playerRef.current = player;
 
       setResult({
         transcript: data.transcript,
@@ -253,8 +317,7 @@ function useTranslationFlow() {
       });
       setStatus("playing");
 
-      player.onended = reset;
-      await player.play();
+      await playTranslatedAudio(audioBlob);
     } catch (translationError) {
       recorder.cancel();
       setError(translationError.message);
@@ -263,7 +326,16 @@ function useTranslationFlow() {
     }
   };
 
-  useEffect(() => resetAudio, []);
+  useEffect(
+    () => () => {
+      resetAudio();
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+    },
+    [],
+  );
 
   return {
     status,
