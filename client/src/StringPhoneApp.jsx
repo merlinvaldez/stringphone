@@ -400,10 +400,10 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
       <button
         type="button"
         onClick={() => setIsOpen((value) => !value)}
-        className="flex w-full min-w-[120px] items-center justify-center space-x-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10"
+        className="flex w-full min-w-[100px] sm:min-w-[120px] items-center justify-center space-x-1.5 sm:space-x-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 sm:px-4 sm:py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10"
       >
-        <Globe size={14} className="text-zinc-400" strokeWidth={1.5} />
-        <span className="text-xs font-medium tracking-wide">
+        <Globe size={14} className="text-zinc-400 sm:w-[14px] sm:h-[14px] w-3 h-3" strokeWidth={1.5} />
+        <span className="text-[10px] sm:text-xs font-medium tracking-wide">
           {selected.flag} {selected.name}
         </span>
       </button>
@@ -495,23 +495,23 @@ function TranscriptCard({ result, onClick, isActive = false }) {
     <Component
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`w-full snap-center animate-slide-up rounded-[2rem] border px-7 py-5 text-center shadow-lg transition-all duration-300 ${
+      className={`w-full snap-center animate-slide-up rounded-2xl sm:rounded-[2rem] border px-4 py-3 sm:px-7 sm:py-5 text-center shadow-lg transition-all duration-300 ${
         isActive
           ? "scale-100 border-emerald-500/30 bg-zinc-800 opacity-100 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
           : "scale-[0.97] border-white/5 bg-zinc-800/60 opacity-80"
       } ${onClick ? "cursor-pointer hover:border-white/10 hover:bg-zinc-700 hover:opacity-100" : ""}`}
     >
-      <div className="mb-2 flex items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500">
+      <div className="mb-1 sm:mb-2 flex items-center justify-center gap-1.5 sm:gap-2 text-[8px] sm:text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500">
         <Phone
-          size={12}
-          className={isActive ? "text-emerald-300" : "text-amber-500/50"}
+          size={10}
+          className={`sm:w-3 sm:h-3 ${isActive ? "text-emerald-300" : "text-amber-500/50"}`}
         />
         <span>{result.targetLanguage}</span>
       </div>
-      <p className="mb-2 text-xl font-medium leading-snug tracking-tight text-white md:text-2xl">
+      <p className="mb-1 sm:mb-2 text-base font-medium leading-snug tracking-tight text-white md:text-2xl">
         &ldquo;{result.translation}&rdquo;
       </p>
-      <p className="text-sm text-zinc-500 md:text-base">
+      <p className="text-xs text-zinc-400 md:text-base">
         &ldquo;{result.transcript}&rdquo;
       </p>
     </Component>
@@ -537,9 +537,9 @@ function TranscriptCarousel({
     <div className={`relative w-full overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] ${className}`}>
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto px-2 py-8 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="h-full overflow-y-auto px-2 py-4 sm:py-8 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div className="flex min-h-full flex-col justify-end gap-4">
+        <div className="flex min-h-full flex-col justify-end gap-3 sm:gap-4">
           {history.map((item) => (
             <TranscriptCard
               key={item.id}
@@ -577,7 +577,7 @@ function UserSection({
 
   return (
     <section
-      className={`relative flex flex-1 flex-col items-center justify-between p-4 sm:p-8 transition-all duration-700 ease-in-out ${
+      className={`relative flex flex-1 flex-col items-center justify-between pt-6 pb-2 px-2 sm:p-8 sm:pt-12 transition-all duration-700 ease-in-out ${
         isTop ? "rotate-180 landscape:rotate-0" : ""
       } ${
         isLocked
@@ -609,10 +609,10 @@ function UserSection({
       </div>
 
       <div className="relative flex w-full flex-col items-center justify-center">
-        <div className="mb-6 flex h-10 items-center justify-center">
+        <div className="mb-1 sm:mb-6 flex h-6 sm:h-10 items-center justify-center">
           {isActiveSpeaker && (
             <span
-              className={`animate-pulse text-xs font-medium uppercase tracking-[0.2em] ${
+              className={`animate-pulse text-[10px] sm:text-xs font-medium uppercase tracking-[0.2em] ${
                 userState === "recording"
                   ? "text-rose-400"
                   : userState === "processing"
@@ -650,7 +650,7 @@ function UserSection({
             disabled={
               isLocked || userState === "processing" || userState === "playing"
             }
-            className={`relative z-10 flex h-32 w-32 items-center justify-center rounded-full transition-all duration-300 ${
+            className={`relative z-10 flex h-16 w-16 sm:h-32 sm:w-32 items-center justify-center rounded-full transition-all duration-300 ${
               userState === "recording" && isActiveSpeaker
                 ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
                 : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
@@ -663,11 +663,11 @@ function UserSection({
             {userState === "idle" && (
               <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
                 <Mic
-                  size={36}
-                  className="mb-2 text-zinc-200"
+                  size={20}
+                  className="mb-0.5 text-zinc-200 sm:mb-2 sm:h-9 sm:w-9"
                   strokeWidth={1.5}
                 />
-                <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
+                <span className="text-[8px] sm:text-[10px] font-semibold tracking-widest text-zinc-400">
                   TAP
                 </span>
               </div>
@@ -677,15 +677,15 @@ function UserSection({
             )}
             {userState === "processing" && isActiveSpeaker && (
               <Loader2
-                size={36}
-                className="animate-spin text-amber-400"
+                size={20}
+                className="animate-spin text-amber-400 sm:h-9 sm:w-9"
                 strokeWidth={1.5}
               />
             )}
             {userState === "playing" && isActiveSpeaker && (
               <Volume2
-                size={36}
-                className="animate-pulse text-emerald-400"
+                size={20}
+                className="animate-pulse text-emerald-400 sm:h-9 sm:w-9"
                 strokeWidth={1.5}
               />
             )}
@@ -693,7 +693,7 @@ function UserSection({
         </div>
       </div>
 
-      <div className="flex min-h-[8rem] w-full flex-1 items-center justify-center">
+      <div className="flex min-h-[5rem] sm:min-h-[8rem] w-full flex-1 items-center justify-center">
         {userState === "recording" || userState === "processing" ? (
           <AudioWave
             active={userState === "recording" && isActiveSpeaker}
@@ -735,8 +735,8 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
     <div
       className="flex h-full w-full flex-col overflow-hidden landscape:flex-row"
       style={{
-        paddingTop: "calc(env(safe-area-inset-top, 16px) + 5rem)",
-        paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 2rem)",
+        paddingTop: "calc(env(safe-area-inset-top, 16px) + 3.5rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 0.5rem)",
       }}
     >
       <UserSection
@@ -757,9 +757,9 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
       <div className="group relative z-10 flex h-2 w-full shrink-0 items-center justify-center landscape:h-full landscape:w-2">
         <div className="absolute inset-0 bg-zinc-950" />
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent landscape:bg-gradient-to-b" />
-        <div className="flex whitespace-nowrap rounded-full border border-white/10 bg-zinc-900 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-400 shadow-xl backdrop-blur-md landscape:-rotate-90">
-          <span className="flex items-center gap-2.5">
-            <Phone size={14} className="text-amber-500/70" />
+        <div className="flex whitespace-nowrap rounded-full border border-white/10 bg-zinc-900 px-3 py-1 sm:px-5 sm:py-2 text-[10px] sm:text-xs uppercase tracking-[0.3em] text-zinc-400 shadow-xl backdrop-blur-md landscape:-rotate-90">
+          <span className="flex items-center gap-1.5 sm:gap-2.5">
+            <Phone size={12} className="text-amber-500/70 sm:w-[14px] sm:h-[14px]" />
             StringPhone
           </span>
         </div>
@@ -796,10 +796,10 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
 
   return (
     <div
-      className="relative flex h-full w-full flex-col items-center justify-between overflow-y-auto px-6 py-6"
+      className="relative flex h-full w-full flex-col items-center justify-between overflow-y-auto px-4 py-4 sm:px-6 sm:py-6"
       style={{
-        paddingTop: "calc(env(safe-area-inset-top, 0px) + 7rem)",
-        paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 3rem)",
+        paddingTop: "calc(env(safe-area-inset-top, 16px) + 4.5rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 1.5rem)",
       }}
     >
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
@@ -842,14 +842,14 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
                 history={flow.history}
                 activeResultId={flow.result?.id ?? null}
                 onReplay={flow.replayHistoryItem}
-                className="h-full min-h-[18rem] max-h-[28rem]"
+                className="h-full min-h-[12rem] sm:min-h-[18rem] max-h-[28rem]"
               />
             )}
           </div>
         </div>
       </div>
 
-      <div className="mt-12 flex w-full max-w-md items-end justify-center space-x-6 md:space-x-12">
+      <div className="mt-6 sm:mt-12 flex w-full max-w-md items-end justify-center space-x-6 md:space-x-12">
         <ActionColumn
           action="speak"
           label="SPEAK"
@@ -927,7 +927,7 @@ function ActionColumn({
             }
           }}
           disabled={status !== "idle" && !(status === "recording" && isActive)}
-          className={`relative z-10 flex h-28 w-28 items-center justify-center rounded-full transition-all duration-300 md:h-36 md:w-36 ${
+          className={`relative z-10 flex h-20 w-20 sm:h-28 sm:w-28 items-center justify-center rounded-full transition-all duration-300 md:h-36 md:w-36 ${
             status === "recording" && isActive
               ? `scale-105 bg-gradient-to-tr ${activeGradient}`
               : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
@@ -936,8 +936,8 @@ function ActionColumn({
           {status === "idle" && (
             <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
               <Icon
-                size={32}
-                className="mb-2 text-zinc-200"
+                size={28}
+                className="mb-1 text-zinc-200 sm:mb-2 sm:h-8 sm:w-8 md:h-9 md:w-9"
                 strokeWidth={1.5}
               />
               <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
