@@ -184,6 +184,7 @@ function useTranslationFlow() {
   const recorder = useRecorder();
   const [status, setStatus] = useState("idle");
   const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
   const [error, setError] = useState("");
   const currentRunRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -192,8 +193,7 @@ function useTranslationFlow() {
   const playerRef = useRef(null);
 
   const ensureAudioContext = async () => {
-    const AudioContextClass =
-      window.AudioContext ?? window.webkitAudioContext;
+    const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
 
     if (!AudioContextClass) {
       return null;
@@ -271,7 +271,6 @@ function useTranslationFlow() {
   const reset = () => {
     resetAudio();
     setStatus("idle");
-    setResult(null);
     setError("");
     currentRunRef.current = null;
   };
@@ -281,7 +280,6 @@ function useTranslationFlow() {
 
     try {
       resetAudio();
-      setResult(null);
       setError("");
       currentRunRef.current = run;
       await ensureAudioContext();
@@ -307,14 +305,22 @@ function useTranslationFlow() {
         targetLanguage: run.targetLanguage,
       });
       const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
-
-      resetAudio();
-
-      setResult({
+      const historyEntry = {
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         transcript: data.transcript,
         translation: data.translation,
         targetLanguage: data.targetLanguage,
-      });
+        audioBlob,
+        run,
+      };
+
+      resetAudio();
+
+      setHistory((previous) => [...previous, historyEntry]);
+      setResult(historyEntry);
       setStatus("playing");
 
       await playTranslatedAudio(audioBlob);
@@ -340,10 +346,34 @@ function useTranslationFlow() {
   return {
     status,
     result,
+    history,
     error,
     currentRun: currentRunRef.current,
     startRecording,
     stopRecording,
+    replayHistoryItem: async (item) => {
+      if (
+        !item?.audioBlob ||
+        status === "recording" ||
+        status === "processing"
+      ) {
+        return;
+      }
+
+      try {
+        resetAudio();
+        currentRunRef.current = item.run ?? null;
+        setResult(item);
+        setError("");
+        await ensureAudioContext();
+        setStatus("playing");
+        await playTranslatedAudio(item.audioBlob);
+      } catch (playbackError) {
+        setError(playbackError.message);
+        setStatus("idle");
+        currentRunRef.current = null;
+      }
+    },
     clearError: () => setError(""),
   };
 }
@@ -364,7 +394,9 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
   }, [disabled]);
 
   return (
-    <div className={`relative ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
+    <div
+      className={`relative ${disabled ? "opacity-40 pointer-events-none" : ""}`}
+    >
       <button
         type="button"
         onClick={() => setIsOpen((value) => !value)}
@@ -456,15 +488,68 @@ function ErrorNotice({ message, onDismiss }) {
   );
 }
 
-function TranscriptCard({ result }) {
+function TranscriptCard({ result, onClick, isActive = false }) {
+  const Component = onClick ? "button" : "div";
+
   return (
-    <div className="w-full animate-slide-up rounded-[2rem] border border-white/[0.05] bg-white/[0.03] px-7 py-5 text-center shadow-2xl backdrop-blur-md">
+    <Component
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={`w-full snap-center animate-slide-up rounded-[2rem] border px-7 py-5 text-center shadow-lg transition-all duration-300 ${
+        isActive
+          ? "scale-100 border-emerald-500/30 bg-zinc-800 opacity-100 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+          : "scale-[0.97] border-white/5 bg-zinc-800/60 opacity-80"
+      } ${onClick ? "cursor-pointer hover:border-white/10 hover:bg-zinc-700 hover:opacity-100" : ""}`}
+    >
+      <div className="mb-2 flex items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500">
+        <Phone
+          size={12}
+          className={isActive ? "text-emerald-300" : "text-amber-500/50"}
+        />
+        <span>{result.targetLanguage}</span>
+      </div>
       <p className="mb-2 text-xl font-medium leading-snug tracking-tight text-white md:text-2xl">
         &ldquo;{result.translation}&rdquo;
       </p>
       <p className="text-sm text-zinc-500 md:text-base">
         &ldquo;{result.transcript}&rdquo;
       </p>
+    </Component>
+  );
+}
+
+function TranscriptCarousel({
+  history,
+  activeResultId,
+  onReplay,
+  className = "",
+}) {
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    container.scrollTop = container.scrollHeight;
+  }, [history.length]);
+
+  return (
+    <div className={`relative w-full overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] ${className}`}>
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto px-2 py-8 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex min-h-full flex-col justify-end gap-4">
+          {history.map((item) => (
+            <TranscriptCard
+              key={item.id}
+              result={item}
+              onClick={() => onReplay(item)}
+              isActive={item.id === activeResultId}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -477,6 +562,9 @@ function UserSection({
   language,
   setLanguage,
   result,
+  history,
+  activeResultId,
+  onReplay,
   onStartInteraction,
   onStopInteraction,
 }) {
@@ -485,13 +573,16 @@ function UserSection({
     onExpire: onStopInteraction,
   });
   const isTop = position === "top";
+  const hasHistory = history.length > 0;
 
   return (
     <section
-      className={`relative flex flex-1 flex-col items-center justify-between p-8 pt-20 transition-all duration-700 ease-in-out ${
+      className={`relative flex flex-1 flex-col items-center justify-between p-4 sm:p-8 transition-all duration-700 ease-in-out ${
         isTop ? "rotate-180 landscape:rotate-0" : ""
       } ${
-        isLocked ? "pointer-events-none opacity-40 grayscale-[0.5]" : "opacity-100"
+        isLocked
+          ? "pointer-events-none opacity-40 grayscale-[0.5]"
+          : "opacity-100"
       } ${
         isActiveSpeaker && userState === "playing"
           ? "bg-zinc-900/50"
@@ -557,9 +648,7 @@ function UserSection({
               }
             }}
             disabled={
-              isLocked ||
-              userState === "processing" ||
-              userState === "playing"
+              isLocked || userState === "processing" || userState === "playing"
             }
             className={`relative z-10 flex h-32 w-32 items-center justify-center rounded-full transition-all duration-300 ${
               userState === "recording" && isActiveSpeaker
@@ -573,7 +662,11 @@ function UserSection({
           >
             {userState === "idle" && (
               <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
-                <Mic size={36} className="mb-2 text-zinc-200" strokeWidth={1.5} />
+                <Mic
+                  size={36}
+                  className="mb-2 text-zinc-200"
+                  strokeWidth={1.5}
+                />
                 <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
                   TAP
                 </span>
@@ -600,16 +693,23 @@ function UserSection({
         </div>
       </div>
 
-      <div className="flex h-24 w-full items-center justify-center">
-        {userState === "playing" && isActiveSpeaker && result ? (
-          <div className="w-full max-w-sm">
-            <TranscriptCard result={result} />
-          </div>
-        ) : (
+      <div className="flex min-h-[8rem] w-full flex-1 items-center justify-center">
+        {userState === "recording" || userState === "processing" ? (
           <AudioWave
             active={userState === "recording" && isActiveSpeaker}
             colorClass="bg-rose-400"
           />
+        ) : hasHistory ? (
+          <div className="h-full max-h-[20rem] w-full max-w-sm">
+            <TranscriptCarousel
+              history={history}
+              activeResultId={activeResultId}
+              onReplay={onReplay}
+              className="h-full"
+            />
+          </div>
+        ) : (
+          <div className="h-10" />
         )}
       </div>
     </section>
@@ -619,6 +719,10 @@ function UserSection({
 function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   const flow = useTranslationFlow();
   const activeSpeaker = flow.currentRun?.speaker ?? null;
+  const topHistory = flow.history.filter((item) => item.run?.speaker === "top");
+  const bottomHistory = flow.history.filter(
+    (item) => item.run?.speaker === "bottom",
+  );
 
   const startRecording = (speaker) => {
     flow.startRecording({
@@ -628,7 +732,13 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   };
 
   return (
-    <div className="flex h-full w-full flex-col landscape:flex-row">
+    <div
+      className="flex h-full w-full flex-col overflow-hidden landscape:flex-row"
+      style={{
+        paddingTop: "calc(env(safe-area-inset-top, 16px) + 5rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 2rem)",
+      }}
+    >
       <UserSection
         position="top"
         userState={flow.status}
@@ -637,6 +747,9 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
         language={theirLang}
         setLanguage={setTheirLang}
         result={flow.result}
+        history={topHistory}
+        activeResultId={flow.result?.id ?? null}
+        onReplay={flow.replayHistoryItem}
         onStartInteraction={() => startRecording("top")}
         onStopInteraction={flow.stopRecording}
       />
@@ -660,6 +773,9 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
         language={myLang}
         setLanguage={setMyLang}
         result={flow.result}
+        history={bottomHistory}
+        activeResultId={flow.result?.id ?? null}
+        onReplay={flow.replayHistoryItem}
         onStartInteraction={() => startRecording("bottom")}
         onStopInteraction={flow.stopRecording}
       />
@@ -672,6 +788,7 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
 function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
   const flow = useTranslationFlow();
   const activeAction = flow.currentRun?.action ?? null;
+  const hasHistory = flow.history.length > 0;
   const recordingTimer = useCountdown({
     active: flow.status === "recording",
     onExpire: flow.stopRecording,
@@ -686,7 +803,7 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
       }}
     >
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
-        <div className="relative flex min-h-[160px] w-full max-w-lg flex-col items-center justify-center">
+        <div className="relative flex min-h-[160px] w-full max-w-lg flex-1 flex-col items-center justify-center">
           <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
             {flow.status === "recording" && (
               <div className="flex items-center space-x-2 rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1 backdrop-blur-sm">
@@ -708,19 +825,24 @@ function SingleModeScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
           </div>
 
           <div className="mt-6 flex h-full w-full flex-col items-center justify-center">
-            {flow.status === "idle" ? (
-              <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
-                <Phone size={14} className="text-amber-500/50" />
-                StringPhone
-              </div>
-            ) : flow.status === "playing" && flow.result ? (
-              <TranscriptCard result={flow.result} />
-            ) : (
+            {flow.status === "recording" || flow.status === "processing" ? (
               <AudioWave
                 active={flow.status === "recording"}
                 colorClass={
                   activeAction === "speak" ? "bg-rose-400" : "bg-indigo-400"
                 }
+              />
+            ) : !hasHistory ? (
+              <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
+                <Phone size={14} className="text-amber-500/50" />
+                StringPhone
+              </div>
+            ) : (
+              <TranscriptCarousel
+                history={flow.history}
+                activeResultId={flow.result?.id ?? null}
+                onReplay={flow.replayHistoryItem}
+                className="h-full min-h-[18rem] max-h-[28rem]"
               />
             )}
           </div>
@@ -813,7 +935,11 @@ function ActionColumn({
         >
           {status === "idle" && (
             <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
-              <Icon size={32} className="mb-2 text-zinc-200" strokeWidth={1.5} />
+              <Icon
+                size={32}
+                className="mb-2 text-zinc-200"
+                strokeWidth={1.5}
+              />
               <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
                 {label}
               </span>
