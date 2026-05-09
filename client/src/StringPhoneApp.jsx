@@ -14,16 +14,16 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
 const LANGUAGES = [
-  { code: "en", name: "English", flag: "🇺🇸" },
-  { code: "es", name: "Español", flag: "🇪🇸" },
-  { code: "fr", name: "Français", flag: "🇫🇷" },
-  { code: "de", name: "Deutsch", flag: "🇩🇪" },
-  { code: "pt", name: "Português", flag: "🇵🇹" },
-  { code: "it", name: "Italiano", flag: "🇮🇹" },
-  { code: "nl", name: "Dutch (Nederlands)", flag: "🇳🇱" },
-  { code: "hi", name: "हिन्दी", flag: "🇮🇳" },
-  { code: "ar", name: "العربية", flag: "🇸🇦" },
-  { code: "fa", name: "Farsi", flag: "IR" },
+  { code: "en", name: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
+  { code: "es", name: "Espa\u00F1ol", flag: "\uD83C\uDDEA\uD83C\uDDF8" },
+  { code: "fr", name: "Fran\u00E7ais", flag: "\uD83C\uDDEB\uD83C\uDDF7" },
+  { code: "de", name: "Deutsch", flag: "\uD83C\uDDE9\uD83C\uDDEA" },
+  { code: "pt", name: "Portugu\u00EAs", flag: "\uD83C\uDDF5\uD83C\uDDF9" },
+  { code: "it", name: "Italiano", flag: "\uD83C\uDDEE\uD83C\uDDF9" },
+  { code: "nl", name: "Nederlands", flag: "\uD83C\uDDF3\uD83C\uDDF1" },
+  { code: "hi", name: "\u0939\u093F\u0928\u094D\u0926\u0940", flag: "\uD83C\uDDEE\uD83C\uDDF3" },
+  { code: "ar", name: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629", flag: "\uD83C\uDDF8\uD83C\uDDE6" },
+  { code: "fa", name: "\u0641\u0627\u0631\u0633\u06CC", flag: "\uD83C\uDDEE\uD83C\uDDF7" },
 ];
 
 const MAX_RECORDING_TIME = 30;
