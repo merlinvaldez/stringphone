@@ -11,6 +11,12 @@ export type PrepareVoiceReferenceInput = {
   mimeType?: string;
 };
 
+export type PreparedVoiceReference = {
+  buffer: Buffer;
+  filename: string;
+  mimeType: string;
+};
+
 function isSupportedReferenceFormat(input: PrepareVoiceReferenceInput) {
   const lowerName = input.originalFilename.toLowerCase();
   const lowerMimeType = input.mimeType?.toLowerCase() ?? "";
@@ -71,19 +77,45 @@ function runFfmpeg(inputPath: string, outputPath: string) {
   });
 }
 
-export async function prepareVoiceReference(input: PrepareVoiceReferenceInput) {
+function getReferenceMimeType(input: PrepareVoiceReferenceInput) {
+  const lowerName = input.originalFilename.toLowerCase();
+  const lowerMimeType = input.mimeType?.toLowerCase();
+
+  if (
+    lowerMimeType === "audio/mpeg" ||
+    lowerMimeType === "audio/mp3" ||
+    lowerName.endsWith(".mp3")
+  ) {
+    return "audio/mpeg";
+  }
+
+  return "audio/wav";
+}
+
+export async function prepareVoiceReference(
+  input: PrepareVoiceReferenceInput,
+): Promise<PreparedVoiceReference> {
   if (isSupportedReferenceFormat(input)) {
-    return input.audioBuffer;
+    return {
+      buffer: input.audioBuffer,
+      filename: input.originalFilename,
+      mimeType: getReferenceMimeType(input),
+    };
   }
 
   const tempId = randomUUID();
   const inputPath = path.join(os.tmpdir(), `stringphone-ref-${tempId}.webm`);
   const outputPath = path.join(os.tmpdir(), `stringphone-ref-${tempId}.wav`);
+  const outputFilename = `${path.parse(input.originalFilename).name || "stringphone-ref"}.wav`;
 
   try {
     await writeFile(inputPath, input.audioBuffer);
     await runFfmpeg(inputPath, outputPath);
-    return await readFile(outputPath);
+    return {
+      buffer: await readFile(outputPath),
+      filename: outputFilename,
+      mimeType: "audio/wav",
+    };
   } finally {
     await Promise.allSettled([
       unlink(inputPath),

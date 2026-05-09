@@ -1,4 +1,4 @@
-import { CANONICAL_TTS_LANGUAGES, normalizeTargetLanguage } from "./languages.js";
+import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import { generateSpeech } from "../services/generateSpeech.js";
 import { prepareVoiceReference } from "../services/prepareVoiceReference.js";
 import { transcribeAudio } from "../services/transcribeAudio.js";
@@ -40,7 +40,7 @@ export async function runSpeechTranslation(
   const wantsJson =
     typeof input.responseMode === "string" &&
     input.responseMode.trim().toLowerCase() === "json";
-  const normalizedTargetLanguage = normalizeTargetLanguage(input.targetLanguage);
+  const supportedTargetLanguage = getSupportedTtsLanguage(input.targetLanguage);
 
   if (typeof input.targetLanguage !== "string" || !input.targetLanguage.trim()) {
     return {
@@ -50,7 +50,7 @@ export async function runSpeechTranslation(
     };
   }
 
-  if (!normalizedTargetLanguage) {
+  if (!supportedTargetLanguage) {
     return {
       ok: false,
       status: 400,
@@ -84,7 +84,7 @@ export async function runSpeechTranslation(
 
   const translation = await translateText({
     text: transcript,
-    targetLanguage: normalizedTargetLanguage,
+    targetLanguage: supportedTargetLanguage.name,
   });
 
   const voiceReferenceBuffer = await prepareVoiceReference({
@@ -95,7 +95,8 @@ export async function runSpeechTranslation(
 
   const audioBuffer = await generateSpeech({
     text: translation,
-    voiceSampleBuffer: voiceReferenceBuffer,
+    targetLanguage: supportedTargetLanguage,
+    voiceSample: voiceReferenceBuffer,
   });
 
   return {
@@ -103,7 +104,7 @@ export async function runSpeechTranslation(
     wantsJson,
     transcript,
     translation,
-    targetLanguage: normalizedTargetLanguage,
+    targetLanguage: supportedTargetLanguage.name,
     audioBuffer,
   };
 }
