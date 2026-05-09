@@ -20,10 +20,10 @@ const LANGUAGES = [
   { code: "de", name: "Deutsch", flag: "🇩🇪" },
   { code: "pt", name: "Português", flag: "🇵🇹" },
   { code: "it", name: "Italiano", flag: "🇮🇹" },
-  { code: "nl", name: "Nederlands", flag: "🇳🇱" },
+  { code: "nl", name: "Dutch (Nederlands)", flag: "🇳🇱" },
   { code: "hi", name: "हिन्दी", flag: "🇮🇳" },
   { code: "ar", name: "العربية", flag: "🇸🇦" },
-  { code: "fa", name: "Farsi", flag: "FA" },
+  { code: "fa", name: "Farsi", flag: "IR" },
 ];
 
 const MAX_RECORDING_TIME = 30;
@@ -383,7 +383,8 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
 
   let positionClasses = "top-full mt-3 left-0";
   if (orientation === "up") {
-    positionClasses = "bottom-full mb-3 left-1/2 -translate-x-1/2 origin-bottom";
+    positionClasses =
+      "bottom-full mb-3 left-1/2 -translate-x-1/2 origin-bottom";
   }
 
   useEffect(() => {
@@ -399,7 +400,11 @@ function LanguageSelector({ selected, onSelect, disabled, orientation }) {
         onClick={() => setIsOpen((value) => !value)}
         className="flex w-full min-w-[100px] sm:min-w-[120px] items-center justify-center space-x-1.5 sm:space-x-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 sm:px-4 sm:py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10"
       >
-        <Globe size={14} className="text-zinc-400 sm:w-[14px] sm:h-[14px] w-3 h-3" strokeWidth={1.5} />
+        <Globe
+          size={14}
+          className="text-zinc-400 sm:w-[14px] sm:h-[14px] w-3 h-3"
+          strokeWidth={1.5}
+        />
         <span className="text-[10px] sm:text-xs font-medium tracking-wide">
           {selected.flag} {selected.name}
         </span>
@@ -485,36 +490,38 @@ function ErrorNotice({ message, onDismiss }) {
   );
 }
 
-const TranscriptCard = React.forwardRef(({ result, onClick, isActive = false }, ref) => {
-  const Component = onClick ? "button" : "div";
+const TranscriptCard = React.forwardRef(
+  ({ result, onClick, isActive = false }, ref) => {
+    const Component = onClick ? "button" : "div";
 
-  return (
-    <Component
-      ref={ref}
-      type={onClick ? "button" : undefined}
-      onClick={onClick}
-      className={`w-full snap-center animate-slide-up rounded-2xl sm:rounded-[2rem] border px-4 py-3 sm:px-7 sm:py-5 text-center shadow-lg transition-all duration-300 ${
-        isActive
-          ? "scale-100 border-emerald-500/30 bg-zinc-800 opacity-100 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
-          : "scale-[0.97] border-white/5 bg-zinc-800/60 opacity-80"
-      } ${onClick ? "cursor-pointer hover:border-white/10 hover:bg-zinc-700 hover:opacity-100" : ""}`}
-    >
-      <div className="mb-1 sm:mb-2 flex items-center justify-center gap-1.5 sm:gap-2 text-[8px] sm:text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500">
-        <Phone
-          size={10}
-          className={`sm:w-3 sm:h-3 ${isActive ? "text-emerald-300" : "text-amber-500/50"}`}
-        />
-        <span>{result.targetLanguage}</span>
-      </div>
-      <p className="mb-1 sm:mb-2 text-base font-medium leading-snug tracking-tight text-white md:text-2xl">
-        &ldquo;{result.translation}&rdquo;
-      </p>
-      <p className="text-xs text-zinc-400 md:text-base">
-        &ldquo;{result.transcript}&rdquo;
-      </p>
-    </Component>
-  );
-});
+    return (
+      <Component
+        ref={ref}
+        type={onClick ? "button" : undefined}
+        onClick={onClick}
+        className={`w-full snap-center animate-slide-up rounded-2xl sm:rounded-[2rem] border px-4 py-3 sm:px-7 sm:py-5 text-center shadow-lg transition-all duration-300 ${
+          isActive
+            ? "scale-100 border-emerald-500/30 bg-zinc-800 opacity-100 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+            : "scale-[0.97] border-white/5 bg-zinc-800/60 opacity-80"
+        } ${onClick ? "cursor-pointer hover:border-white/10 hover:bg-zinc-700 hover:opacity-100" : ""}`}
+      >
+        <div className="mb-1 sm:mb-2 flex items-center justify-center gap-1.5 sm:gap-2 text-[8px] sm:text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500">
+          <Phone
+            size={10}
+            className={`sm:w-3 sm:h-3 ${isActive ? "text-emerald-300" : "text-amber-500/50"}`}
+          />
+          <span>{result.targetLanguage}</span>
+        </div>
+        <p className="mb-1 sm:mb-2 text-base font-medium leading-snug tracking-tight text-white md:text-2xl">
+          &ldquo;{result.translation}&rdquo;
+        </p>
+        <p className="text-xs text-zinc-400 md:text-base">
+          &ldquo;{result.transcript}&rdquo;
+        </p>
+      </Component>
+    );
+  },
+);
 
 function TranscriptCarousel({
   history,
@@ -538,7 +545,7 @@ function TranscriptCarousel({
       const cardTop = card.offsetTop;
 
       // Manually calculate target scroll to perfectly center the card
-      const targetScroll = cardTop - (containerHeight / 2) + (cardHeight / 2);
+      const targetScroll = cardTop - containerHeight / 2 + cardHeight / 2;
 
       container.scrollTo({
         top: Math.max(0, targetScroll),
@@ -548,7 +555,9 @@ function TranscriptCarousel({
   }, [history.length]);
 
   return (
-    <div className={`relative w-full overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] ${className}`}>
+    <div
+      className={`relative w-full overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] ${className}`}
+    >
       <div
         ref={scrollRef}
         className="relative h-full overflow-y-auto px-2 snap-y snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -776,7 +785,10 @@ function ConversationScreen({ myLang, setMyLang, theirLang, setTheirLang }) {
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent landscape:bg-gradient-to-b" />
         <div className="flex whitespace-nowrap rounded-full border border-white/10 bg-zinc-900 px-3 py-1 sm:px-5 sm:py-2 text-[10px] sm:text-xs uppercase tracking-[0.3em] text-zinc-400 shadow-xl backdrop-blur-md landscape:-rotate-90">
           <span className="flex items-center gap-1.5 sm:gap-2.5">
-            <Phone size={12} className="text-amber-500/70 sm:w-[14px] sm:h-[14px]" />
+            <Phone
+              size={12}
+              className="text-amber-500/70 sm:w-[14px] sm:h-[14px]"
+            />
             StringPhone
           </span>
         </div>
