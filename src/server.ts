@@ -1,7 +1,9 @@
 import express from "express";
 import "dotenv/config";
 import multer from "multer";
+import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
+import { runVoiceChatMessage } from "./lib/runVoiceChatMessage.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -30,9 +32,87 @@ app.use((req, res, next) => {
   return next();
 });
 
+app.use(express.json());
+
 app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
 });
+
+app.post("/chat/messages/text", async (req, res) => {
+  try {
+    const result = await runTextChatMessage({
+      text: req.body?.text,
+      sourceLanguage: req.body?.sourceLanguage,
+      targetLanguage: req.body?.targetLanguage,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(result.body);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Text chat translation failed", error);
+    return res.status(502).json({ error: "Text chat translation failed" });
+  }
+});
+
+app.post(
+  "/chat/messages/voice",
+  upload.fields([
+    { name: "sourceAudio", maxCount: 1 },
+    { name: "voiceSample", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const uploadedFiles = req.files as
+      | {
+          sourceAudio?: Express.Multer.File[];
+          voiceSample?: Express.Multer.File[];
+        }
+      | undefined;
+    const sourceAudioFile = uploadedFiles?.sourceAudio?.[0];
+    const voiceSampleFile = uploadedFiles?.voiceSample?.[0];
+
+    try {
+      const result = await runVoiceChatMessage({
+        sourceLanguage: req.body?.sourceLanguage,
+        targetLanguage: req.body?.targetLanguage,
+        sourceAudioFile: sourceAudioFile
+          ? {
+              buffer: sourceAudioFile.buffer,
+              filename: sourceAudioFile.originalname,
+              mimeType: sourceAudioFile.mimetype,
+            }
+          : undefined,
+        voiceSampleFile: voiceSampleFile
+          ? {
+              buffer: voiceSampleFile.buffer,
+              filename: voiceSampleFile.originalname,
+              mimeType: voiceSampleFile.mimetype,
+            }
+          : undefined,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json({
+        transcript: result.transcript,
+        translatedText: result.translatedText,
+        sourceLanguage: result.sourceLanguage,
+        targetLanguage: result.targetLanguage,
+        audio: {
+          mimeType: "audio/mpeg",
+          base64: result.audioBuffer.toString("base64"),
+        },
+      });
+    } catch (error) {
+      console.error("Voice chat translation failed", error);
+      return res.status(502).json({ error: "Voice chat translation failed" });
+    }
+  },
+);
 
 app.post(
   "/speech/translate",
