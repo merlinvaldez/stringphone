@@ -1,5 +1,7 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
+const SHARED_ROOM_TRANSPORT = import.meta.env.VITE_SHARED_ROOM_TRANSPORT ?? "auto";
+export const SHARED_ROOM_POLL_INTERVAL_MS = 2000;
 
 async function parseApiError(response, fallbackMessage) {
   try {
@@ -155,4 +157,21 @@ export function buildSharedRoomEventsUrl({ roomId, participantSessionToken }) {
   });
 
   return `${API_BASE_URL}/chat/rooms/${roomId}/events?${searchParams.toString()}`;
+}
+
+export function shouldPollSharedRoomUpdates() {
+  if (SHARED_ROOM_TRANSPORT === "poll") {
+    return true;
+  }
+
+  if (SHARED_ROOM_TRANSPORT === "sse") {
+    return false;
+  }
+
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const host = window.location.hostname.toLowerCase();
+  return host.endsWith(".vercel.app");
 }

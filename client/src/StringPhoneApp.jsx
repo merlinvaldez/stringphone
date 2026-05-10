@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Copy,
   Ear,
-  Globe,
   Loader2,
   MessageSquare,
   Mic,
@@ -30,8 +29,10 @@ import {
   fetchSharedRoomSnapshot,
   joinSharedRoom,
   retrySharedRoomMessage,
+  SHARED_ROOM_POLL_INTERVAL_MS,
   sendSharedRoomTextMessage,
   sendSharedRoomVoiceMessage,
+  shouldPollSharedRoomUpdates,
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 
@@ -702,10 +703,17 @@ function LanguageSelector({
   disabled,
   orientation = "down",
   searchPlaceholder,
+  menuAlign = "left",
+  containerClassName = "",
+  buttonClassName = "",
+  isOpen: controlledIsOpen,
+  onOpenChange,
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const uiStrings = useUiStrings(selected);
+  const isControlled = typeof controlledIsOpen === "boolean";
+  const isOpen = isControlled ? controlledIsOpen : uncontrolledIsOpen;
 
   const filteredLanguages = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -723,13 +731,31 @@ function LanguageSelector({
 
   let positionClasses = "top-full mt-3 left-0";
   if (orientation === "up") {
-    positionClasses =
-      "bottom-full mb-3 left-1/2 -translate-x-1/2 origin-bottom";
+    positionClasses = "bottom-full mb-3 origin-bottom";
   }
+
+  const effectiveMenuAlign =
+    menuAlign === "left" && orientation === "up" ? "center" : menuAlign;
+
+  if (effectiveMenuAlign === "center") {
+    positionClasses = `${positionClasses} left-1/2 -translate-x-1/2`;
+  } else if (effectiveMenuAlign === "right") {
+    positionClasses = `${positionClasses} right-0`;
+  } else {
+    positionClasses = `${positionClasses} left-0`;
+  }
+
+  const setSelectorOpen = (nextOpen) => {
+    if (!isControlled) {
+      setUncontrolledIsOpen(nextOpen);
+    }
+
+    onOpenChange?.(nextOpen);
+  };
 
   useEffect(() => {
     if (disabled) {
-      setIsOpen(false);
+      setSelectorOpen(false);
     }
   }, [disabled]);
 
@@ -739,24 +765,28 @@ function LanguageSelector({
     }
   }, [isOpen]);
 
+  const toggleOpen = () => {
+    setSelectorOpen(!isOpen);
+  };
+
   return (
     <div
-      className={`relative ${disabled ? "pointer-events-none opacity-40" : ""}`}
+      className={`relative ${containerClassName} ${disabled ? "pointer-events-none opacity-40" : ""}`.trim()}
     >
       <button
         type="button"
-        onClick={() => setIsOpen((value) => !value)}
-        className="flex w-full min-w-[112px] items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10"
+        onClick={toggleOpen}
+        className={`flex w-full min-w-[112px] items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10 ${buttonClassName}`.trim()}
       >
-        <Globe size={14} className="text-zinc-400" strokeWidth={1.5} />
-        <span className="text-xs font-medium tracking-wide">
+        <span className="truncate text-xs font-medium tracking-wide">
           {selected.flag} {selected.name}
         </span>
       </button>
 
       {isOpen && (
         <div
-          className={`absolute z-50 w-52 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${positionClasses}`}
+          className={`absolute z-50 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${positionClasses}`}
+          style={{ width: "min(16rem, calc(100vw - 2rem))" }}
         >
           <div className="border-b border-white/5 p-2">
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-zinc-300">
@@ -778,7 +808,7 @@ function LanguageSelector({
                 key={language.code}
                 onClick={() => {
                   onSelect(language);
-                  setIsOpen(false);
+                  setSelectorOpen(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-all ${
                   selected.code === language.code
@@ -1888,22 +1918,32 @@ function ChatHeader({
   onCopySharedRoomInvite,
 }) {
   return (
-    <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-start gap-3 px-1">
-      <div />
+    <div className="mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
+      <div className="hidden sm:block" />
 
-      <div className="flex flex-wrap items-center justify-center gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:justify-center sm:gap-3">
         <LanguageSelector
           selected={myLang}
           onSelect={setMyLang}
           disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
+          menuAlign="left"
+          containerClassName="min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
+          buttonClassName="min-w-0 justify-center px-3 sm:px-4"
         />
-        <ArrowRight size={14} className="text-zinc-500" strokeWidth={1.7} />
+        <ArrowRight
+          size={14}
+          className="shrink-0 text-zinc-500"
+          strokeWidth={1.7}
+        />
         <LanguageSelector
           selected={theirLang}
           onSelect={setTheirLang}
           disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
+          menuAlign="right"
+          containerClassName="min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
+          buttonClassName="min-w-0 justify-center px-3 sm:px-4"
         />
       </div>
 
@@ -2371,9 +2411,13 @@ export default function StringPhoneApp() {
       return;
     }
 
+    if (sharedRoom?.id === sharedRoomSession.roomId && sharedRoomStatus === "active") {
+      return undefined;
+    }
+
     let cancelled = false;
     setSharedRoomStatus((currentStatus) =>
-      currentStatus === "active" ? "connecting" : currentStatus,
+      currentStatus === "idle" ? "connecting" : currentStatus,
     );
 
     fetchSharedRoomSnapshot({
@@ -2408,6 +2452,28 @@ export default function StringPhoneApp() {
   useEffect(() => {
     if (!sharedRoomSession) {
       return undefined;
+    }
+
+    if (shouldPollSharedRoomUpdates()) {
+      const intervalId = window.setInterval(() => {
+        fetchSharedRoomSnapshot({
+          roomId: sharedRoomSession.roomId,
+          participantSessionToken: sharedRoomSession.participantSessionToken,
+        })
+          .then((payload) => {
+            applySharedRoomSnapshotRef.current?.(payload.room, sharedRoomSession);
+          })
+          .catch(() => {
+            setSharedRoomStatus("connecting");
+            setSharedRoomError(
+              "Live room connection dropped. Trying to reconnect...",
+            );
+          });
+      }, SHARED_ROOM_POLL_INTERVAL_MS);
+
+      return () => {
+        window.clearInterval(intervalId);
+      };
     }
 
     const eventSource = new EventSource(
