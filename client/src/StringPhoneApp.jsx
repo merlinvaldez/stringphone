@@ -706,14 +706,18 @@ function LanguageSelector({
   menuAlign = "left",
   containerClassName = "",
   buttonClassName = "",
+  mobileFlagOnly = false,
+  mobileMenuFixedCenter = false,
   isOpen: controlledIsOpen,
   onOpenChange,
 }) {
   const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [mobileMenuTop, setMobileMenuTop] = useState(0);
   const uiStrings = useUiStrings(selected);
   const isControlled = typeof controlledIsOpen === "boolean";
   const isOpen = isControlled ? controlledIsOpen : uncontrolledIsOpen;
+  const buttonRef = useRef(null);
 
   const filteredLanguages = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -745,6 +749,19 @@ function LanguageSelector({
     positionClasses = `${positionClasses} left-0`;
   }
 
+  const desktopPositionClasses =
+    orientation === "up"
+      ? effectiveMenuAlign === "center"
+        ? "sm:bottom-full sm:mb-3 sm:left-1/2 sm:-translate-x-1/2 sm:origin-bottom"
+        : effectiveMenuAlign === "right"
+          ? "sm:bottom-full sm:mb-3 sm:right-0 sm:origin-bottom"
+          : "sm:bottom-full sm:mb-3 sm:left-0 sm:origin-bottom"
+      : effectiveMenuAlign === "center"
+        ? "sm:top-full sm:mt-3 sm:left-1/2 sm:-translate-x-1/2"
+        : effectiveMenuAlign === "right"
+          ? "sm:top-full sm:mt-3 sm:right-0"
+          : "sm:top-full sm:mt-3 sm:left-0";
+
   const setSelectorOpen = (nextOpen) => {
     if (!isControlled) {
       setUncontrolledIsOpen(nextOpen);
@@ -765,29 +782,72 @@ function LanguageSelector({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !mobileMenuFixedCenter) {
+      return undefined;
+    }
+
+    const updateMobileMenuPosition = () => {
+      if (window.innerWidth >= 640 || !buttonRef.current) {
+        return;
+      }
+
+      const buttonRect = buttonRef.current.getBoundingClientRect();
+      setMobileMenuTop(buttonRect.bottom + 12);
+    };
+
+    updateMobileMenuPosition();
+    window.addEventListener("resize", updateMobileMenuPosition);
+
+    return () => {
+      window.removeEventListener("resize", updateMobileMenuPosition);
+    };
+  }, [isOpen, mobileMenuFixedCenter]);
+
   const toggleOpen = () => {
     setSelectorOpen(!isOpen);
   };
+
+  const menuClassName = mobileMenuFixedCenter
+    ? `fixed left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${desktopPositionClasses}`
+    : `absolute z-50 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${positionClasses}`;
+
+  const menuStyle = mobileMenuFixedCenter
+    ? {
+        width: "min(16rem, calc(100vw - 2rem))",
+        top:
+          typeof window !== "undefined" && window.innerWidth < 640
+            ? `${mobileMenuTop}px`
+            : undefined,
+      }
+    : { width: "min(16rem, calc(100vw - 2rem))" };
 
   return (
     <div
       className={`relative ${containerClassName} ${disabled ? "pointer-events-none opacity-40" : ""}`.trim()}
     >
       <button
+        ref={buttonRef}
         type="button"
         onClick={toggleOpen}
         className={`flex w-full min-w-[112px] items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 py-2 text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/10 ${buttonClassName}`.trim()}
       >
-        <span className="truncate text-xs font-medium tracking-wide">
-          {selected.flag} {selected.name}
-        </span>
+        {mobileFlagOnly ? (
+          <>
+            <span className="text-sm sm:hidden">{selected.flag}</span>
+            <span className="hidden truncate text-xs font-medium tracking-wide sm:inline">
+              {selected.flag} {selected.name}
+            </span>
+          </>
+        ) : (
+          <span className="truncate text-xs font-medium tracking-wide">
+            {selected.flag} {selected.name}
+          </span>
+        )}
       </button>
 
       {isOpen && (
-        <div
-          className={`absolute z-50 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${positionClasses}`}
-          style={{ width: "min(16rem, calc(100vw - 2rem))" }}
-        >
+        <div className={menuClassName} style={menuStyle}>
           <div className="border-b border-white/5 p-2">
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-zinc-300">
               <Search size={14} className="text-zinc-500" strokeWidth={1.6} />
@@ -1334,6 +1394,8 @@ function UserSection({
   isLocked,
   language,
   setLanguage,
+  languageMenuOpen,
+  onLanguageMenuOpenChange,
   history,
   activeMessageId,
   onReplay,
@@ -1364,6 +1426,8 @@ function UserSection({
           onSelect={setLanguage}
           disabled={isLocked || userState !== "idle"}
           orientation={position}
+          isOpen={languageMenuOpen}
+          onOpenChange={onLanguageMenuOpenChange}
         />
         <div className="flex h-6 items-center">
           {userState === "recording" && isActiveSpeaker ? (
@@ -1499,6 +1563,7 @@ function ConversationScreen({
   submitVoiceMessage,
   replayVoiceMessage,
 }) {
+  const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useVoiceModeFlow({
     autoplayAudioUrl,
     onSubmit: async ({ recording, run }) =>
@@ -1527,6 +1592,12 @@ function ConversationScreen({
         isLocked={activeSpeaker === "bottom"}
         language={theirLang}
         setLanguage={setTheirLang}
+        languageMenuOpen={openLanguageSelector === "top"}
+        onLanguageMenuOpenChange={(nextOpen) => {
+          setOpenLanguageSelector((currentOpen) =>
+            nextOpen ? "top" : currentOpen === "top" ? null : currentOpen,
+          );
+        }}
         history={voiceHistory}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
@@ -1553,6 +1624,12 @@ function ConversationScreen({
         isLocked={activeSpeaker === "top"}
         language={myLang}
         setLanguage={setMyLang}
+        languageMenuOpen={openLanguageSelector === "bottom"}
+        onLanguageMenuOpenChange={(nextOpen) => {
+          setOpenLanguageSelector((currentOpen) =>
+            nextOpen ? "bottom" : currentOpen === "bottom" ? null : currentOpen,
+          );
+        }}
         history={voiceHistory}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
@@ -1573,6 +1650,8 @@ function ActionColumn({
   Icon,
   language,
   setLanguage,
+  languageMenuOpen,
+  onLanguageMenuOpenChange,
   uiStrings,
   status,
   activeAction,
@@ -1656,6 +1735,8 @@ function ActionColumn({
         orientation="up"
         disabled={status !== "idle"}
         searchPlaceholder={uiStrings.searchLanguages}
+        isOpen={languageMenuOpen}
+        onOpenChange={onLanguageMenuOpenChange}
       />
     </div>
   );
@@ -1671,6 +1752,7 @@ function SingleModeScreen({
   submitVoiceMessage,
   replayVoiceMessage,
 }) {
+  const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useVoiceModeFlow({
     autoplayAudioUrl,
     onSubmit: async ({ recording, run }) =>
@@ -1753,6 +1835,12 @@ function SingleModeScreen({
           Icon={Mic}
           language={myLang}
           setLanguage={setMyLang}
+          languageMenuOpen={openLanguageSelector === "speak"}
+          onLanguageMenuOpenChange={(nextOpen) => {
+            setOpenLanguageSelector((currentOpen) =>
+              nextOpen ? "speak" : currentOpen === "speak" ? null : currentOpen,
+            );
+          }}
           uiStrings={screenUiStrings}
           status={flow.status}
           activeAction={activeAction}
@@ -1765,6 +1853,12 @@ function SingleModeScreen({
           Icon={Ear}
           language={theirLang}
           setLanguage={setTheirLang}
+          languageMenuOpen={openLanguageSelector === "listen"}
+          onLanguageMenuOpenChange={(nextOpen) => {
+            setOpenLanguageSelector((currentOpen) =>
+              nextOpen ? "listen" : currentOpen === "listen" ? null : currentOpen,
+            );
+          }}
           uiStrings={screenUiStrings}
           status={flow.status}
           activeAction={activeAction}
@@ -1813,13 +1907,15 @@ function SharedRoomControls({
   }
 
   if (roomSession) {
-    const participantLabel = `${room?.participantCount ?? 1}/2 joined`;
+    const participantCountLabel = `${room?.participantCount ?? 1}/2`;
+    const participantLabel = `${participantCountLabel} joined`;
     const isGuestParticipant = roomSession.role === "guest";
 
     if (isGuestParticipant) {
       return (
         <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
-          {participantLabel}
+          <span className="sm:hidden">{participantCountLabel}</span>
+          <span className="hidden sm:inline">{participantLabel}</span>
         </div>
       );
     }
@@ -1860,7 +1956,8 @@ function SharedRoomControls({
           </button>
 
           <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
-            {participantLabel}
+            <span className="sm:hidden">{participantCountLabel}</span>
+            <span className="hidden sm:inline">{participantLabel}</span>
           </div>
         </div>
 
@@ -1917,8 +2014,11 @@ function ChatHeader({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
 }) {
+  const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
+  const useCompactMobileLanguageButtons = Boolean(sharedRoomSession);
+
   return (
-    <div className="mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
+    <div className="relative z-20 mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
       <div className="hidden sm:block" />
 
       <div className="flex min-w-0 items-center gap-2 sm:justify-center sm:gap-3">
@@ -1928,8 +2028,23 @@ function ChatHeader({
           disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
           menuAlign="left"
-          containerClassName="min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
-          buttonClassName="min-w-0 justify-center px-3 sm:px-4"
+          containerClassName={
+            useCompactMobileLanguageButtons
+              ? "w-11 flex-none sm:min-w-[148px] sm:flex-none"
+              : "min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
+          }
+          buttonClassName={
+            useCompactMobileLanguageButtons
+              ? "min-w-0 px-0 sm:px-4"
+              : "min-w-0 justify-center px-3 sm:px-4"
+          }
+          mobileFlagOnly={useCompactMobileLanguageButtons}
+          isOpen={openLanguageSelector === "my"}
+          onOpenChange={(nextOpen) => {
+            setOpenLanguageSelector((currentOpen) =>
+              nextOpen ? "my" : currentOpen === "my" ? null : currentOpen,
+            );
+          }}
         />
         <ArrowRight
           size={14}
@@ -1942,8 +2057,24 @@ function ChatHeader({
           disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
           menuAlign="right"
-          containerClassName="min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
-          buttonClassName="min-w-0 justify-center px-3 sm:px-4"
+          mobileMenuFixedCenter
+          containerClassName={
+            useCompactMobileLanguageButtons
+              ? "w-11 flex-none sm:min-w-[148px] sm:flex-none"
+              : "min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
+          }
+          buttonClassName={
+            useCompactMobileLanguageButtons
+              ? "min-w-0 px-0 sm:px-4"
+              : "min-w-0 justify-center px-3 sm:px-4"
+          }
+          mobileFlagOnly={useCompactMobileLanguageButtons}
+          isOpen={openLanguageSelector === "their"}
+          onOpenChange={(nextOpen) => {
+            setOpenLanguageSelector((currentOpen) =>
+              nextOpen ? "their" : currentOpen === "their" ? null : currentOpen,
+            );
+          }}
         />
       </div>
 
@@ -2203,7 +2334,7 @@ function ChatScreen({
 
   return (
     <div
-      className="relative flex h-full w-full flex-col overflow-hidden px-4"
+      className="relative flex h-full w-full flex-col overflow-visible px-4"
       style={{
         paddingTop: "calc(env(safe-area-inset-top, 16px) + 5.5rem)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 0.85rem)",
