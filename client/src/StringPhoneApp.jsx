@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
+  Copy,
   Ear,
   Globe,
   Loader2,
@@ -11,6 +12,7 @@ import {
   Play,
   Search,
   Send,
+  Share2,
   Square,
   User,
   Users,
@@ -22,9 +24,21 @@ import {
   interpolateTemplate,
   useUiStrings,
 } from "./uiStrings.js";
+import {
+  buildSharedRoomEventsUrl,
+  createSharedRoom,
+  fetchSharedRoomSnapshot,
+  joinSharedRoom,
+  retrySharedRoomMessage,
+  sendSharedRoomTextMessage,
+  sendSharedRoomVoiceMessage,
+} from "./sharedRoomApi.js";
+import stringPhoneLogo from "./assets/stringphone-logo.png";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
+const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
+const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 
 const RAW_LANGUAGES = [
   { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
@@ -103,6 +117,71 @@ const MODE_OPTIONS = [
   { id: "conversation", label: "Conversation", Icon: Users },
 ];
 
+function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
+  return (
+    <span
+      role="img"
+      aria-label="StringPhone"
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-white/[0.03] shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/5 backdrop-blur-xl ${className}`.trim()}
+    >
+      <img
+        src={stringPhoneLogo}
+        alt=""
+        className={`object-contain opacity-90 [filter:brightness(0)_invert(1)] ${imageClassName}`.trim()}
+      />
+    </span>
+  );
+}
+
+function StringPhoneBrand({
+  className = "",
+  compact = false,
+  withLabel = false,
+}) {
+  const logoClassName = compact
+    ? "h-10 w-10 rounded-[1rem]"
+    : withLabel
+      ? "h-24 w-24 rounded-[2rem] sm:h-28 sm:w-28"
+      : "h-14 w-14 rounded-[1.35rem]";
+  const imageClassName = compact
+    ? "h-[82%] w-[82%]"
+    : withLabel
+      ? "h-[84%] w-[84%]"
+      : "h-[86%] w-[86%]";
+
+  if (!withLabel) {
+    return (
+      <StringPhoneLogoBadge
+        className={`${logoClassName} ${className}`.trim()}
+        imageClassName={`${imageClassName} scale-[1.15]`.trim()}
+      />
+    );
+  }
+
+  return (
+    <div className={`inline-flex flex-col items-center gap-4 ${className}`.trim()}>
+      <StringPhoneLogoBadge
+        className={logoClassName}
+        imageClassName={`${imageClassName} scale-[1.18]`.trim()}
+      />
+      <span className="text-[1.55rem] font-semibold tracking-[0.18em] text-zinc-100 sm:text-[2rem]">
+        StringPhone
+      </span>
+    </div>
+  );
+}
+
+function FloatingBrand() {
+  return (
+    <div
+      className="absolute left-4 z-50 sm:left-6"
+      style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
+    >
+      <StringPhoneBrand compact />
+    </div>
+  );
+}
+
 function createId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -161,6 +240,199 @@ function buildLanguageSnapshot(language) {
     code: language.code,
     label: language.name,
     flag: language.flag,
+  };
+}
+
+function getInitialJoinToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return (
+    new URL(window.location.href).searchParams.get(SHARED_ROOM_JOIN_QUERY_PARAM) ??
+    ""
+  ).trim();
+}
+
+function buildSharedRoomInviteUrl(inviteToken) {
+  if (typeof window === "undefined") {
+    return inviteToken;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set(SHARED_ROOM_JOIN_QUERY_PARAM, inviteToken);
+  return url.toString();
+}
+
+function syncSharedRoomInviteToken(inviteToken) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if (inviteToken) {
+    url.searchParams.set(SHARED_ROOM_JOIN_QUERY_PARAM, inviteToken);
+  } else {
+    url.searchParams.delete(SHARED_ROOM_JOIN_QUERY_PARAM);
+  }
+
+  window.history.replaceState({}, "", url.toString());
+}
+
+function readStoredSharedRoomSession() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.sessionStorage.getItem(
+      SHARED_ROOM_SESSION_STORAGE_KEY,
+    );
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+
+    if (
+      typeof parsed?.roomId !== "string" ||
+      typeof parsed?.inviteToken !== "string" ||
+      typeof parsed?.inviteUrl !== "string" ||
+      typeof parsed?.participantId !== "string" ||
+      typeof parsed?.participantSessionToken !== "string" ||
+      (parsed?.role !== "host" && parsed?.role !== "guest")
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistSharedRoomSession(session) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!session) {
+    window.sessionStorage.removeItem(SHARED_ROOM_SESSION_STORAGE_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(
+    SHARED_ROOM_SESSION_STORAGE_KEY,
+    JSON.stringify(session),
+  );
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  window.prompt("Copy this join link", text);
+  return false;
+}
+
+function revokeSharedRoomAudioUrls(audioUrlCacheRef) {
+  audioUrlCacheRef.current.forEach(({ url }) => {
+    URL.revokeObjectURL(url);
+  });
+  audioUrlCacheRef.current.clear();
+}
+
+function mapSharedRoomMessages({
+  rawMessages,
+  participantId,
+  audioUrlCacheRef,
+}) {
+  const activeMessageIds = new Set();
+
+  const mappedMessages = rawMessages.map((message) => {
+    activeMessageIds.add(message.id);
+
+    let audioUrl = "";
+    const existingAudio = audioUrlCacheRef.current.get(message.id);
+
+    if (message.translatedAudio?.base64 && message.translatedAudio?.mimeType) {
+      const signature = `${message.translatedAudio.mimeType}:${message.translatedAudio.base64}`;
+
+      if (existingAudio?.signature === signature) {
+        audioUrl = existingAudio.url;
+      } else {
+        if (existingAudio) {
+          URL.revokeObjectURL(existingAudio.url);
+        }
+
+        const nextAudioUrl = URL.createObjectURL(
+          base64ToBlob(
+            message.translatedAudio.base64,
+            message.translatedAudio.mimeType,
+          ),
+        );
+
+        audioUrlCacheRef.current.set(message.id, {
+          signature,
+          url: nextAudioUrl,
+        });
+        audioUrl = nextAudioUrl;
+      }
+    } else if (existingAudio) {
+      URL.revokeObjectURL(existingAudio.url);
+      audioUrlCacheRef.current.delete(message.id);
+    }
+
+    const sourceLanguage = getLanguageOption(message.sourceLanguageCode);
+    const targetLanguage = getLanguageOption(message.targetLanguageCode);
+
+    return {
+      id: message.id,
+      roomId: message.roomId,
+      kind: message.kind,
+      originMode: message.originMode,
+      sender: message.authorParticipantId === participantId ? "self" : "partner",
+      status: message.status,
+      originalText: message.originalText,
+      translatedText: message.translatedText,
+      transcript: message.transcript,
+      audioUrl,
+      errorMessage: message.errorMessage,
+      sourceLanguageCode: message.sourceLanguageCode,
+      sourceLanguageLabel: message.sourceLanguageLabel,
+      sourceLanguageFlag: sourceLanguage.flag,
+      targetLanguageCode: message.targetLanguageCode,
+      targetLanguageLabel: message.targetLanguageLabel,
+      targetLanguageFlag: targetLanguage.flag,
+      createdAt: message.createdAt,
+    };
+  });
+
+  for (const [messageId, cachedAudio] of audioUrlCacheRef.current.entries()) {
+    if (!activeMessageIds.has(messageId)) {
+      URL.revokeObjectURL(cachedAudio.url);
+      audioUrlCacheRef.current.delete(messageId);
+    }
+  }
+
+  return mappedMessages;
+}
+
+function deriveSharedRoomLanguages(roomSnapshot, role) {
+  if (role === "host") {
+    return {
+      myLanguage: getLanguageOption(roomSnapshot.hostLanguage.code),
+      theirLanguage: getLanguageOption(roomSnapshot.guestLanguage.code),
+    };
+  }
+
+  return {
+    myLanguage: getLanguageOption(roomSnapshot.guestLanguage.code),
+    theirLanguage: getLanguageOption(roomSnapshot.hostLanguage.code),
   };
 }
 
@@ -575,32 +847,74 @@ function ErrorNotice({ message, onDismiss }) {
   );
 }
 
-function ModeSwitcher({ appMode, setAppMode }) {
+function GentleNotice({ message, onDismiss, className = "" }) {
+  if (!message) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onDismiss}
+      className={`rounded-full border border-emerald-400/15 bg-zinc-900/85 px-4 py-2 text-xs font-medium text-zinc-200 shadow-xl backdrop-blur-md ${className}`.trim()}
+    >
+      {message}
+    </button>
+  );
+}
+
+function ModeSwitcher({
+  appMode,
+  setAppMode,
+  sharedChatLocked = false,
+  onBlockedModeChange,
+  noticeMessage,
+  onDismissNotice,
+}) {
   return (
     <div
-      className="absolute left-1/2 z-50 flex -translate-x-1/2 gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl"
+      className="absolute left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2"
       style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
     >
-      {MODE_OPTIONS.map(({ id, label, Icon }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setAppMode(id)}
-          aria-label={label}
-          aria-pressed={appMode === id}
-          className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 sm:h-11 sm:w-11 ${
-            appMode === id
-              ? "text-white"
-              : "text-zinc-500 hover:text-zinc-300"
-          }`}
-          title={label}
-        >
-          <Icon size={17} strokeWidth={2.1} />
-          {appMode === id && (
-            <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
-          )}
-        </button>
-      ))}
+      <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
+        {MODE_OPTIONS.map(({ id, label, Icon }) => {
+          const modeBlocked = sharedChatLocked && id !== "chat";
+
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                if (modeBlocked) {
+                  onBlockedModeChange?.();
+                  return;
+                }
+
+                setAppMode(id);
+              }}
+              aria-label={label}
+              aria-pressed={appMode === id}
+              className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 sm:h-11 sm:w-11 ${
+                appMode === id
+                  ? "text-white"
+                  : modeBlocked
+                    ? "text-zinc-600 hover:text-zinc-500"
+                    : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              title={
+                modeBlocked
+                  ? `${label} unavailable while shared chat is active`
+                  : label
+              }
+            >
+              <Icon size={17} strokeWidth={2.1} />
+              {appMode === id && (
+                <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <GentleNotice message={noticeMessage} onDismiss={onDismissNotice} />
     </div>
   );
 }
@@ -640,10 +954,7 @@ function MessageStatusPill({ status, uiStrings = DEFAULT_UI_STRINGS }) {
 function ChatEmptyState() {
   return (
     <div className="flex h-full min-h-[18rem] items-center justify-center">
-      <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
-        <Phone size={14} className="text-amber-500/50" />
-        StringPhone
-      </div>
+      <StringPhoneBrand withLabel className="animate-fade-in" />
     </div>
   );
 }
@@ -1199,15 +1510,10 @@ function ConversationScreen({
       <div className="group relative z-10 flex h-2 w-full shrink-0 items-center justify-center landscape:h-full landscape:w-2">
         <div className="absolute inset-0 bg-zinc-950" />
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent landscape:bg-gradient-to-b" />
-        <div className="flex whitespace-nowrap rounded-full border border-white/10 bg-zinc-900 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-zinc-400 shadow-xl backdrop-blur-md sm:px-5 sm:py-2 sm:text-xs landscape:-rotate-90">
-          <span className="flex items-center gap-1.5 sm:gap-2.5">
-            <Phone
-              size={12}
-              className="text-amber-500/70 sm:h-[14px] sm:w-[14px]"
-            />
-            StringPhone
-          </span>
-        </div>
+        <StringPhoneBrand
+          compact
+          className="relative z-10 whitespace-nowrap landscape:-rotate-90"
+        />
       </div>
 
       <UserSection
@@ -1395,10 +1701,7 @@ function SingleModeScreen({
                 }
               />
             ) : !hasHistory ? (
-              <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
-                <Phone size={14} className="text-amber-500/50" />
-                StringPhone
-              </div>
+              <StringPhoneBrand withLabel className="animate-fade-in" />
             ) : (
               <TranscriptCarousel
                 history={voiceHistory}
@@ -1446,6 +1749,118 @@ function SingleModeScreen({
   );
 }
 
+function SharedRoomControls({
+  roomSession,
+  room,
+  roomStatus,
+  pendingInviteToken,
+  disabled,
+  copyNoticeMessage,
+  onDismissCopyNotice,
+  onToggleRoom,
+  onCopyInviteLink,
+}) {
+  const [controlsExpanded, setControlsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!roomSession) {
+      setControlsExpanded(false);
+      return undefined;
+    }
+
+    setControlsExpanded(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setControlsExpanded(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [roomSession]);
+
+  if (pendingInviteToken && !roomSession) {
+    return null;
+  }
+
+  if (roomSession) {
+    const participantLabel = `${room?.participantCount ?? 1}/2 joined`;
+
+    return (
+      <div className="relative flex items-start">
+        <button
+          type="button"
+          onClick={() => {
+            void onToggleRoom();
+          }}
+          className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-400 text-zinc-950 shadow-lg transition duration-300 hover:bg-emerald-300"
+          title="Untoggle shared chat"
+        >
+          {roomStatus === "connecting" ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Share2 size={14} />
+          )}
+        </button>
+
+        <div
+          className={`flex items-center gap-2 overflow-hidden pl-2 transition-all duration-300 ease-out ${
+            controlsExpanded
+              ? "max-w-xs translate-x-0 opacity-100"
+              : "max-w-0 translate-x-2 opacity-0"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              void onCopyInviteLink();
+            }}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 shadow-lg transition duration-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Copy join link"
+          >
+            <Copy size={14} />
+          </button>
+
+          <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+            {participantLabel}
+          </div>
+        </div>
+
+        <div
+          className={`absolute left-0 top-full mt-2 transition-all duration-200 ${
+            copyNoticeMessage
+              ? "translate-y-0 opacity-100"
+              : "-translate-y-1 opacity-0"
+          }`}
+        >
+          <GentleNotice
+            message={copyNoticeMessage}
+            onDismiss={onDismissCopyNotice}
+            className="border-emerald-500/20 bg-zinc-900/92 text-emerald-100 shadow-[0_14px_32px_rgba(0,0,0,0.38)]"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void onToggleRoom();
+      }}
+      disabled={disabled || roomStatus === "creating"}
+      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-100 shadow-lg transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+      title="Create and copy join link"
+    >
+      {roomStatus === "creating" ? (
+        <Loader2 size={14} className="animate-spin text-amber-300" />
+      ) : (
+        <Share2 size={14} />
+      )}
+    </button>
+  );
+}
+
 function ChatHeader({
   myLang,
   setMyLang,
@@ -1453,22 +1868,125 @@ function ChatHeader({
   setTheirLang,
   disabled,
   uiStrings,
+  sharedRoomSession,
+  sharedRoom,
+  sharedRoomStatus,
+  sharedRoomInviteUrl,
+  pendingInviteToken,
+  sharedRoomCopyNotice,
+  onDismissSharedRoomCopyNotice,
+  onToggleSharedRoom,
+  onCopySharedRoomInvite,
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-center gap-3 px-1">
+    <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-start gap-3 px-1">
+      <div />
+
+      <div className="flex flex-wrap items-center justify-center gap-3">
         <LanguageSelector
           selected={myLang}
           onSelect={setMyLang}
-          disabled={disabled}
+          disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
         />
         <ArrowRight size={14} className="text-zinc-500" strokeWidth={1.7} />
         <LanguageSelector
           selected={theirLang}
           onSelect={setTheirLang}
-          disabled={disabled}
+          disabled={disabled || Boolean(sharedRoomSession)}
           searchPlaceholder={uiStrings.searchLanguages}
         />
+      </div>
+
+      <div className="justify-self-end">
+        <SharedRoomControls
+          roomSession={sharedRoomSession}
+          room={sharedRoom}
+          roomStatus={sharedRoomStatus}
+          pendingInviteToken={pendingInviteToken}
+          disabled={disabled}
+          copyNoticeMessage={sharedRoomCopyNotice}
+          onDismissCopyNotice={onDismissSharedRoomCopyNotice}
+          onToggleRoom={onToggleSharedRoom}
+          onCopyInviteLink={onCopySharedRoomInvite}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SharedRoomJoinCard({
+  displayName,
+  setDisplayName,
+  joinToken,
+  joining,
+  onJoin,
+  onDismiss,
+}) {
+  return (
+    <div className="rounded-[2rem] border border-white/10 bg-zinc-900/85 p-5 shadow-2xl backdrop-blur-xl">
+      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
+        <MessageSquare size={12} className="text-emerald-300" />
+        Live room invite
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-white">
+            Join this shared chat
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-zinc-400">
+            This beta shares Chat mode between two devices on the current Express
+            server.
+          </p>
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+            Your name
+          </span>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="Guest"
+            disabled={joining}
+            className="h-12 w-full rounded-[1.25rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </label>
+
+        <div className="flex items-center justify-between gap-3 rounded-[1.25rem] border border-white/10 bg-black/20 px-4 py-3 text-xs text-zinc-400">
+          <span className="uppercase tracking-[0.2em]">Invite token</span>
+          <span className="font-mono text-zinc-300">
+            {joinToken.slice(0, 10)}...
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            void onJoin();
+          }}
+          disabled={joining}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-500 text-sm font-semibold text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.25)] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {joining ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Users size={16} />
+          )}
+          Join live room
+        </button>
+
+        <button
+          type="button"
+          onClick={onDismiss}
+          disabled={joining}
+          className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Continue locally
+        </button>
+      </div>
     </div>
   );
 }
@@ -1483,9 +2001,11 @@ function ChatComposer({
   onSendText,
   onStartRecording,
   onStopRecording,
+  disabled = false,
+  disabledPlaceholder = "",
 }) {
   const hasText = text.trim().length > 0;
-  const canSendText = hasText && recordingStatus === "idle";
+  const canSendText = hasText && recordingStatus === "idle" && !disabled;
   const actionKind =
     recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
 
@@ -1549,20 +2069,24 @@ function ChatComposer({
               }
             }
           }}
-          disabled={recordingStatus !== "idle"}
-          placeholder={interpolateTemplate(uiStrings.messageIn, {
-            language: sourceLanguage.name,
-          })}
-          className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-        />
+           disabled={recordingStatus !== "idle" || disabled}
+           placeholder={
+             disabled
+               ? disabledPlaceholder
+               : interpolateTemplate(uiStrings.messageIn, {
+                   language: sourceLanguage.name,
+                 })
+           }
+           className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+         />
 
-        <button
-          type="button"
-          onClick={actionProps.onClick}
-          disabled={actionProps.disabled}
-          className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
-          title={actionProps.title}
-        >
+         <button
+           type="button"
+           onClick={actionProps.onClick}
+           disabled={actionProps.disabled || disabled}
+           className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
+           title={actionProps.title}
+         >
           {actionProps.icon}
         </button>
       </div>
@@ -1576,10 +2100,24 @@ function ChatScreen({
   theirLang,
   setTheirLang,
   messages,
-  sendTextMessage,
-  sendVoiceMessage,
+  submitTextMessage,
+  submitVoiceMessage,
   retryMessage,
   onAudioPlay,
+  sharedRoomSession,
+  sharedRoom,
+  sharedRoomStatus,
+  sharedRoomInviteUrl,
+  pendingInviteToken,
+  sharedRoomCopyNotice,
+  sharedRoomJoinName,
+  setSharedRoomJoinName,
+  sharedRoomError,
+  onDismissSharedRoomCopyNotice,
+  onToggleSharedRoom,
+  onJoinSharedRoom,
+  onCopySharedRoomInvite,
+  onDismissSharedRoomInvite,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -1598,6 +2136,17 @@ function ChatScreen({
   const sourceLanguage = myLang;
   const targetLanguage = theirLang;
   const screenUiStrings = useUiStrings(sourceLanguage);
+  const showJoinCard = Boolean(pendingInviteToken) && !sharedRoomSession;
+  const liveRoomBusy =
+    sharedRoomStatus === "creating" ||
+    sharedRoomStatus === "joining" ||
+    sharedRoomStatus === "connecting";
+  const composerDisabled = showJoinCard || (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
+  const composerDisabledPlaceholder = showJoinCard
+    ? "Join the live room to start messaging"
+    : sharedRoomStatus === "connecting"
+      ? "Live room is reconnecting..."
+      : "";
 
   useEffect(
     () => {
@@ -1621,12 +2170,12 @@ function ChatScreen({
     setComposerText("");
     setError("");
 
-    await sendTextMessage({
-      originMode: "chat",
-      sender: "self",
+    await submitTextMessage({
       sourceLanguage,
       targetLanguage,
       text,
+      originMode: "chat",
+      sender: "self",
     });
   };
 
@@ -1657,12 +2206,12 @@ function ChatScreen({
     try {
       const recording = await recorder.stop();
 
-      await sendVoiceMessage({
-        originMode: "chat",
-        sender: "self",
+      await submitVoiceMessage({
         sourceLanguage,
         targetLanguage,
         recording,
+        originMode: "chat",
+        sender: "self",
       });
 
       if (mountedRef.current) {
@@ -1693,9 +2242,37 @@ function ChatScreen({
         setMyLang={setMyLang}
         theirLang={theirLang}
         setTheirLang={setTheirLang}
-        disabled={status !== "idle"}
+        disabled={status !== "idle" || liveRoomBusy}
         uiStrings={screenUiStrings}
+        sharedRoomSession={sharedRoomSession}
+        sharedRoom={sharedRoom}
+        sharedRoomStatus={sharedRoomStatus}
+        sharedRoomInviteUrl={sharedRoomInviteUrl}
+        pendingInviteToken={pendingInviteToken}
+        sharedRoomCopyNotice={sharedRoomCopyNotice}
+        onDismissSharedRoomCopyNotice={onDismissSharedRoomCopyNotice}
+        onToggleSharedRoom={onToggleSharedRoom}
+        onCopySharedRoomInvite={onCopySharedRoomInvite}
       />
+
+      {showJoinCard ? (
+        <div className="mb-4">
+          <SharedRoomJoinCard
+            displayName={sharedRoomJoinName}
+            setDisplayName={setSharedRoomJoinName}
+            joinToken={pendingInviteToken}
+            joining={sharedRoomStatus === "joining"}
+            onJoin={onJoinSharedRoom}
+            onDismiss={onDismissSharedRoomInvite}
+          />
+        </div>
+      ) : null}
+
+      {sharedRoomError ? (
+        <div className="mb-3 rounded-[1.4rem] border border-rose-500/20 bg-rose-950/40 px-4 py-3 text-sm text-rose-100">
+          {sharedRoomError}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1">
         <ChatThread
@@ -1716,6 +2293,8 @@ function ChatScreen({
         onSendText={handleSendText}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
+        disabled={composerDisabled}
+        disabledPlaceholder={composerDisabledPlaceholder}
       />
 
       <ErrorNotice message={error} onDismiss={() => setError("")} />
@@ -1731,10 +2310,101 @@ export default function StringPhoneApp() {
   const messagesRef = useRef(messages);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
+  const initialJoinTokenRef = useRef(getInitialJoinToken());
+  const sharedRoomAudioUrlCacheRef = useRef(new Map());
+  const [pendingInviteToken, setPendingInviteToken] = useState(
+    initialJoinTokenRef.current,
+  );
+  const [sharedRoomJoinName, setSharedRoomJoinName] = useState("Guest");
+  const [sharedRoomSession, setSharedRoomSession] = useState(() => {
+    const storedSession = readStoredSharedRoomSession();
+
+    if (!storedSession) {
+      return null;
+    }
+
+    if (
+      initialJoinTokenRef.current &&
+      storedSession.inviteToken !== initialJoinTokenRef.current
+    ) {
+      persistSharedRoomSession(null);
+      return null;
+    }
+
+    return storedSession;
+  });
+  const [sharedRoomStatus, setSharedRoomStatus] = useState(() =>
+    readStoredSharedRoomSession() ? "connecting" : "idle",
+  );
+  const [sharedRoom, setSharedRoom] = useState(null);
+  const [sharedRoomMessages, setSharedRoomMessages] = useState([]);
+  const [sharedRoomError, setSharedRoomError] = useState("");
+  const [sharedRoomCopyNotice, setSharedRoomCopyNotice] = useState("");
+  const [modeLockNotice, setModeLockNotice] = useState(null);
+  const sharedRoomInviteUrl =
+    sharedRoomSession?.inviteUrl ??
+    (pendingInviteToken ? buildSharedRoomInviteUrl(pendingInviteToken) : "");
+  const applySharedRoomSnapshotRef = useRef(null);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    persistSharedRoomSession(sharedRoomSession);
+  }, [sharedRoomSession]);
+
+  useEffect(() => {
+    if (!sharedRoomCopyNotice) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSharedRoomCopyNotice("");
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sharedRoomCopyNotice]);
+
+  useEffect(() => {
+    if (!modeLockNotice) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setModeLockNotice(null);
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [modeLockNotice]);
+
+  applySharedRoomSnapshotRef.current = (roomSnapshot, session = sharedRoomSession) => {
+    if (!session) {
+      return;
+    }
+
+    const { myLanguage, theirLanguage } = deriveSharedRoomLanguages(
+      roomSnapshot,
+      session.role,
+    );
+
+    setSharedRoom(roomSnapshot);
+    setSharedRoomMessages(
+      mapSharedRoomMessages({
+        rawMessages: roomSnapshot.messages,
+        participantId: session.participantId,
+        audioUrlCacheRef: sharedRoomAudioUrlCacheRef,
+      }),
+    );
+    setMyLang(myLanguage);
+    setTheirLang(theirLanguage);
+    setSharedRoomStatus("active");
+    setSharedRoomError("");
+  };
 
   useEffect(
     () => () => {
@@ -1746,6 +2416,7 @@ export default function StringPhoneApp() {
 
       autoplayAudioRef.current?.pause();
       domAudioRef.current?.pause();
+      revokeSharedRoomAudioUrls(sharedRoomAudioUrlCacheRef);
     },
     [],
   );
@@ -1757,6 +2428,91 @@ export default function StringPhoneApp() {
       ),
     [messages],
   );
+
+  useEffect(() => {
+    if (!sharedRoomSession) {
+      setSharedRoomStatus("idle");
+      setSharedRoom(null);
+      setSharedRoomMessages([]);
+      revokeSharedRoomAudioUrls(sharedRoomAudioUrlCacheRef);
+      return;
+    }
+
+    let cancelled = false;
+    setSharedRoomStatus((currentStatus) =>
+      currentStatus === "active" ? "connecting" : currentStatus,
+    );
+
+    fetchSharedRoomSnapshot({
+      roomId: sharedRoomSession.roomId,
+      participantSessionToken: sharedRoomSession.participantSessionToken,
+    })
+      .then((payload) => {
+        if (!cancelled) {
+          applySharedRoomSnapshotRef.current?.(payload.room, sharedRoomSession);
+        }
+      })
+      .catch((snapshotError) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSharedRoomError(snapshotError.message);
+        setSharedRoomStatus("idle");
+        setSharedRoomSession(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    sharedRoomSession?.participantId,
+    sharedRoomSession?.participantSessionToken,
+    sharedRoomSession?.role,
+    sharedRoomSession?.roomId,
+  ]);
+
+  useEffect(() => {
+    if (!sharedRoomSession) {
+      return undefined;
+    }
+
+    const eventSource = new EventSource(
+      buildSharedRoomEventsUrl({
+        roomId: sharedRoomSession.roomId,
+        participantSessionToken: sharedRoomSession.participantSessionToken,
+      }),
+    );
+
+    const handleSnapshot = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        applySharedRoomSnapshotRef.current?.(payload.room, sharedRoomSession);
+      } catch {
+        setSharedRoomError("Received an invalid live room update.");
+      }
+    };
+
+    const handleError = () => {
+      setSharedRoomStatus("connecting");
+      setSharedRoomError("Live room connection dropped. Trying to reconnect...");
+    };
+
+    eventSource.addEventListener("snapshot", handleSnapshot);
+    eventSource.addEventListener("error", handleError);
+    eventSource.onerror = handleError;
+
+    return () => {
+      eventSource.removeEventListener("snapshot", handleSnapshot);
+      eventSource.removeEventListener("error", handleError);
+      eventSource.close();
+    };
+  }, [
+    sharedRoomSession?.participantId,
+    sharedRoomSession?.participantSessionToken,
+    sharedRoomSession?.role,
+    sharedRoomSession?.roomId,
+  ]);
 
   const pauseActiveAudio = (exclude = null) => {
     if (domAudioRef.current && domAudioRef.current !== exclude) {
@@ -2036,12 +2792,199 @@ export default function StringPhoneApp() {
     }
   };
 
+  const submitChatTextMessage = async ({
+    originMode,
+    sender,
+    sourceLanguage,
+    targetLanguage,
+    text,
+  }) => {
+    if (sharedRoomSession) {
+      return sendSharedRoomTextMessage({
+        roomId: sharedRoomSession.roomId,
+        participantSessionToken: sharedRoomSession.participantSessionToken,
+        text,
+      });
+    }
+
+    return sendTextMessage({
+      originMode,
+      sender,
+      sourceLanguage,
+      targetLanguage,
+      text,
+    });
+  };
+
+  const submitChatVoiceMessage = async ({
+    originMode,
+    sender,
+    sourceLanguage,
+    targetLanguage,
+    recording,
+  }) => {
+    if (sharedRoomSession) {
+      return sendSharedRoomVoiceMessage({
+        roomId: sharedRoomSession.roomId,
+        participantSessionToken: sharedRoomSession.participantSessionToken,
+        recording,
+      });
+    }
+
+    return sendVoiceMessage({
+      originMode,
+      sender,
+      sourceLanguage,
+      targetLanguage,
+      recording,
+    });
+  };
+
+  const retryChatMessage = async (message) => {
+    if (sharedRoomSession && message.roomId) {
+      await retrySharedRoomMessage({
+        roomId: sharedRoomSession.roomId,
+        participantSessionToken: sharedRoomSession.participantSessionToken,
+        messageId: message.id,
+      });
+      return;
+    }
+
+    await retryMessage(message);
+  };
+
+  const leaveSharedRoom = () => {
+    setSharedRoomCopyNotice("");
+    setModeLockNotice(null);
+    setSharedRoomError("");
+    setSharedRoomStatus("idle");
+    setSharedRoomSession(null);
+    setPendingInviteToken("");
+    syncSharedRoomInviteToken("");
+  };
+
+  const handleToggleSharedRoom = async () => {
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+      return;
+    }
+
+    try {
+      setSharedRoomError("");
+      setSharedRoomStatus("creating");
+
+      const payload = await createSharedRoom({
+        hostLanguageCode: myLang.code,
+        guestLanguageCode: theirLang.code,
+      });
+      const inviteUrl = buildSharedRoomInviteUrl(payload.inviteToken);
+      const nextSession = {
+        roomId: payload.room.id,
+        inviteToken: payload.inviteToken,
+        inviteUrl,
+        participantId: payload.participant.id,
+        participantSessionToken: payload.participantSessionToken,
+        role: payload.participant.role,
+      };
+
+      setPendingInviteToken(payload.inviteToken);
+      syncSharedRoomInviteToken(payload.inviteToken);
+      setSharedRoomSession(nextSession);
+      applySharedRoomSnapshotRef.current?.(payload.room, nextSession);
+      setAppMode("chat");
+
+      try {
+        const copied = await copyTextToClipboard(inviteUrl);
+
+        if (copied) {
+          setSharedRoomCopyNotice("Join link copied.");
+        }
+      } catch {
+        setSharedRoomError("Could not copy the join link from this browser.");
+      }
+    } catch (roomError) {
+      setSharedRoomStatus("idle");
+      setSharedRoomError(roomError.message);
+    }
+  };
+
+  const handleJoinSharedRoom = async () => {
+    if (!pendingInviteToken || sharedRoomSession) {
+      return;
+    }
+
+    try {
+      setSharedRoomError("");
+      setSharedRoomStatus("joining");
+
+      const payload = await joinSharedRoom({
+        inviteToken: pendingInviteToken,
+        displayName: sharedRoomJoinName,
+      });
+      const inviteUrl = buildSharedRoomInviteUrl(payload.inviteToken);
+      const nextSession = {
+        roomId: payload.room.id,
+        inviteToken: payload.inviteToken,
+        inviteUrl,
+        participantId: payload.participant.id,
+        participantSessionToken: payload.participantSessionToken,
+        role: payload.participant.role,
+      };
+
+      syncSharedRoomInviteToken(payload.inviteToken);
+      setSharedRoomSession(nextSession);
+      applySharedRoomSnapshotRef.current?.(payload.room, nextSession);
+      setAppMode("chat");
+    } catch (roomError) {
+      setSharedRoomStatus("idle");
+      setSharedRoomError(roomError.message);
+    }
+  };
+
+  const handleCopySharedRoomInvite = async () => {
+    if (!sharedRoomInviteUrl) {
+      return;
+    }
+
+    try {
+      const copied = await copyTextToClipboard(sharedRoomInviteUrl);
+
+      if (copied) {
+        setSharedRoomCopyNotice("Join link copied.");
+      }
+    } catch {
+      setSharedRoomError("Could not copy the join link from this browser.");
+    }
+  };
+
+  const handleDismissSharedRoomInvite = () => {
+    setPendingInviteToken("");
+    setSharedRoomError("");
+    syncSharedRoomInviteToken("");
+  };
+
+  const chatMessages = sharedRoomSession ? sharedRoomMessages : messages;
+  const handleBlockedModeChange = () => {
+    setModeLockNotice({
+      id: Date.now(),
+      message: "Please untoggle shared chat to use live conversation modes.",
+    });
+  };
+
   return (
     <main
       className="relative flex min-h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
       style={{ minHeight: "100svh", height: "100dvh" }}
     >
-      <ModeSwitcher appMode={appMode} setAppMode={setAppMode} />
+      <FloatingBrand />
+      <ModeSwitcher
+        appMode={appMode}
+        setAppMode={setAppMode}
+        sharedChatLocked={Boolean(sharedRoomSession)}
+        onBlockedModeChange={handleBlockedModeChange}
+        noticeMessage={modeLockNotice?.message ?? ""}
+        onDismissNotice={() => setModeLockNotice(null)}
+      />
 
       {appMode === "chat" ? (
         <ChatScreen
@@ -2049,11 +2992,25 @@ export default function StringPhoneApp() {
           setMyLang={setMyLang}
           theirLang={theirLang}
           setTheirLang={setTheirLang}
-          messages={messages}
-          sendTextMessage={sendTextMessage}
-          sendVoiceMessage={sendVoiceMessage}
-          retryMessage={retryMessage}
+          messages={chatMessages}
+          submitTextMessage={submitChatTextMessage}
+          submitVoiceMessage={submitChatVoiceMessage}
+          retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
+          sharedRoomSession={sharedRoomSession}
+          sharedRoom={sharedRoom}
+          sharedRoomStatus={sharedRoomStatus}
+          sharedRoomInviteUrl={sharedRoomInviteUrl}
+          pendingInviteToken={pendingInviteToken}
+          sharedRoomCopyNotice={sharedRoomCopyNotice}
+          sharedRoomJoinName={sharedRoomJoinName}
+          setSharedRoomJoinName={setSharedRoomJoinName}
+          sharedRoomError={sharedRoomError}
+          onDismissSharedRoomCopyNotice={() => setSharedRoomCopyNotice("")}
+          onToggleSharedRoom={handleToggleSharedRoom}
+          onJoinSharedRoom={handleJoinSharedRoom}
+          onCopySharedRoomInvite={handleCopySharedRoomInvite}
+          onDismissSharedRoomInvite={handleDismissSharedRoomInvite}
         />
       ) : null}
 
