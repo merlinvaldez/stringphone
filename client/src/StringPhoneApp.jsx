@@ -1784,6 +1784,15 @@ function SharedRoomControls({
 
   if (roomSession) {
     const participantLabel = `${room?.participantCount ?? 1}/2 joined`;
+    const isGuestParticipant = roomSession.role === "guest";
+
+    if (isGuestParticipant) {
+      return (
+        <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+          {participantLabel}
+        </div>
+      );
+    }
 
     return (
       <div className="relative flex items-start">
@@ -1915,82 +1924,6 @@ function ChatHeader({
   );
 }
 
-function SharedRoomJoinCard({
-  displayName,
-  setDisplayName,
-  joinToken,
-  joining,
-  onJoin,
-  onDismiss,
-}) {
-  return (
-    <div className="rounded-[2rem] border border-white/10 bg-zinc-900/85 p-5 shadow-2xl backdrop-blur-xl">
-      <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-zinc-400">
-        <MessageSquare size={12} className="text-emerald-300" />
-        Live room invite
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-white">
-            Join this shared chat
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-zinc-400">
-            This beta shares Chat mode between two devices on the current Express
-            server.
-          </p>
-        </div>
-
-        <label className="block">
-          <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
-            Your name
-          </span>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="Guest"
-            disabled={joining}
-            className="h-12 w-full rounded-[1.25rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-          />
-        </label>
-
-        <div className="flex items-center justify-between gap-3 rounded-[1.25rem] border border-white/10 bg-black/20 px-4 py-3 text-xs text-zinc-400">
-          <span className="uppercase tracking-[0.2em]">Invite token</span>
-          <span className="font-mono text-zinc-300">
-            {joinToken.slice(0, 10)}...
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            void onJoin();
-          }}
-          disabled={joining}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-500 text-sm font-semibold text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.25)] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {joining ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Users size={16} />
-          )}
-          Join live room
-        </button>
-
-        <button
-          type="button"
-          onClick={onDismiss}
-          disabled={joining}
-          className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Continue locally
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ChatComposer({
   text,
   setText,
@@ -2110,14 +2043,10 @@ function ChatScreen({
   sharedRoomInviteUrl,
   pendingInviteToken,
   sharedRoomCopyNotice,
-  sharedRoomJoinName,
-  setSharedRoomJoinName,
   sharedRoomError,
   onDismissSharedRoomCopyNotice,
   onToggleSharedRoom,
-  onJoinSharedRoom,
   onCopySharedRoomInvite,
-  onDismissSharedRoomInvite,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -2136,14 +2065,17 @@ function ChatScreen({
   const sourceLanguage = myLang;
   const targetLanguage = theirLang;
   const screenUiStrings = useUiStrings(sourceLanguage);
-  const showJoinCard = Boolean(pendingInviteToken) && !sharedRoomSession;
+  const waitingForSharedRoomAutoJoin =
+    Boolean(pendingInviteToken) && !sharedRoomSession && !sharedRoomError;
   const liveRoomBusy =
     sharedRoomStatus === "creating" ||
     sharedRoomStatus === "joining" ||
     sharedRoomStatus === "connecting";
-  const composerDisabled = showJoinCard || (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
-  const composerDisabledPlaceholder = showJoinCard
-    ? "Join the live room to start messaging"
+  const composerDisabled =
+    waitingForSharedRoomAutoJoin ||
+    (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
+  const composerDisabledPlaceholder = waitingForSharedRoomAutoJoin
+    ? "Joining shared chat..."
     : sharedRoomStatus === "connecting"
       ? "Live room is reconnecting..."
       : "";
@@ -2242,7 +2174,7 @@ function ChatScreen({
         setMyLang={setMyLang}
         theirLang={theirLang}
         setTheirLang={setTheirLang}
-        disabled={status !== "idle" || liveRoomBusy}
+        disabled={status !== "idle" || liveRoomBusy || waitingForSharedRoomAutoJoin}
         uiStrings={screenUiStrings}
         sharedRoomSession={sharedRoomSession}
         sharedRoom={sharedRoom}
@@ -2254,19 +2186,6 @@ function ChatScreen({
         onToggleSharedRoom={onToggleSharedRoom}
         onCopySharedRoomInvite={onCopySharedRoomInvite}
       />
-
-      {showJoinCard ? (
-        <div className="mb-4">
-          <SharedRoomJoinCard
-            displayName={sharedRoomJoinName}
-            setDisplayName={setSharedRoomJoinName}
-            joinToken={pendingInviteToken}
-            joining={sharedRoomStatus === "joining"}
-            onJoin={onJoinSharedRoom}
-            onDismiss={onDismissSharedRoomInvite}
-          />
-        </div>
-      ) : null}
 
       {sharedRoomError ? (
         <div className="mb-3 rounded-[1.4rem] border border-rose-500/20 bg-rose-950/40 px-4 py-3 text-sm text-rose-100">
@@ -2311,11 +2230,11 @@ export default function StringPhoneApp() {
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
   const initialJoinTokenRef = useRef(getInitialJoinToken());
+  const attemptedAutoJoinTokenRef = useRef("");
   const sharedRoomAudioUrlCacheRef = useRef(new Map());
   const [pendingInviteToken, setPendingInviteToken] = useState(
     initialJoinTokenRef.current,
   );
-  const [sharedRoomJoinName, setSharedRoomJoinName] = useState("Guest");
   const [sharedRoomSession, setSharedRoomSession] = useState(() => {
     const storedSession = readStoredSharedRoomSession();
 
@@ -2367,6 +2286,20 @@ export default function StringPhoneApp() {
       window.clearTimeout(timeoutId);
     };
   }, [sharedRoomCopyNotice]);
+
+  useEffect(() => {
+    if (!pendingInviteToken || sharedRoomSession) {
+      attemptedAutoJoinTokenRef.current = "";
+      return;
+    }
+
+    if (attemptedAutoJoinTokenRef.current === pendingInviteToken) {
+      return;
+    }
+
+    attemptedAutoJoinTokenRef.current = pendingInviteToken;
+    void handleJoinSharedRoom();
+  }, [pendingInviteToken, sharedRoomSession]);
 
   useEffect(() => {
     if (!modeLockNotice) {
@@ -2864,6 +2797,10 @@ export default function StringPhoneApp() {
   };
 
   const handleToggleSharedRoom = async () => {
+    if (sharedRoomSession?.role === "guest") {
+      return;
+    }
+
     if (sharedRoomSession) {
       leaveSharedRoom();
       return;
@@ -2919,7 +2856,7 @@ export default function StringPhoneApp() {
 
       const payload = await joinSharedRoom({
         inviteToken: pendingInviteToken,
-        displayName: sharedRoomJoinName,
+        displayName: "Guest",
       });
       const inviteUrl = buildSharedRoomInviteUrl(payload.inviteToken);
       const nextSession = {
@@ -2942,6 +2879,10 @@ export default function StringPhoneApp() {
   };
 
   const handleCopySharedRoomInvite = async () => {
+    if (sharedRoomSession?.role === "guest") {
+      return;
+    }
+
     if (!sharedRoomInviteUrl) {
       return;
     }
@@ -2957,17 +2898,14 @@ export default function StringPhoneApp() {
     }
   };
 
-  const handleDismissSharedRoomInvite = () => {
-    setPendingInviteToken("");
-    setSharedRoomError("");
-    syncSharedRoomInviteToken("");
-  };
-
   const chatMessages = sharedRoomSession ? sharedRoomMessages : messages;
   const handleBlockedModeChange = () => {
     setModeLockNotice({
       id: Date.now(),
-      message: "Please untoggle shared chat to use live conversation modes.",
+      message:
+        sharedRoomSession?.role === "guest"
+          ? "This shared chat invite only works in Chat mode."
+          : "Please untoggle shared chat to use live conversation modes.",
     });
   };
 
@@ -3003,14 +2941,10 @@ export default function StringPhoneApp() {
           sharedRoomInviteUrl={sharedRoomInviteUrl}
           pendingInviteToken={pendingInviteToken}
           sharedRoomCopyNotice={sharedRoomCopyNotice}
-          sharedRoomJoinName={sharedRoomJoinName}
-          setSharedRoomJoinName={setSharedRoomJoinName}
           sharedRoomError={sharedRoomError}
           onDismissSharedRoomCopyNotice={() => setSharedRoomCopyNotice("")}
           onToggleSharedRoom={handleToggleSharedRoom}
-          onJoinSharedRoom={handleJoinSharedRoom}
           onCopySharedRoomInvite={handleCopySharedRoomInvite}
-          onDismissSharedRoomInvite={handleDismissSharedRoomInvite}
         />
       ) : null}
 
