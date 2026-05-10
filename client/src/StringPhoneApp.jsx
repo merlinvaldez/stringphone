@@ -1,66 +1,95 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
   Ear,
   Globe,
   Loader2,
   MessageSquare,
   Mic,
+  Pause,
   Phone,
+  Play,
+  Search,
   Send,
   Square,
   User,
   Users,
   Volume2,
 } from "lucide-react";
+import {
+  DEFAULT_UI_STRINGS,
+  getStatusLabel,
+  interpolateTemplate,
+  useUiStrings,
+} from "./uiStrings.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
-const LANGUAGES = [
-  { code: "en", name: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
-  { code: "es", name: "Espa\u00F1ol", flag: "\uD83C\uDDEA\uD83C\uDDF8" },
-  { code: "fr", name: "Fran\u00E7ais", flag: "\uD83C\uDDEB\uD83C\uDDF7" },
-  { code: "de", name: "Deutsch", flag: "\uD83C\uDDE9\uD83C\uDDEA" },
-  { code: "pt", name: "Portugu\u00EAs", flag: "\uD83C\uDDF5\uD83C\uDDF9" },
-  { code: "it", name: "Italiano", flag: "\uD83C\uDDEE\uD83C\uDDF9" },
-  { code: "nl", name: "Nederlands", flag: "\uD83C\uDDF3\uD83C\uDDF1" },
-  { code: "hi", name: "\u0939\u093F\u0928\u094D\u0926\u0940", flag: "\uD83C\uDDEE\uD83C\uDDF3" },
-  { code: "ar", name: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629", flag: "\uD83C\uDDF8\uD83C\uDDE6" },
-  { code: "fa", name: "\u0641\u0627\u0631\u0633\u06CC", flag: "\uD83C\uDDEE\uD83C\uDDF7" },
-  { code: "zh", name: "Chinese", flag: "CN" },
-  { code: "ja", name: "Japanese", flag: "JP" },
-  { code: "ko", name: "Korean", flag: "KR" },
-  { code: "pl", name: "Polish", flag: "PL" },
-  { code: "ru", name: "Russian", flag: "RU" },
-  { code: "sv", name: "Swedish", flag: "SE" },
-  { code: "tr", name: "Turkish", flag: "TR" },
-  { code: "tl", name: "Tagalog", flag: "PH" },
-  { code: "bg", name: "Bulgarian", flag: "BG" },
-  { code: "ro", name: "Romanian", flag: "RO" },
-  { code: "cs", name: "Czech", flag: "CZ" },
-  { code: "el", name: "Greek", flag: "GR" },
-  { code: "fi", name: "Finnish", flag: "FI" },
-  { code: "hr", name: "Croatian", flag: "HR" },
-  { code: "ms", name: "Malay", flag: "MY" },
-  { code: "sk", name: "Slovak", flag: "SK" },
-  { code: "da", name: "Danish", flag: "DK" },
-  { code: "ta", name: "Tamil", flag: "IN" },
-  { code: "uk", name: "Ukrainian", flag: "UA" },
-  { code: "hu", name: "Hungarian", flag: "HU" },
-  { code: "no", name: "Norwegian", flag: "NO" },
-  { code: "vi", name: "Vietnamese", flag: "VN" },
-  { code: "bn", name: "Bengali", flag: "BD" },
-  { code: "th", name: "Thai", flag: "TH" },
-  { code: "he", name: "Hebrew", flag: "IL" },
-  { code: "ka", name: "Georgian", flag: "GE" },
-  { code: "id", name: "Indonesian", flag: "ID" },
-  { code: "te", name: "Telugu", flag: "IN" },
-  { code: "gu", name: "Gujarati", flag: "IN" },
-  { code: "kn", name: "Kannada", flag: "IN" },
-  { code: "ml", name: "Malayalam", flag: "IN" },
-  { code: "mr", name: "Marathi", flag: "IN" },
-  { code: "pa", name: "Punjabi", flag: "IN" },
+const RAW_LANGUAGES = [
+  { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
+  { code: "es", englishName: "Spanish", flag: "\uD83C\uDDEA\uD83C\uDDF8" },
+  { code: "fr", englishName: "French", flag: "\uD83C\uDDEB\uD83C\uDDF7" },
+  { code: "de", englishName: "German", flag: "\uD83C\uDDE9\uD83C\uDDEA" },
+  { code: "pt", englishName: "Portuguese", flag: "\uD83C\uDDF5\uD83C\uDDF9" },
+  { code: "it", englishName: "Italian", flag: "\uD83C\uDDEE\uD83C\uDDF9" },
+  { code: "nl", englishName: "Dutch", flag: "\uD83C\uDDF3\uD83C\uDDF1" },
+  { code: "hi", englishName: "Hindi", flag: "\uD83C\uDDEE\uD83C\uDDF3" },
+  { code: "ar", englishName: "Arabic", flag: "\uD83C\uDDF8\uD83C\uDDE6" },
+  { code: "fa", englishName: "Persian", flag: "\uD83C\uDDEE\uD83C\uDDF7" },
+  { code: "zh", englishName: "Chinese", flag: "CN" },
+  { code: "ja", englishName: "Japanese", flag: "JP" },
+  { code: "ko", englishName: "Korean", flag: "KR" },
+  { code: "pl", englishName: "Polish", flag: "PL" },
+  { code: "ru", englishName: "Russian", flag: "RU" },
+  { code: "sv", englishName: "Swedish", flag: "SE" },
+  { code: "tr", englishName: "Turkish", flag: "TR" },
+  { code: "tl", englishName: "Tagalog", flag: "PH" },
+  { code: "bg", englishName: "Bulgarian", flag: "BG" },
+  { code: "ro", englishName: "Romanian", flag: "RO" },
+  { code: "cs", englishName: "Czech", flag: "CZ" },
+  { code: "el", englishName: "Greek", flag: "GR" },
+  { code: "fi", englishName: "Finnish", flag: "FI" },
+  { code: "hr", englishName: "Croatian", flag: "HR" },
+  { code: "ms", englishName: "Malay", flag: "MY" },
+  { code: "sk", englishName: "Slovak", flag: "SK" },
+  { code: "da", englishName: "Danish", flag: "DK" },
+  { code: "ta", englishName: "Tamil", flag: "IN" },
+  { code: "uk", englishName: "Ukrainian", flag: "UA" },
+  { code: "hu", englishName: "Hungarian", flag: "HU" },
+  { code: "no", englishName: "Norwegian", flag: "NO" },
+  { code: "vi", englishName: "Vietnamese", flag: "VN" },
+  { code: "bn", englishName: "Bengali", flag: "BD" },
+  { code: "th", englishName: "Thai", flag: "TH" },
+  { code: "he", englishName: "Hebrew", flag: "IL" },
+  { code: "ka", englishName: "Georgian", flag: "GE" },
+  { code: "id", englishName: "Indonesian", flag: "ID" },
+  { code: "te", englishName: "Telugu", flag: "IN" },
+  { code: "gu", englishName: "Gujarati", flag: "IN" },
+  { code: "kn", englishName: "Kannada", flag: "IN" },
+  { code: "ml", englishName: "Malayalam", flag: "IN" },
+  { code: "mr", englishName: "Marathi", flag: "IN" },
+  { code: "pa", englishName: "Punjabi", flag: "IN" },
 ];
+
+function getNativeLanguageName(code, fallbackName) {
+  try {
+    const displayName = new Intl.DisplayNames([code], {
+      type: "language",
+    }).of(code);
+
+    return displayName ?? fallbackName;
+  } catch {
+    return fallbackName;
+  }
+}
+
+const LANGUAGES = RAW_LANGUAGES.map((language) => ({
+  code: language.code,
+  englishName: language.englishName,
+  name: getNativeLanguageName(language.code, language.englishName),
+  flag: language.flag,
+}));
 
 const LANGUAGE_BY_CODE = Object.fromEntries(
   LANGUAGES.map((language) => [language.code, language]),
@@ -73,15 +102,6 @@ const MODE_OPTIONS = [
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
 ];
-
-const STATUS_LABELS = {
-  pending: "Pending",
-  transcribing: "Transcribing",
-  translating: "Translating",
-  generating_audio: "Generating audio",
-  ready: "Ready",
-  error: "Needs retry",
-};
 
 function createId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -118,6 +138,18 @@ function formatTimestamp(dateString) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(dateString));
+}
+
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "--:--";
+  }
+
+  const totalSeconds = Math.max(0, Math.ceil(seconds));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
 function getLanguageOption(code) {
@@ -392,8 +424,30 @@ function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
   };
 }
 
-function LanguageSelector({ selected, onSelect, disabled, orientation = "down" }) {
+function LanguageSelector({
+  selected,
+  onSelect,
+  disabled,
+  orientation = "down",
+  searchPlaceholder,
+}) {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const uiStrings = useUiStrings(selected);
+
+  const filteredLanguages = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return LANGUAGES;
+    }
+
+    return LANGUAGES.filter((language) =>
+      [language.code, language.name, language.englishName].some((value) =>
+        value.toLowerCase().includes(normalizedQuery),
+      ),
+    );
+  }, [searchQuery]);
 
   let positionClasses = "top-full mt-3 left-0";
   if (orientation === "up") {
@@ -406,6 +460,12 @@ function LanguageSelector({ selected, onSelect, disabled, orientation = "down" }
       setIsOpen(false);
     }
   }, [disabled]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchQuery("");
+    }
+  }, [isOpen]);
 
   return (
     <div
@@ -424,10 +484,23 @@ function LanguageSelector({ selected, onSelect, disabled, orientation = "down" }
 
       {isOpen && (
         <div
-          className={`absolute z-50 max-h-[50vh] w-44 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${positionClasses}`}
+          className={`absolute z-50 w-52 rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl backdrop-blur-xl ${positionClasses}`}
         >
-          <div className="p-1.5">
-            {LANGUAGES.map((language) => (
+          <div className="border-b border-white/5 p-2">
+            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-zinc-300">
+              <Search size={14} className="text-zinc-500" strokeWidth={1.6} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={searchPlaceholder ?? uiStrings.searchLanguages}
+                aria-label={searchPlaceholder ?? uiStrings.searchLanguages}
+                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
+              />
+            </label>
+          </div>
+          <div className="max-h-[42vh] overflow-y-auto p-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            {filteredLanguages.map((language) => (
               <button
                 type="button"
                 key={language.code}
@@ -513,15 +586,16 @@ function ModeSwitcher({ appMode, setAppMode }) {
           key={id}
           type="button"
           onClick={() => setAppMode(id)}
-          className={`relative z-10 flex items-center justify-center gap-2 rounded-full px-3 py-2.5 text-xs font-medium uppercase tracking-[0.18em] transition-all duration-300 sm:px-4 ${
+          aria-label={label}
+          aria-pressed={appMode === id}
+          className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 sm:h-11 sm:w-11 ${
             appMode === id
               ? "text-white"
               : "text-zinc-500 hover:text-zinc-300"
           }`}
           title={label}
         >
-          <Icon size={16} strokeWidth={2.1} />
-          <span className="hidden sm:inline">{label}</span>
+          <Icon size={17} strokeWidth={2.1} />
           {appMode === id && (
             <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
           )}
@@ -531,114 +605,215 @@ function ModeSwitcher({ appMode, setAppMode }) {
   );
 }
 
-function MessageStatusPill({ status }) {
-  const tintClasses =
-    status === "error"
-      ? "border-rose-500/20 bg-rose-500/10 text-rose-200"
-      : status === "ready"
-        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
-        : "border-amber-500/20 bg-amber-500/10 text-amber-200";
+function MessageStatusPill({ status, uiStrings = DEFAULT_UI_STRINGS }) {
+  const statusLabel = getStatusLabel(status, uiStrings);
+
+  if (status === "ready") {
+    return null;
+  }
+
+  if (status === "error") {
+    return (
+      <span
+        title={statusLabel}
+        aria-label={statusLabel}
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-500/20 bg-rose-500/10"
+      >
+        <span className="h-2 w-2 rounded-full bg-rose-300" />
+        <span className="sr-only">{statusLabel}</span>
+      </span>
+    );
+  }
 
   return (
     <span
-      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${tintClasses}`}
+      title={statusLabel}
+      aria-label={statusLabel}
+      className="flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-200"
     >
-      {STATUS_LABELS[status]}
+      <Loader2 size={12} className="animate-spin" />
+      <span className="sr-only">{statusLabel}</span>
     </span>
   );
 }
 
 function ChatEmptyState() {
   return (
-    <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[2rem] border border-white/5 bg-zinc-900/35 px-8 text-center shadow-xl backdrop-blur-md">
-      <div className="mb-4 rounded-full border border-white/10 bg-white/5 p-4">
-        <MessageSquare size={28} className="text-emerald-300" strokeWidth={1.6} />
+    <div className="flex h-full min-h-[18rem] items-center justify-center">
+      <div className="flex animate-fade-in items-center gap-2.5 rounded-full border border-white/5 bg-zinc-900/50 px-5 py-2 text-xs uppercase tracking-[0.3em] text-zinc-500 backdrop-blur-md">
+        <Phone size={14} className="text-amber-500/50" />
+        StringPhone
       </div>
-      <p className="mb-2 text-lg font-medium tracking-tight text-white">
-        Every message lands in both languages.
-      </p>
-      <p className="max-w-md text-sm leading-6 text-zinc-400">
-        Send text or record a voice note. Chat keeps the full bilingual thread,
-        and turns from Single and Conversation appear here too.
-      </p>
     </div>
   );
 }
 
-function MessageBubble({ message, onRetry, onAudioPlay }) {
+function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings }) {
+  const audioRef = useRef(null);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const accentClass = isSelf ? "text-emerald-200" : "text-zinc-200";
+  const trackClass = isSelf ? "stroke-emerald-300/25" : "stroke-white/15";
+  const progressClass = isSelf ? "stroke-emerald-300" : "stroke-indigo-300";
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const remainingSeconds =
+    duration > 0 ? Math.max(duration - currentTime, 0) : 0;
+  const progress =
+    duration > 0 ? Math.max(remainingSeconds / duration, 0) : 0;
+  const dashOffset = circumference * (1 - progress);
+
+  const syncDuration = (audioElement) => {
+    if (!audioElement) {
+      return;
+    }
+
+    if (Number.isFinite(audioElement.duration)) {
+      setDuration(audioElement.duration);
+    }
+  };
+
+  const togglePlayback = async () => {
+    const audioElement = audioRef.current;
+
+    if (!audioElement) {
+      return;
+    }
+
+    if (audioElement.paused) {
+      try {
+        await audioElement.play();
+      } catch {
+        setIsPlaying(false);
+      }
+      return;
+    }
+
+    audioElement.pause();
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`min-w-[2.8rem] text-right text-[11px] font-semibold tabular-nums tracking-[0.12em] ${accentClass}`}
+      >
+        {formatDuration(isPlaying ? remainingSeconds : duration)}
+      </span>
+
+      <button
+        type="button"
+        onClick={() => {
+          void togglePlayback();
+        }}
+        className={`relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/20 transition hover:bg-black/30 ${accentClass}`}
+        title={isPlaying ? uiStrings.pauseAudio : uiStrings.playAudio}
+      >
+        <svg
+          viewBox="0 0 44 44"
+          className="absolute inset-0 h-full w-full -rotate-90"
+          aria-hidden="true"
+        >
+          <circle
+            cx="22"
+            cy="22"
+            r={radius}
+            fill="none"
+            strokeWidth="2.5"
+            className={trackClass}
+          />
+          <circle
+            cx="22"
+            cy="22"
+            r={radius}
+            fill="none"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            className={progressClass}
+          />
+        </svg>
+        {isPlaying ? (
+          <Pause size={16} className="relative z-10" fill="currentColor" />
+        ) : (
+          <Play size={16} className="relative z-10 translate-x-[1px]" fill="currentColor" />
+        )}
+      </button>
+
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        src={audioUrl}
+        onLoadedMetadata={(event) => syncDuration(event.currentTarget)}
+        onDurationChange={(event) => syncDuration(event.currentTarget)}
+        onTimeUpdate={(event) => {
+          setCurrentTime(event.currentTarget.currentTime);
+        }}
+        onPlay={(event) => {
+          setIsPlaying(true);
+          onAudioPlay(event.currentTarget);
+        }}
+        onPause={() => {
+          setIsPlaying(false);
+        }}
+        onEnded={(event) => {
+          event.currentTarget.currentTime = 0;
+          setCurrentTime(0);
+          setIsPlaying(false);
+        }}
+        className="hidden"
+      />
+    </div>
+  );
+}
+
+function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
-  const senderLabel = isSelf ? "You" : "Partner";
-  const metadataAccent = isSelf ? "text-emerald-200" : "text-indigo-200";
 
   return (
     <article className={`flex w-full ${isSelf ? "justify-end" : "justify-start"}`}>
       <div className="w-full max-w-[88%] sm:max-w-[78%]">
         <div
-          className={`mb-1.5 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500`}
-        >
-          <div className={`flex items-center gap-2 ${metadataAccent}`}>
-            <span>{senderLabel}</span>
-            <span>
-              {message.sourceLanguageFlag} {message.sourceLanguageLabel}
-            </span>
-          </div>
-          <span>{formatTimestamp(message.createdAt)}</span>
-        </div>
-
-        <div
           className={`rounded-[1.75rem] border px-4 py-3 shadow-xl backdrop-blur-md ${bubbleClasses}`}
         >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
-              <span>{message.targetLanguageFlag}</span>
-              <span>{message.targetLanguageLabel}</span>
-            </div>
-            <MessageStatusPill status={message.status} />
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <span className="pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              {formatTimestamp(message.createdAt)}
+            </span>
+            {isVoice && message.audioUrl ? (
+              <VoiceMessagePlayer
+                audioUrl={message.audioUrl}
+                onAudioPlay={onAudioPlay}
+                isSelf={isSelf}
+                uiStrings={uiStrings}
+              />
+            ) : (
+              <MessageStatusPill status={message.status} uiStrings={uiStrings} />
+            )}
           </div>
 
           {isVoice ? (
             <div className="space-y-3">
-              {message.audioUrl ? (
-                <audio
-                  controls
-                  preload="metadata"
-                  src={message.audioUrl}
-                  onPlay={(event) => onAudioPlay(event.currentTarget)}
-                  className="w-full accent-emerald-400"
-                />
-              ) : (
-                <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-400">
-                  {message.status === "error" ? (
-                    <span>Voice note failed before audio was ready.</span>
-                  ) : (
-                    <>
-                      <Loader2 size={16} className="animate-spin text-amber-300" />
-                      <span>Preparing translated voice note...</span>
-                    </>
-                  )}
-                </div>
-              )}
-
               {message.transcript ? (
                 <div>
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Transcript
-                  </p>
                   <p className="text-sm leading-6 text-white">
                     {message.transcript}
                   </p>
                 </div>
+              ) : message.status !== "error" ? (
+                <p className="text-sm leading-6 text-zinc-400">
+                  {uiStrings.preparingAudio}
+                </p>
               ) : null}
 
               {message.translatedText ? (
-                <div>
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Translation
-                  </p>
+                <div className="border-t border-white/10 pt-3">
                   <p className="text-sm leading-6 text-zinc-200">
                     {message.translatedText}
                   </p>
@@ -648,23 +823,17 @@ function MessageBubble({ message, onRetry, onAudioPlay }) {
           ) : (
             <div className="space-y-3">
               <div>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Original
-                </p>
                 <p className="text-sm leading-6 text-white">
                   {message.originalText}
                 </p>
               </div>
 
               <div className="border-t border-white/10 pt-3">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                  Translation
-                </p>
                 <p className="text-sm leading-6 text-zinc-200">
                   {message.translatedText ||
                     (message.status === "error"
-                      ? "Translation failed."
-                      : "Working on the bilingual version...")}
+                      ? uiStrings.translationFailed
+                      : uiStrings.translatingShort)}
                 </p>
               </div>
             </div>
@@ -678,7 +847,7 @@ function MessageBubble({ message, onRetry, onAudioPlay }) {
                 onClick={() => onRetry(message)}
                 className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/10"
               >
-                Retry
+                {uiStrings.retry}
               </button>
             </div>
           ) : null}
@@ -688,7 +857,7 @@ function MessageBubble({ message, onRetry, onAudioPlay }) {
   );
 }
 
-function ChatThread({ messages, onRetry, onAudioPlay }) {
+function ChatThread({ messages, onRetry, onAudioPlay, uiStrings }) {
   const threadRef = useRef(null);
 
   useEffect(() => {
@@ -718,6 +887,7 @@ function ChatThread({ messages, onRetry, onAudioPlay }) {
             message={message}
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
+            uiStrings={uiStrings}
           />
         ))}
       </div>
@@ -829,6 +999,7 @@ function UserSection({
   onStartInteraction,
   onStopInteraction,
 }) {
+  const uiStrings = useUiStrings(language);
   const recordingTimer = useCountdown({
     active: userState === "recording" && isActiveSpeaker,
     onExpire: onStopInteraction,
@@ -878,16 +1049,16 @@ function UserSection({
               }`}
             >
               {userState === "recording"
-                ? "Listening"
+                ? uiStrings.listening
                 : userState === "processing"
-                  ? "Translating"
-                  : "Speaking"}
+                  ? uiStrings.translating
+                  : uiStrings.speaking}
             </span>
           ) : null}
 
           {isLocked && !isActiveSpeaker ? (
             <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
-              Partner&apos;s Turn
+              {uiStrings.partnersTurn}
             </span>
           ) : null}
         </div>
@@ -926,7 +1097,7 @@ function UserSection({
                   strokeWidth={1.5}
                 />
                 <span className="text-[8px] font-semibold tracking-widest text-zinc-400 sm:text-[10px]">
-                  TAP
+                  {uiStrings.tap}
                 </span>
               </div>
             ) : null}
@@ -1063,10 +1234,10 @@ function ConversationScreen({
 
 function ActionColumn({
   action,
-  label,
   Icon,
   language,
   setLanguage,
+  uiStrings,
   status,
   activeAction,
   color,
@@ -1116,7 +1287,7 @@ function ActionColumn({
                 strokeWidth={1.5}
               />
               <span className="text-[10px] font-semibold tracking-widest text-zinc-400">
-                {label}
+                {action === "speak" ? uiStrings.speak : uiStrings.listen}
               </span>
             </div>
           ) : null}
@@ -1148,6 +1319,7 @@ function ActionColumn({
         onSelect={setLanguage}
         orientation="up"
         disabled={status !== "idle"}
+        searchPlaceholder={uiStrings.searchLanguages}
       />
     </div>
   );
@@ -1175,6 +1347,8 @@ function SingleModeScreen({
       }),
   });
   const activeAction = flow.currentRun?.action ?? null;
+  const screenLanguage = activeAction === "listen" ? theirLang : myLang;
+  const screenUiStrings = useUiStrings(screenLanguage);
   const hasHistory = voiceHistory.length > 0;
   const recordingTimer = useCountdown({
     active: flow.status === "recording",
@@ -1207,7 +1381,7 @@ function SingleModeScreen({
 
             {flow.status === "processing" ? (
               <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
-                Translating
+                {screenUiStrings.translating}
               </span>
             ) : null}
           </div>
@@ -1243,10 +1417,10 @@ function SingleModeScreen({
       <div className="mt-6 flex w-full max-w-md items-end justify-center space-x-6 sm:mt-12 md:space-x-12">
         <ActionColumn
           action="speak"
-          label="SPEAK"
           Icon={Mic}
           language={myLang}
           setLanguage={setMyLang}
+          uiStrings={screenUiStrings}
           status={flow.status}
           activeAction={activeAction}
           color="rose"
@@ -1255,10 +1429,10 @@ function SingleModeScreen({
         />
         <ActionColumn
           action="listen"
-          label="LISTEN"
           Icon={Ear}
           language={theirLang}
           setLanguage={setTheirLang}
+          uiStrings={screenUiStrings}
           status={flow.status}
           activeAction={activeAction}
           color="indigo"
@@ -1278,101 +1452,81 @@ function ChatHeader({
   theirLang,
   setTheirLang,
   disabled,
+  uiStrings,
 }) {
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-[1.75rem] border border-white/5 bg-zinc-900/45 px-4 py-4 shadow-xl backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-5">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300">
-          Chat Thread
-        </p>
-        <p className="mt-1 text-sm text-zinc-400">
-          Every sent turn appears in both languages.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="mb-4 flex flex-wrap items-center justify-center gap-3 px-1">
         <LanguageSelector
           selected={myLang}
           onSelect={setMyLang}
           disabled={disabled}
+          searchPlaceholder={uiStrings.searchLanguages}
         />
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          to
-        </div>
+        <ArrowRight size={14} className="text-zinc-500" strokeWidth={1.7} />
         <LanguageSelector
           selected={theirLang}
           onSelect={setTheirLang}
           disabled={disabled}
+          searchPlaceholder={uiStrings.searchLanguages}
         />
-      </div>
     </div>
   );
 }
 
 function ChatComposer({
-  sender,
-  setSender,
   text,
   setText,
   recordingStatus,
   recordingTimer,
   sourceLanguage,
-  targetLanguage,
+  uiStrings,
   onSendText,
   onStartRecording,
   onStopRecording,
 }) {
-  const canSendText = text.trim().length > 0 && recordingStatus === "idle";
+  const hasText = text.trim().length > 0;
+  const canSendText = hasText && recordingStatus === "idle";
+  const actionKind =
+    recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
+
+  const actionProps =
+    actionKind === "stop"
+      ? {
+          onClick: onStopRecording,
+          title: uiStrings.stopVoiceNote,
+          className:
+            "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]",
+          icon: <Square size={18} fill="currentColor" />,
+          disabled: false,
+        }
+      : actionKind === "send"
+        ? {
+            onClick: onSendText,
+            title: uiStrings.sendTextMessage,
+            className:
+              "bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.35)] hover:bg-emerald-400",
+            icon: <Send size={18} />,
+            disabled: false,
+          }
+        : {
+            onClick: onStartRecording,
+            title: uiStrings.recordVoiceNote,
+            className:
+              "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+            icon: <Mic size={18} />,
+            disabled: recordingStatus === "processing",
+          };
 
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="rounded-full border border-white/10 bg-white/5 p-1">
-          {[
-            { id: "self", label: "You" },
-            { id: "partner", label: "Partner" },
-          ].map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setSender(option.id)}
-              disabled={recordingStatus !== "idle"}
-              className={`relative rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${
-                sender === option.id
-                  ? "text-white"
-                  : "text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {option.label}
-              {sender === option.id ? (
-                <span className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10" />
-              ) : null}
-            </button>
-          ))}
-        </div>
-
-        <div className="text-right text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-          <p>
-            {sourceLanguage.flag} {sourceLanguage.name}
-          </p>
-          <p className="text-zinc-400">
-            into {targetLanguage.flag} {targetLanguage.name}
-          </p>
-        </div>
-      </div>
-
       {recordingStatus !== "idle" ? (
         <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              {recordingStatus === "recording"
-                ? "Recording voice note"
-                : "Preparing bilingual voice note"}
-            </p>
-            <p className="mt-1 text-sm text-zinc-200">
-              {recordingStatus === "recording"
-                ? `Tap stop when the note is ready. ${recordingTimer}s left.`
-                : "Transcribing, translating, and building the translated playback."}
-            </p>
+          <div className="text-sm text-zinc-200">
+            {recordingStatus === "recording"
+              ? interpolateTemplate(uiStrings.secondsLeft, {
+                  seconds: recordingTimer,
+                })
+              : uiStrings.translatingVoiceNote}
           </div>
           {recordingStatus === "recording" ? (
             <AudioWave active colorClass="bg-rose-400" />
@@ -1396,38 +1550,20 @@ function ChatComposer({
             }
           }}
           disabled={recordingStatus !== "idle"}
-          placeholder={`Write in ${sourceLanguage.name}. The thread will show both languages.`}
+          placeholder={interpolateTemplate(uiStrings.messageIn, {
+            language: sourceLanguage.name,
+          })}
           className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
         />
 
         <button
           type="button"
-          onClick={
-            recordingStatus === "recording" ? onStopRecording : onStartRecording
-          }
-          disabled={recordingStatus === "processing"}
-          className={`flex h-14 w-14 items-center justify-center rounded-full transition ${
-            recordingStatus === "recording"
-              ? "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]"
-              : "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-          } disabled:cursor-not-allowed disabled:opacity-50`}
-          title={recordingStatus === "recording" ? "Stop voice note" : "Record voice note"}
+          onClick={actionProps.onClick}
+          disabled={actionProps.disabled}
+          className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
+          title={actionProps.title}
         >
-          {recordingStatus === "recording" ? (
-            <Square size={18} fill="currentColor" />
-          ) : (
-            <Mic size={18} />
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={onSendText}
-          disabled={!canSendText}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.35)] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
-          title="Send text message"
-        >
-          <Send size={18} />
+          {actionProps.icon}
         </button>
       </div>
     </div>
@@ -1447,7 +1583,6 @@ function ChatScreen({
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
-  const [chatSender, setChatSender] = useState("self");
   const [composerText, setComposerText] = useState("");
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
@@ -1460,8 +1595,9 @@ function ChatScreen({
     },
   });
 
-  const sourceLanguage = chatSender === "self" ? myLang : theirLang;
-  const targetLanguage = chatSender === "self" ? theirLang : myLang;
+  const sourceLanguage = myLang;
+  const targetLanguage = theirLang;
+  const screenUiStrings = useUiStrings(sourceLanguage);
 
   useEffect(
     () => {
@@ -1487,7 +1623,7 @@ function ChatScreen({
 
     await sendTextMessage({
       originMode: "chat",
-      sender: chatSender,
+      sender: "self",
       sourceLanguage,
       targetLanguage,
       text,
@@ -1523,7 +1659,7 @@ function ChatScreen({
 
       await sendVoiceMessage({
         originMode: "chat",
-        sender: chatSender,
+        sender: "self",
         sourceLanguage,
         targetLanguage,
         recording,
@@ -1558,6 +1694,7 @@ function ChatScreen({
         theirLang={theirLang}
         setTheirLang={setTheirLang}
         disabled={status !== "idle"}
+        uiStrings={screenUiStrings}
       />
 
       <div className="min-h-0 flex-1">
@@ -1565,18 +1702,17 @@ function ChatScreen({
           messages={messages}
           onRetry={retryMessage}
           onAudioPlay={onAudioPlay}
+          uiStrings={screenUiStrings}
         />
       </div>
 
       <ChatComposer
-        sender={chatSender}
-        setSender={setChatSender}
         text={composerText}
         setText={setComposerText}
         recordingStatus={status}
         recordingTimer={recordingTimer}
         sourceLanguage={sourceLanguage}
-        targetLanguage={targetLanguage}
+        uiStrings={screenUiStrings}
         onSendText={handleSendText}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}

@@ -3,6 +3,7 @@ import "dotenv/config";
 import multer from "multer";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
+import { runUiTranslations } from "./lib/runUiTranslations.js";
 import { runVoiceChatMessage } from "./lib/runVoiceChatMessage.js";
 
 const app = express();
@@ -36,6 +37,23 @@ app.use(express.json());
 
 app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
+});
+
+app.post("/ui/translations", async (req, res) => {
+  try {
+    const result = await runUiTranslations({
+      targetLanguage: req.body?.targetLanguage,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(result.body);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("UI translation bundle failed", error);
+    return res.status(502).json({ error: "UI translation bundle failed" });
+  }
 });
 
 app.post("/chat/messages/text", async (req, res) => {
