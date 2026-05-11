@@ -2,6 +2,8 @@ export const ENGLISH_UI_STRINGS = {
   searchLanguages: "Search languages",
   you: "You",
   partner: "Partner",
+  shareInviteMessage:
+    "Let's chat on StringPhone so that we can understand each other better.",
   listening: "Listening",
   translating: "Translating",
   speaking: "Speaking",
@@ -14,6 +16,7 @@ export const ENGLISH_UI_STRINGS = {
   secondsLeft: "{seconds}s left",
   recordVoiceNote: "Record voice note",
   stopVoiceNote: "Stop voice note",
+  invertLanguages: "Invert languages",
   sendTextMessage: "Send text message",
   playAudio: "Play audio",
   pauseAudio: "Pause audio",

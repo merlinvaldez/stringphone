@@ -36,6 +36,7 @@ export default {
 
     const result = await runSpeechTranslation({
       responseMode: formData.get("responseMode"),
+      sourceLanguage: formData.get("sourceLanguage"),
       targetLanguage: formData.get("targetLanguage"),
       sourceAudioFile:
         sourceAudio instanceof File

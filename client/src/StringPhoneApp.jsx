@@ -36,6 +36,7 @@ import UA from "country-flag-icons/react/3x2/UA";
 import US from "country-flag-icons/react/3x2/US";
 import VN from "country-flag-icons/react/3x2/VN";
 import {
+  ArrowLeftRight,
   ArrowRight,
   Copy,
   Ear,
@@ -55,6 +56,7 @@ import {
 } from "lucide-react";
 import {
   DEFAULT_UI_STRINGS,
+  getShareInviteMessage,
   getStatusLabel,
   interpolateTemplate,
   useUiStrings,
@@ -67,6 +69,7 @@ import {
   retrySharedRoomMessage,
   SHARED_ROOM_POLL_INTERVAL_MS,
   sendSharedRoomTextMessage,
+  updateSharedRoomLanguages,
   sendSharedRoomVoiceMessage,
   shouldPollSharedRoomUpdates,
 } from "./sharedRoomApi.js";
@@ -187,6 +190,10 @@ const LANGUAGES = RAW_LANGUAGES.map((language) => ({
   name: getNativeLanguageName(language.code, language.englishName),
   flag: LANGUAGE_FLAG_COUNTRY_CODES[language.code] ?? language.flag,
 }));
+const CHAT_ONLY_TEXT_LANGUAGE_CODES = new Set(["fa"]);
+const VOICE_MODE_LANGUAGES = LANGUAGES.filter(
+  (language) => !CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
+);
 
 const LANGUAGE_BY_CODE = Object.fromEntries(
   LANGUAGES.map((language) => [language.code, language]),
@@ -387,6 +394,26 @@ function buildLanguageSnapshot(language) {
   };
 }
 
+function usesChatOnlyTextLanguage(...languages) {
+  return languages.some(
+    (language) => language && CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
+  );
+}
+
+function formatPronunciationGuide(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim().replace(/^pronounce:\s*/i, "");
+
+  if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
 function getInitialJoinToken() {
   if (typeof window === "undefined") {
     return "";
@@ -479,8 +506,13 @@ async function copyTextToClipboard(text) {
     return true;
   }
 
-  window.prompt("Copy this join link", text);
+  window.prompt("Copy this invite", text);
   return false;
+}
+
+function buildSharedRoomInviteCopy({ inviteUrl, inviteLanguageCode }) {
+  const inviteMessage = getShareInviteMessage(inviteLanguageCode || "en");
+  return `${inviteMessage}\n${inviteUrl}`;
 }
 
 function revokeSharedRoomAudioUrls(audioUrlCacheRef) {
@@ -542,7 +574,9 @@ function mapSharedRoomMessages({
       sender: message.authorParticipantId === participantId ? "self" : "partner",
       status: message.status,
       originalText: message.originalText,
+      originalPronunciation: message.originalPronunciation,
       translatedText: message.translatedText,
+      translatedPronunciation: message.translatedPronunciation,
       transcript: message.transcript,
       audioUrl,
       errorMessage: message.errorMessage,
@@ -843,6 +877,7 @@ function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
 function LanguageSelector({
   selected,
   onSelect,
+  options = LANGUAGES,
   disabled,
   orientation = "down",
   searchPlaceholder,
@@ -866,15 +901,15 @@ function LanguageSelector({
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     if (!normalizedQuery) {
-      return LANGUAGES;
+      return options;
     }
 
-    return LANGUAGES.filter((language) =>
+    return options.filter((language) =>
       [language.code, language.name, language.englishName].some((value) =>
         value.toLowerCase().includes(normalizedQuery),
       ),
     );
-  }, [searchQuery]);
+  }, [options, searchQuery]);
 
   let positionClasses = "top-full mt-3 left-0";
   if (orientation === "up") {
@@ -895,15 +930,15 @@ function LanguageSelector({
   const desktopPositionClasses =
     orientation === "up"
       ? effectiveMenuAlign === "center"
-        ? "sm:bottom-full sm:mb-3 sm:left-1/2 sm:-translate-x-1/2 sm:origin-bottom"
+        ? "sm:absolute sm:bottom-full sm:mb-3 sm:left-1/2 sm:-translate-x-1/2 sm:origin-bottom"
         : effectiveMenuAlign === "right"
-          ? "sm:bottom-full sm:mb-3 sm:right-0 sm:origin-bottom"
-          : "sm:bottom-full sm:mb-3 sm:left-0 sm:origin-bottom"
+          ? "sm:absolute sm:bottom-full sm:mb-3 sm:left-auto sm:right-0 sm:translate-x-0 sm:origin-bottom"
+          : "sm:absolute sm:bottom-full sm:mb-3 sm:left-0 sm:translate-x-0 sm:origin-bottom"
       : effectiveMenuAlign === "center"
-        ? "sm:top-full sm:mt-3 sm:left-1/2 sm:-translate-x-1/2"
+        ? "sm:absolute sm:top-full sm:mt-3 sm:left-1/2 sm:-translate-x-1/2"
         : effectiveMenuAlign === "right"
-          ? "sm:top-full sm:mt-3 sm:right-0"
-          : "sm:top-full sm:mt-3 sm:left-0";
+          ? "sm:absolute sm:top-full sm:mt-3 sm:left-auto sm:right-0 sm:translate-x-0"
+          : "sm:absolute sm:top-full sm:mt-3 sm:left-0 sm:translate-x-0";
 
   const setSelectorOpen = (nextOpen) => {
     if (!isControlled) {
@@ -1120,6 +1155,7 @@ function ModeSwitcher({
   appMode,
   setAppMode,
   sharedChatLocked = false,
+  textOnlyChatLocked = false,
   onBlockedModeChange,
   noticeMessage,
   onDismissNotice,
@@ -1131,7 +1167,10 @@ function ModeSwitcher({
     >
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
         {MODE_OPTIONS.map(({ id, label, Icon }) => {
-          const modeBlocked = sharedChatLocked && id !== "chat";
+          const modeBlocked = id !== "chat" && (sharedChatLocked || textOnlyChatLocked);
+          const blockedTitle = sharedChatLocked
+            ? `${label} unavailable while shared chat is active`
+            : "Persian is only available in Chat mode right now";
 
           return (
             <button
@@ -1156,7 +1195,7 @@ function ModeSwitcher({
               }`}
               title={
                 modeBlocked
-                  ? `${label} unavailable while shared chat is active`
+                  ? blockedTitle
                   : label
               }
             >
@@ -1338,6 +1377,12 @@ function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings }) {
 function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
+  const originalPronunciation = formatPronunciationGuide(
+    message.originalPronunciation,
+  );
+  const translatedPronunciation = formatPronunciationGuide(
+    message.translatedPronunciation,
+  );
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
@@ -1392,6 +1437,11 @@ function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                 <p className="text-sm leading-6 text-white">
                   {message.originalText}
                 </p>
+                {originalPronunciation ? (
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                    {originalPronunciation}
+                  </p>
+                ) : null}
               </div>
 
               <div className="border-t border-white/10 pt-3">
@@ -1401,6 +1451,11 @@ function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                       ? uiStrings.translationFailed
                       : uiStrings.translatingShort)}
                 </p>
+                {translatedPronunciation ? (
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">
+                    ({translatedPronunciation})
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -1561,6 +1616,7 @@ function UserSection({
   setLanguage,
   languageMenuOpen,
   onLanguageMenuOpenChange,
+  languageOptions = LANGUAGES,
   history,
   activeMessageId,
   onReplay,
@@ -1589,6 +1645,7 @@ function UserSection({
         <LanguageSelector
           selected={language}
           onSelect={setLanguage}
+          options={languageOptions}
           disabled={isLocked || userState !== "idle"}
           orientation={position}
           isOpen={languageMenuOpen}
@@ -1757,6 +1814,7 @@ function ConversationScreen({
         isLocked={activeSpeaker === "bottom"}
         language={theirLang}
         setLanguage={setTheirLang}
+        languageOptions={VOICE_MODE_LANGUAGES}
         languageMenuOpen={openLanguageSelector === "top"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
@@ -1789,6 +1847,7 @@ function ConversationScreen({
         isLocked={activeSpeaker === "top"}
         language={myLang}
         setLanguage={setMyLang}
+        languageOptions={VOICE_MODE_LANGUAGES}
         languageMenuOpen={openLanguageSelector === "bottom"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
@@ -1815,6 +1874,7 @@ function ActionColumn({
   Icon,
   language,
   setLanguage,
+  languageOptions = LANGUAGES,
   languageMenuOpen,
   onLanguageMenuOpenChange,
   uiStrings,
@@ -1897,6 +1957,7 @@ function ActionColumn({
       <LanguageSelector
         selected={language}
         onSelect={setLanguage}
+        options={languageOptions}
         orientation="up"
         disabled={status !== "idle"}
         searchPlaceholder={uiStrings.searchLanguages}
@@ -2000,6 +2061,7 @@ function SingleModeScreen({
           Icon={Mic}
           language={myLang}
           setLanguage={setMyLang}
+          languageOptions={VOICE_MODE_LANGUAGES}
           languageMenuOpen={openLanguageSelector === "speak"}
           onLanguageMenuOpenChange={(nextOpen) => {
             setOpenLanguageSelector((currentOpen) =>
@@ -2018,6 +2080,7 @@ function SingleModeScreen({
           Icon={Ear}
           language={theirLang}
           setLanguage={setTheirLang}
+          languageOptions={VOICE_MODE_LANGUAGES}
           languageMenuOpen={openLanguageSelector === "listen"}
           onLanguageMenuOpenChange={(nextOpen) => {
             setOpenLanguageSelector((currentOpen) =>
@@ -2095,7 +2158,7 @@ function SharedRoomControls({
           className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-400 text-zinc-950 shadow-lg transition duration-300 hover:bg-emerald-300"
           title="Untoggle shared chat"
         >
-          {roomStatus === "connecting" ? (
+          {roomStatus === "connecting" || roomStatus === "updating" ? (
             <Loader2 size={14} className="animate-spin" />
           ) : (
             <Share2 size={14} />
@@ -2115,7 +2178,7 @@ function SharedRoomControls({
               void onCopyInviteLink();
             }}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 shadow-lg transition duration-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Copy join link"
+            title="Copy invite"
           >
             <Copy size={14} />
           </button>
@@ -2151,7 +2214,7 @@ function SharedRoomControls({
       }}
       disabled={disabled || roomStatus === "creating"}
       className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-100 shadow-lg transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-      title="Create and copy join link"
+      title="Create and copy invite"
     >
       {roomStatus === "creating" ? (
         <Loader2 size={14} className="animate-spin text-amber-300" />
@@ -2181,6 +2244,10 @@ function ChatHeader({
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const useCompactMobileLanguageButtons = Boolean(sharedRoomSession);
+  const hostCanEditSharedRoomLanguages =
+    sharedRoomSession?.role === "host" && !sharedRoom?.guestJoined;
+  const selectorsDisabled =
+    disabled || (Boolean(sharedRoomSession) && !hostCanEditSharedRoomLanguages);
 
   return (
     <div className="relative z-20 mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
@@ -2190,7 +2257,7 @@ function ChatHeader({
         <LanguageSelector
           selected={myLang}
           onSelect={setMyLang}
-          disabled={disabled || Boolean(sharedRoomSession)}
+          disabled={selectorsDisabled}
           searchPlaceholder={uiStrings.searchLanguages}
           menuAlign="left"
           containerClassName={
@@ -2219,7 +2286,7 @@ function ChatHeader({
         <LanguageSelector
           selected={theirLang}
           onSelect={setTheirLang}
-          disabled={disabled || Boolean(sharedRoomSession)}
+          disabled={selectorsDisabled}
           searchPlaceholder={uiStrings.searchLanguages}
           menuAlign="right"
           mobileMenuFixedCenter
@@ -2268,15 +2335,23 @@ function ChatComposer({
   sourceLanguage,
   uiStrings,
   onSendText,
+  onInvertLanguages,
   onStartRecording,
   onStopRecording,
+  supportsVoiceInput = true,
   disabled = false,
   disabledPlaceholder = "",
 }) {
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
   const actionKind =
-    recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
+    recordingStatus === "recording"
+      ? "stop"
+      : hasText
+        ? "send"
+        : supportsVoiceInput
+          ? "mic"
+          : "invert";
 
   const actionProps =
     actionKind === "stop"
@@ -2297,14 +2372,23 @@ function ChatComposer({
             icon: <Send size={18} />,
             disabled: false,
           }
-        : {
-            onClick: onStartRecording,
-            title: uiStrings.recordVoiceNote,
-            className:
-              "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
-            icon: <Mic size={18} />,
-            disabled: recordingStatus === "processing",
-          };
+        : actionKind === "mic"
+          ? {
+              onClick: onStartRecording,
+              title: uiStrings.recordVoiceNote,
+              className:
+                "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+              icon: <Mic size={18} />,
+              disabled: recordingStatus === "processing",
+            }
+          : {
+              onClick: onInvertLanguages,
+              title: uiStrings.invertLanguages,
+              className:
+                "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+              icon: <ArrowLeftRight size={18} />,
+              disabled: recordingStatus === "processing",
+            };
 
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
@@ -2349,15 +2433,16 @@ function ChatComposer({
            className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
          />
 
-         <button
-           type="button"
-           onClick={actionProps.onClick}
-           disabled={actionProps.disabled || disabled}
-           className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
-           title={actionProps.title}
-         >
-          {actionProps.icon}
-        </button>
+          <button
+            type="button"
+            onClick={actionProps.onClick}
+            disabled={actionProps.disabled || disabled}
+            className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
+            title={actionProps.title}
+            aria-label={actionProps.title}
+          >
+           {actionProps.icon}
+         </button>
       </div>
     </div>
   );
@@ -2368,6 +2453,7 @@ function ChatScreen({
   setMyLang,
   theirLang,
   setTheirLang,
+  onInvertLanguages,
   messages,
   submitTextMessage,
   submitVoiceMessage,
@@ -2400,13 +2486,15 @@ function ChatScreen({
 
   const sourceLanguage = myLang;
   const targetLanguage = theirLang;
+  const textOnlyChat = usesChatOnlyTextLanguage(sourceLanguage, targetLanguage);
   const screenUiStrings = useUiStrings(sourceLanguage);
   const waitingForSharedRoomAutoJoin =
     Boolean(pendingInviteToken) && !sharedRoomSession && !sharedRoomError;
   const liveRoomBusy =
     sharedRoomStatus === "creating" ||
     sharedRoomStatus === "joining" ||
-    sharedRoomStatus === "connecting";
+    sharedRoomStatus === "connecting" ||
+    sharedRoomStatus === "updating";
   const composerDisabled =
     waitingForSharedRoomAutoJoin ||
     (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
@@ -2448,7 +2536,7 @@ function ChatScreen({
   };
 
   const handleStartRecording = async () => {
-    if (status !== "idle") return;
+    if (status !== "idle" || textOnlyChat) return;
 
     try {
       setError("");
@@ -2546,8 +2634,10 @@ function ChatScreen({
         sourceLanguage={sourceLanguage}
         uiStrings={screenUiStrings}
         onSendText={handleSendText}
+        onInvertLanguages={onInvertLanguages}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
+        supportsVoiceInput={!textOnlyChat}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}
       />
@@ -2596,6 +2686,7 @@ export default function StringPhoneApp() {
   const [sharedRoomError, setSharedRoomError] = useState("");
   const [sharedRoomCopyNotice, setSharedRoomCopyNotice] = useState("");
   const [modeLockNotice, setModeLockNotice] = useState(null);
+  const isFarsiChatOnly = usesChatOnlyTextLanguage(myLang, theirLang);
   const sharedRoomInviteUrl =
     sharedRoomSession?.inviteUrl ??
     (pendingInviteToken ? buildSharedRoomInviteUrl(pendingInviteToken) : "");
@@ -2650,6 +2741,18 @@ export default function StringPhoneApp() {
       window.clearTimeout(timeoutId);
     };
   }, [modeLockNotice]);
+
+  useEffect(() => {
+    if (appMode === "chat" || !isFarsiChatOnly) {
+      return;
+    }
+
+    setAppMode("chat");
+    setModeLockNotice({
+      id: Date.now(),
+      message: "Persian is text-only for now. Use Chat mode.",
+    });
+  }, [appMode, isFarsiChatOnly]);
 
   applySharedRoomSnapshotRef.current = (roomSnapshot, session = sharedRoomSession) => {
     if (!session) {
@@ -2907,7 +3010,9 @@ export default function StringPhoneApp() {
         sender,
         status: "translating",
         originalText: trimmedText,
+        originalPronunciation: "",
         translatedText: "",
+        translatedPronunciation: "",
         transcript: "",
         audioUrl: "",
         errorMessage: "",
@@ -2926,7 +3031,9 @@ export default function StringPhoneApp() {
         originMode,
         status: "translating",
         originalText: trimmedText,
+        originalPronunciation: "",
         translatedText: "",
+        translatedPronunciation: "",
         transcript: "",
         errorMessage: "",
         sourceLanguageCode: sourceSnapshot.code,
@@ -2949,7 +3056,9 @@ export default function StringPhoneApp() {
       updateMessage(messageId, {
         status: "ready",
         originalText: data.originalText,
+        originalPronunciation: data.originalPronunciation,
         translatedText: data.translatedText,
+        translatedPronunciation: data.translatedPronunciation,
         errorMessage: "",
       });
     } catch (translationError) {
@@ -2970,6 +3079,12 @@ export default function StringPhoneApp() {
     recording,
     existingMessageId,
   }) => {
+    if (usesChatOnlyTextLanguage(sourceLanguage, targetLanguage)) {
+      throw new Error(
+        "Persian is text-only right now. Use Chat mode for Persian messages.",
+      );
+    }
+
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
     const retryPayload = {
@@ -3193,13 +3308,17 @@ export default function StringPhoneApp() {
       setAppMode("chat");
 
       try {
-        const copied = await copyTextToClipboard(inviteUrl);
+        const inviteCopy = buildSharedRoomInviteCopy({
+          inviteUrl,
+          inviteLanguageCode: theirLang.code,
+        });
+        const copied = await copyTextToClipboard(inviteCopy);
 
         if (copied) {
-          setSharedRoomCopyNotice("Join link copied.");
+          setSharedRoomCopyNotice("Invite copied.");
         }
       } catch {
-        setSharedRoomError("Could not copy the join link from this browser.");
+        setSharedRoomError("Could not copy the invite from this browser.");
       }
     } catch (roomError) {
       setSharedRoomStatus("idle");
@@ -3250,24 +3369,120 @@ export default function StringPhoneApp() {
     }
 
     try {
-      const copied = await copyTextToClipboard(sharedRoomInviteUrl);
+      const inviteCopy = buildSharedRoomInviteCopy({
+        inviteUrl: sharedRoomInviteUrl,
+        inviteLanguageCode: theirLang.code,
+      });
+      const copied = await copyTextToClipboard(inviteCopy);
 
       if (copied) {
-        setSharedRoomCopyNotice("Join link copied.");
+        setSharedRoomCopyNotice("Invite copied.");
       }
     } catch {
-      setSharedRoomError("Could not copy the join link from this browser.");
+      setSharedRoomError("Could not copy the invite from this browser.");
+    }
+  };
+
+  const handleUpdateSharedRoomLanguages = async ({
+    nextMyLanguage,
+    nextTheirLanguage,
+  }) => {
+    if (
+      !sharedRoomSession ||
+      sharedRoomSession.role !== "host" ||
+      sharedRoom?.guestJoined
+    ) {
+      return "passthrough";
+    }
+
+    setSharedRoomError("");
+    setSharedRoomStatus("updating");
+
+    try {
+      const payload = await updateSharedRoomLanguages({
+        roomId: sharedRoomSession.roomId,
+        participantSessionToken: sharedRoomSession.participantSessionToken,
+        hostLanguageCode: nextMyLanguage.code,
+        guestLanguageCode: nextTheirLanguage.code,
+      });
+
+      applySharedRoomSnapshotRef.current?.(payload.room, sharedRoomSession);
+      return "updated";
+    } catch (roomError) {
+      setSharedRoomError(roomError.message);
+      setSharedRoomStatus("active");
+      return "failed";
+    }
+  };
+
+  const handleSelectChatMyLanguage = async (nextLanguage) => {
+    if (nextLanguage.code === myLang.code) {
+      return;
+    }
+
+    const outcome = await handleUpdateSharedRoomLanguages({
+      nextMyLanguage: nextLanguage,
+      nextTheirLanguage: theirLang,
+    });
+
+    if (outcome === "passthrough") {
+      setMyLang(nextLanguage);
+    }
+  };
+
+  const handleSelectChatTheirLanguage = async (nextLanguage) => {
+    if (nextLanguage.code === theirLang.code) {
+      return;
+    }
+
+    const outcome = await handleUpdateSharedRoomLanguages({
+      nextMyLanguage: myLang,
+      nextTheirLanguage: nextLanguage,
+    });
+
+    if (outcome === "passthrough") {
+      setTheirLang(nextLanguage);
+    }
+  };
+
+  const handleInvertChatLanguages = async () => {
+    if (myLang.code === theirLang.code) {
+      return;
+    }
+
+    if (
+      sharedRoomSession &&
+      (sharedRoomSession.role !== "host" || sharedRoom?.guestJoined)
+    ) {
+      return;
+    }
+
+    const nextMyLanguage = theirLang;
+    const nextTheirLanguage = myLang;
+    const outcome = await handleUpdateSharedRoomLanguages({
+      nextMyLanguage,
+      nextTheirLanguage,
+    });
+
+    if (outcome === "passthrough") {
+      setMyLang(nextMyLanguage);
+      setTheirLang(nextTheirLanguage);
     }
   };
 
   const chatMessages = sharedRoomSession ? sharedRoomMessages : messages;
   const handleBlockedModeChange = () => {
+    const message = sharedRoomSession?.role === "guest"
+      ? "This shared chat invite only works in Chat mode."
+      : sharedRoomSession
+        ? "Please untoggle shared chat to use live conversation modes."
+        : isFarsiChatOnly
+          ? "Persian is text-only for now. Use Chat mode."
+          : "Please untoggle shared chat to use live conversation modes.";
+
     setModeLockNotice({
       id: Date.now(),
-      message:
-        sharedRoomSession?.role === "guest"
-          ? "This shared chat invite only works in Chat mode."
-          : "Please untoggle shared chat to use live conversation modes.",
+      message,
     });
   };
 
@@ -3281,6 +3496,7 @@ export default function StringPhoneApp() {
         appMode={appMode}
         setAppMode={setAppMode}
         sharedChatLocked={Boolean(sharedRoomSession)}
+        textOnlyChatLocked={isFarsiChatOnly}
         onBlockedModeChange={handleBlockedModeChange}
         noticeMessage={modeLockNotice?.message ?? ""}
         onDismissNotice={() => setModeLockNotice(null)}
@@ -3289,9 +3505,10 @@ export default function StringPhoneApp() {
       {appMode === "chat" ? (
         <ChatScreen
           myLang={myLang}
-          setMyLang={setMyLang}
+          setMyLang={handleSelectChatMyLanguage}
           theirLang={theirLang}
-          setTheirLang={setTheirLang}
+          setTheirLang={handleSelectChatTheirLanguage}
+          onInvertLanguages={handleInvertChatLanguages}
           messages={chatMessages}
           submitTextMessage={submitChatTextMessage}
           submitVoiceMessage={submitChatVoiceMessage}

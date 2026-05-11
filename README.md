@@ -2,7 +2,7 @@
 
 Talk to your grandma... even if you don't speak her language.
 
-StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each speaker records a phrase in the browser, Voxtral analyzes that audio directly to produce the original transcript and target-language translation, and the backend routes TTS voice cloning to either Mistral Voxtral or Cartesia based on the selected language.
+StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each speaker records a phrase in the browser, Voxtral analyzes that audio directly to produce the original transcript and target-language translation, and the backend routes TTS voice generation to Mistral Voxtral, ElevenLabs, or Cartesia based on the selected language.
 
 ## MVP V1
 
@@ -12,9 +12,11 @@ StringPhone is a one-phone, turn-based voice translation app. For MVP V1, each s
 - Split Mode for face-to-face use, with portrait top-bottom layout and landscape/desktop side-by-side layout
 - Browser `MediaRecorder` capture per turn
 - `POST /speech/translate` supports MP3 output and frontend JSON output
-- Voxtral transcription turns the recorded audio into text
+- Voxtral transcription turns supported source-audio languages into text, and Persian source audio uses ElevenLabs Scribe v2 on the Farsi path
 - Mistral chat translates the transcript into the target language
-- Mistral Voxtral TTS handles English, Spanish, French, German, Portuguese, Italian, Dutch, Hindi, Arabic, and the current experimental Persian path
+- Farsi conversation testing now skips per-turn cloning and can force one fixed ElevenLabs voice across both directions
+- Mistral Voxtral TTS handles English, Spanish, French, German, Portuguese, Italian, Dutch, Hindi, and Arabic
+- ElevenLabs instant voice cloning + `eleven_v3` handles the current Persian/Farsi path
 - Cartesia Sonic 3.5 handles Chinese, Japanese, Korean, Polish, Russian, Swedish, Turkish, Tagalog, Bulgarian, Romanian, Czech, Greek, Finnish, Croatian, Malay, Slovak, Danish, Tamil, Ukrainian, Hungarian, Norwegian, Vietnamese, Bengali, Thai, Hebrew, Georgian, Indonesian, Telugu, Gujarati, Kannada, Malayalam, Marathi, and Punjabi
 
 ## Local Development

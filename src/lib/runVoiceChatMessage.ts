@@ -66,6 +66,7 @@ export async function runVoiceChatMessage(
 
   const result = await runSpeechTranslation({
     responseMode: "json",
+    sourceLanguage: sourceLanguage.code,
     targetLanguage: targetLanguage.code,
     sourceAudioFile: input.sourceAudioFile,
     voiceSampleFile: input.voiceSampleFile ?? input.sourceAudioFile,

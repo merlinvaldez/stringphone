@@ -73,6 +73,33 @@ export async function fetchSharedRoomSnapshot({
   return response.json();
 }
 
+export async function updateSharedRoomLanguages({
+  roomId,
+  participantSessionToken,
+  hostLanguageCode,
+  guestLanguageCode,
+}) {
+  const response = await fetch(`${API_BASE_URL}/chat/rooms/${roomId}/languages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      participantSessionToken,
+      hostLanguage: hostLanguageCode,
+      guestLanguage: guestLanguageCode,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to update live room languages."),
+    );
+  }
+
+  return response.json();
+}
+
 export async function sendSharedRoomTextMessage({
   roomId,
   participantSessionToken,

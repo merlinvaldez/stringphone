@@ -3,6 +3,7 @@ import { mistral } from "../lib/mistral.js";
 export type TranslateTextInput = {
   text: string;
   targetLanguage: string;
+  sourceLanguage?: string;
 };
 
 export async function translateText(input: TranslateTextInput) {
@@ -17,7 +18,7 @@ export async function translateText(input: TranslateTextInput) {
       },
       {
         role: "user",
-        content: `Target language: ${input.targetLanguage}\n\nText:\n${input.text}`,
+        content: `${input.sourceLanguage ? `Source language: ${input.sourceLanguage}\n` : ""}Target language: ${input.targetLanguage}\n\nText:\n${input.text}`,
       },
     ],
   });

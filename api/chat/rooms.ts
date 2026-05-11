@@ -9,6 +9,7 @@ import {
   joinRoom,
   type RoomRecord,
   RealtimeRoomError,
+  updateRoomLanguages,
   updateRoomMessage,
 } from "../../src/lib/realtimeRooms.js";
 import { runTextChatMessage } from "../../src/lib/runTextChatMessage.js";
@@ -101,8 +102,10 @@ async function processRoomTextMessage({
     updateRoomMessage(room, existingMessageId, {
       status: "translating",
       originalText: trimmedText,
+      originalPronunciation: "",
       transcript: "",
       translatedText: "",
+      translatedPronunciation: "",
       errorMessage: "",
       translatedAudio: undefined,
     });
@@ -129,7 +132,9 @@ async function processRoomTextMessage({
     updateRoomMessage(room, messageId, {
       status: "ready",
       originalText: result.originalText,
+      originalPronunciation: result.originalPronunciation,
       translatedText: result.translatedText,
+      translatedPronunciation: result.translatedPronunciation,
       errorMessage: "",
     });
 
@@ -320,6 +325,35 @@ export default {
         }
 
         if (
+          request.method === "POST" &&
+          routeSegments.length === 2 &&
+          routeRoot === "languages"
+        ) {
+          const body = await request.json().catch(() => null);
+          const access = assertRoomAccess(
+            roomId,
+            body?.participantSessionToken,
+          );
+          const room = updateRoomLanguages({
+            room: access.room,
+            participant: access.participant,
+            hostLanguage: body?.hostLanguage,
+            guestLanguage: body?.guestLanguage,
+          });
+
+          return jsonResponse({
+            room: buildRoomSnapshot(room),
+            participant: {
+              id: access.participant.id,
+              role: access.participant.role,
+              displayName: access.participant.displayName,
+              joinedAt: access.participant.joinedAt,
+              lastSeenAt: access.participant.lastSeenAt,
+            },
+          });
+        }
+
+        if (
           request.method === "GET" &&
           routeSegments.length === 2 &&
           routeRoot === "events"
@@ -442,6 +476,14 @@ export default {
 
       if (request.method === "GET" && routeSegments.length === 1) {
         return sendRoomError(error, "Failed to load shared room");
+      }
+
+      if (
+        request.method === "POST" &&
+        routeSegments.length === 2 &&
+        routeSegments[1] === "languages"
+      ) {
+        return sendRoomError(error, "Failed to update shared room languages");
       }
 
       if (

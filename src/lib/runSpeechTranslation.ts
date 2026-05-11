@@ -6,6 +6,7 @@ import { translateText } from "../services/translateText.js";
 
 export type RunSpeechTranslationInput = {
   responseMode?: unknown;
+  sourceLanguage?: unknown;
   targetLanguage: unknown;
   sourceAudioFile?: {
     buffer: Buffer;
@@ -40,7 +41,22 @@ export async function runSpeechTranslation(
   const wantsJson =
     typeof input.responseMode === "string" &&
     input.responseMode.trim().toLowerCase() === "json";
+  const supportedSourceLanguage =
+    input.sourceLanguage == null
+      ? null
+      : getSupportedTtsLanguage(input.sourceLanguage);
   const supportedTargetLanguage = getSupportedTtsLanguage(input.targetLanguage);
+
+  if (input.sourceLanguage != null && !supportedSourceLanguage) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        error: "sourceLanguage is not supported",
+        supportedLanguages: CANONICAL_TTS_LANGUAGES,
+      },
+    };
+  }
 
   if (typeof input.targetLanguage !== "string" || !input.targetLanguage.trim()) {
     return {
@@ -77,13 +93,26 @@ export async function runSpeechTranslation(
     };
   }
 
+  if (supportedSourceLanguage?.code === "fa" || supportedTargetLanguage.code === "fa") {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        error: "Persian is text-only right now. Use Chat mode for Persian messages.",
+      },
+    };
+  }
+
   const transcript = await transcribeAudio({
     audioBuffer: input.sourceAudioFile.buffer,
     filename: input.sourceAudioFile.filename,
+    mimeType: input.sourceAudioFile.mimeType,
+    sourceLanguage: supportedSourceLanguage,
   });
 
   const translation = await translateText({
     text: transcript,
+    sourceLanguage: supportedSourceLanguage?.name,
     targetLanguage: supportedTargetLanguage.name,
   });
 
@@ -97,6 +126,7 @@ export async function runSpeechTranslation(
     text: translation,
     targetLanguage: supportedTargetLanguage,
     voiceSample: voiceReferenceBuffer,
+    forceElevenLabsVoiceId: null,
   });
 
   return {

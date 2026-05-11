@@ -13,6 +13,7 @@ import {
   type RoomRecord,
   RealtimeRoomError,
   subscribeToRoom,
+  updateRoomLanguages,
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
@@ -114,8 +115,10 @@ async function processRoomTextMessage({
     updateRoomMessage(room, existingMessageId, {
       status: "translating",
       originalText: trimmedText,
+      originalPronunciation: "",
       transcript: "",
       translatedText: "",
+      translatedPronunciation: "",
       errorMessage: "",
       translatedAudio: undefined,
     });
@@ -145,7 +148,9 @@ async function processRoomTextMessage({
     updateRoomMessage(room, messageId, {
       status: "ready",
       originalText: result.originalText,
+      originalPronunciation: result.originalPronunciation,
       translatedText: result.translatedText,
+      translatedPronunciation: result.translatedPronunciation,
       errorMessage: "",
     });
     broadcastRoomSnapshot(room);
@@ -340,6 +345,36 @@ app.get("/chat/rooms/:roomId/events", (req, res) => {
     req.on("close", unsubscribe);
   } catch (error) {
     return sendRoomError(res, error, "Failed to connect shared room events");
+  }
+});
+
+app.post("/chat/rooms/:roomId/languages", (req, res) => {
+  try {
+    const access = assertRoomAccess(
+      req.params.roomId,
+      req.body?.participantSessionToken,
+    );
+    const room = updateRoomLanguages({
+      room: access.room,
+      participant: access.participant,
+      hostLanguage: req.body?.hostLanguage,
+      guestLanguage: req.body?.guestLanguage,
+    });
+
+    broadcastRoomSnapshot(room);
+
+    return res.status(200).json({
+      room: buildRoomSnapshot(room),
+      participant: {
+        id: access.participant.id,
+        role: access.participant.role,
+        displayName: access.participant.displayName,
+        joinedAt: access.participant.joinedAt,
+        lastSeenAt: access.participant.lastSeenAt,
+      },
+    });
+  } catch (error) {
+    return sendRoomError(res, error, "Failed to update shared room languages");
   }
 });
 
@@ -548,6 +583,7 @@ app.post(
     try {
       const result = await runSpeechTranslation({
         responseMode: req.body?.responseMode,
+        sourceLanguage: req.body?.sourceLanguage,
         targetLanguage: req.body?.targetLanguage,
         sourceAudioFile: sourceAudioFile
           ? {

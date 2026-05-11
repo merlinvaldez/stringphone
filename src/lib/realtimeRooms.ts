@@ -53,7 +53,9 @@ export type PublicRoomMessage = {
   targetLanguageCode: string;
   targetLanguageLabel: string;
   originalText: string;
+  originalPronunciation: string;
   translatedText: string;
+  translatedPronunciation: string;
   transcript: string;
   createdAt: string;
   errorMessage: string;
@@ -176,7 +178,9 @@ function toPublicMessage(message: RoomMessage): PublicRoomMessage {
     targetLanguageCode: message.targetLanguageCode,
     targetLanguageLabel: message.targetLanguageLabel,
     originalText: message.originalText,
+    originalPronunciation: message.originalPronunciation,
     translatedText: message.translatedText,
+    translatedPronunciation: message.translatedPronunciation,
     transcript: message.transcript,
     createdAt: message.createdAt,
     errorMessage: message.errorMessage,
@@ -293,6 +297,32 @@ export function createRoom(input: {
   };
 }
 
+export function updateRoomLanguages(input: {
+  room: RoomRecord;
+  participant: RoomParticipant;
+  hostLanguage: unknown;
+  guestLanguage: unknown;
+}) {
+  const { room, participant, hostLanguage, guestLanguage } = input;
+
+  if (participant.role !== "host") {
+    throw new RealtimeRoomError(403, "Only the host can change shared chat languages");
+  }
+
+  if (room.participants.some((candidate) => candidate.role === "guest")) {
+    throw new RealtimeRoomError(
+      409,
+      "Shared chat languages lock once the second participant joins",
+    );
+  }
+
+  room.hostLanguage = resolveLanguage(hostLanguage, "hostLanguage");
+  room.guestLanguage = resolveLanguage(guestLanguage, "guestLanguage");
+  touchRoom(room);
+
+  return room;
+}
+
 export function joinRoom(input: {
   inviteToken: unknown;
   displayName?: unknown;
@@ -407,7 +437,9 @@ export function createRoomMessage(
     targetLanguageCode: targetLanguage.code,
     targetLanguageLabel: targetLanguage.label,
     originalText: input.originalText,
+    originalPronunciation: "",
     translatedText: "",
+    translatedPronunciation: "",
     transcript: input.transcript ?? "",
     createdAt: nowIso(),
     errorMessage: "",

@@ -1,4 +1,4 @@
-export type TtsProvider = "mistral" | "cartesia";
+export type TtsProvider = "mistral" | "cartesia" | "elevenlabs";
 
 export type SupportedTtsLanguage = {
   code: string;
@@ -17,7 +17,7 @@ export const SUPPORTED_TTS_LANGUAGE_OPTIONS: readonly SupportedTtsLanguage[] = [
   { code: "de", name: "German", provider: "mistral", aliases: ["german"] },
   { code: "hi", name: "Hindi", provider: "mistral", aliases: ["hindi"] },
   { code: "ar", name: "Arabic", provider: "mistral", aliases: ["arabic"] },
-  { code: "fa", name: "Persian", provider: "mistral", aliases: ["farsi", "persian"] },
+  { code: "fa", name: "Persian", provider: "elevenlabs", aliases: ["farsi", "persian"] },
   { code: "zh", name: "Chinese", provider: "cartesia", aliases: ["chinese", "mandarin"] },
   { code: "ja", name: "Japanese", provider: "cartesia", aliases: ["japanese"] },
   { code: "ko", name: "Korean", provider: "cartesia", aliases: ["korean"] },
