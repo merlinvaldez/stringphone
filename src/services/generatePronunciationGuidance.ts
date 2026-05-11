@@ -14,6 +14,18 @@ type PronunciationGuidance = {
   translatedPronunciation: string;
 };
 
+type GeneratePronunciationLineInput = {
+  text: string;
+  textLanguage: string;
+  textLanguageCode?: string;
+  readerLanguage: string;
+  readerLanguageCode?: string;
+  disallowedCopyText?: string;
+};
+
+const PERSIAN_SCRIPT_REGEX = /[\u0600-\u06FF]/;
+const LATIN_SCRIPT_REGEX = /[A-Za-z]/;
+
 function coercePronunciationValue(value: unknown) {
   if (typeof value !== "string") {
     return "";
@@ -28,70 +40,118 @@ function coercePronunciationValue(value: unknown) {
   return trimmed;
 }
 
-function coercePronunciationGuidance(value: unknown): PronunciationGuidance {
-  if (!value || typeof value !== "object") {
-    return {
-      originalPronunciation: "",
-      translatedPronunciation: "",
-    };
-  }
-
-  return {
-    originalPronunciation: coercePronunciationValue(
-      (value as { originalPronunciation?: unknown }).originalPronunciation,
-    ),
-    translatedPronunciation: coercePronunciationValue(
-      (value as { translatedPronunciation?: unknown }).translatedPronunciation,
-    ),
-  };
+function normalizeComparableText(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-export async function generatePronunciationGuidance(
-  input: GeneratePronunciationGuidanceInput,
-): Promise<PronunciationGuidance> {
-  const scriptRules = [
-    input.targetLanguageCode === "fa"
-      ? "For originalPronunciation, use Persian script only. Never use Latin letters."
-      : null,
-    input.sourceLanguageCode === "fa"
-      ? "For translatedPronunciation, use Persian script only. Never use Latin letters."
-      : null,
-    input.targetLanguageCode === "en"
-      ? "For originalPronunciation, use Latin letters only."
-      : null,
-    input.sourceLanguageCode === "en"
-      ? "For translatedPronunciation, use Latin letters only."
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+function getScriptInstruction(languageCode?: string) {
+  if (languageCode === "fa") {
+    return "Use Persian script only. Never use Latin letters. This is a sound-out guide, not a Persian translation.";
+  }
 
+  if (languageCode === "en") {
+    return "Use Latin letters only. Do not use Persian script. This is a sound-out guide, not an English translation.";
+  }
+
+  return "Use the everyday writing system that the reader language uses. Return a pronunciation guide, not a meaning translation.";
+}
+
+function getDirectionExample(input: GeneratePronunciationLineInput) {
+  if (input.readerLanguageCode === "fa" && input.textLanguageCode === "en") {
+    return `Example:
+Input text: Do you need help?
+Good output: دو یو نید هِلپ؟
+Bad output: آیا به کمک نیاز دارید؟`;
+  }
+
+  if (input.readerLanguageCode === "en" && input.textLanguageCode === "fa") {
+    return `Example:
+Input text: آیا به کمک نیاز دارید؟
+Good output: aa-YAA be KO-mak ni-YAAZ daa-REED
+Bad output: Do you need help?`;
+  }
+
+  if (input.readerLanguageCode === "fa") {
+    return `Example:
+Input text: Hey Grandma!
+Good output: هِی گْرَندْما!
+Bad output: سلام مامان بزرگ`;
+  }
+
+  if (input.readerLanguageCode === "en") {
+    return `Example:
+Input text: سلام مامان بزرگ
+Good output: sa-LAM ma-MAAN bo-ZORG
+Bad output: Hello Grandma`;
+  }
+
+  return "";
+}
+
+function validatePronunciationLine(
+  value: string,
+  input: GeneratePronunciationLineInput,
+) {
+  if (!value) {
+    return "";
+  }
+
+  const normalizedValue = normalizeComparableText(value);
+  const normalizedDisallowedCopy = input.disallowedCopyText
+    ? normalizeComparableText(input.disallowedCopyText)
+    : "";
+
+  if (
+    normalizedValue &&
+    normalizedDisallowedCopy &&
+    normalizedValue === normalizedDisallowedCopy
+  ) {
+    return "";
+  }
+
+  if (input.readerLanguageCode === "fa") {
+    if (!PERSIAN_SCRIPT_REGEX.test(value) || LATIN_SCRIPT_REGEX.test(value)) {
+      return "";
+    }
+  }
+
+  if (input.readerLanguageCode === "en") {
+    if (!LATIN_SCRIPT_REGEX.test(value) || PERSIAN_SCRIPT_REGEX.test(value)) {
+      return "";
+    }
+  }
+
+  return value;
+}
+
+async function generatePronunciationLine(
+  input: GeneratePronunciationLineInput,
+) {
   const response = await mistral.chat.complete({
-    model: process.env.MISTRAL_TRANSLATION_MODEL ?? "mistral-small-latest",
-    responseFormat: { type: "json_object" },
+    model:
+      process.env.MISTRAL_PRONUNCIATION_MODEL ??
+      process.env.MISTRAL_TRANSLATION_MODEL ??
+      "mistral-small-latest",
+    responseFormat: { type: "text" },
     messages: [
       {
         role: "system",
-        content:
-          `You generate short pronunciation guides for bilingual chat bubbles. Return only a JSON object with the keys originalPronunciation and translatedPronunciation. Do not translate the meaning. Do not include labels, quotation marks, or parentheses. Do not use IPA. For originalPronunciation, write a phonetic guide that a target-language speaker can read aloud to approximate the original text, using the target language's writing system. For translatedPronunciation, write a phonetic guide that a source-language speaker can read aloud to approximate the translated text, using the source language's writing system. When the writing system is Latin-based, use a simple sound-it-out style and add stress capitalization or hyphens only when helpful. ${scriptRules}`,
+        content: `You write one-line pronunciation guides for chat bubbles. Return only the pronunciation line. Do not translate the meaning. Do not explain. Do not add labels, quotation marks, or parentheses. Do not use IPA unless the user's writing system already uses plain Latin letters. Preserve the original word order. ${getScriptInstruction(input.readerLanguageCode)} ${getDirectionExample(input)}`,
       },
       {
         role: "user",
-        content: `Source language: ${input.sourceLanguage}
-Source language code: ${input.sourceLanguageCode ?? ""}
-Target language: ${input.targetLanguage}
-Target language code: ${input.targetLanguageCode ?? ""}
+        content: `Text language: ${input.textLanguage}
+Text language code: ${input.textLanguageCode ?? ""}
+Reader language: ${input.readerLanguage}
+Reader language code: ${input.readerLanguageCode ?? ""}
+${input.disallowedCopyText ? `Meaning-equivalent text to avoid copying:\n${input.disallowedCopyText}\n` : ""}
+Text to sound out:
+${input.text}
 
-Original text:
-${input.originalText}
-
-Translated text:
-${input.translatedText}
-
-Return JSON only.
-
-Example shape:
-{"originalPronunciation":"...", "translatedPronunciation":"..."}`,
+Return only the pronunciation line.`,
       },
     ],
   });
@@ -99,8 +159,57 @@ Example shape:
   const content = response.choices[0]?.message?.content;
 
   if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Pronunciation guidance response did not contain JSON text.");
+    return "";
   }
 
-  return coercePronunciationGuidance(JSON.parse(content));
+  return validatePronunciationLine(coercePronunciationValue(content), input);
+}
+
+export async function generatePronunciationGuidance(
+  input: GeneratePronunciationGuidanceInput,
+): Promise<PronunciationGuidance> {
+  const [originalPronunciationResult, translatedPronunciationResult] =
+    await Promise.allSettled([
+      generatePronunciationLine({
+        text: input.originalText,
+        textLanguage: input.sourceLanguage,
+        textLanguageCode: input.sourceLanguageCode,
+        readerLanguage: input.targetLanguage,
+        readerLanguageCode: input.targetLanguageCode,
+        disallowedCopyText: input.translatedText,
+      }),
+      generatePronunciationLine({
+        text: input.translatedText,
+        textLanguage: input.targetLanguage,
+        textLanguageCode: input.targetLanguageCode,
+        readerLanguage: input.sourceLanguage,
+        readerLanguageCode: input.sourceLanguageCode,
+        disallowedCopyText: input.originalText,
+      }),
+    ]);
+
+  if (originalPronunciationResult.status === "rejected") {
+    console.error(
+      "Original pronunciation guidance failed",
+      originalPronunciationResult.reason,
+    );
+  }
+
+  if (translatedPronunciationResult.status === "rejected") {
+    console.error(
+      "Translated pronunciation guidance failed",
+      translatedPronunciationResult.reason,
+    );
+  }
+
+  return {
+    originalPronunciation:
+      originalPronunciationResult.status === "fulfilled"
+        ? originalPronunciationResult.value
+        : "",
+    translatedPronunciation:
+      translatedPronunciationResult.status === "fulfilled"
+        ? translatedPronunciationResult.value
+        : "",
+  };
 }

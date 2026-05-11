@@ -1,5 +1,8 @@
 import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import { runSpeechTranslation } from "./runSpeechTranslation.js";
+import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
+import { transcribeAudio } from "../services/transcribeAudio.js";
+import { translateText } from "../services/translateText.js";
 
 type ChatLanguagePayload = {
   code: string;
@@ -26,9 +29,12 @@ export type RunVoiceChatMessageResult =
       ok: true;
       transcript: string;
       translatedText: string;
+      originalPronunciation: string;
+      translatedPronunciation: string;
       sourceLanguage: ChatLanguagePayload;
       targetLanguage: ChatLanguagePayload;
       audioBuffer: Buffer;
+      audioMimeType: string;
     }
   | {
       ok: false;
@@ -64,6 +70,70 @@ export async function runVoiceChatMessage(
     };
   }
 
+  if (!input.sourceAudioFile) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "sourceAudio file is required" },
+    };
+  }
+
+  const usesFarsiChatVoice =
+    sourceLanguage.code === "fa" || targetLanguage.code === "fa";
+
+  if (usesFarsiChatVoice) {
+    const transcript = await transcribeAudio({
+      audioBuffer: input.sourceAudioFile.buffer,
+      filename: input.sourceAudioFile.filename,
+      mimeType: input.sourceAudioFile.mimeType,
+      sourceLanguage,
+      forceProvider: "elevenlabs",
+    });
+
+    const translatedText = await translateText({
+      text: transcript,
+      sourceLanguage: sourceLanguage.name,
+      targetLanguage: targetLanguage.name,
+    });
+
+    let originalPronunciation = "";
+    let translatedPronunciation = "";
+
+    try {
+      const guidance = await generatePronunciationGuidance({
+        originalText: transcript,
+        translatedText,
+        sourceLanguageCode: sourceLanguage.code,
+        sourceLanguage: sourceLanguage.name,
+        targetLanguageCode: targetLanguage.code,
+        targetLanguage: targetLanguage.name,
+      });
+
+      originalPronunciation = guidance.originalPronunciation;
+      translatedPronunciation = guidance.translatedPronunciation;
+    } catch (error) {
+      console.error("Voice pronunciation guidance failed", error);
+    }
+
+    return {
+      ok: true,
+      transcript,
+      translatedText,
+      originalPronunciation,
+      translatedPronunciation,
+      sourceLanguage: {
+        code: sourceLanguage.code,
+        label: sourceLanguage.name,
+      },
+      targetLanguage: {
+        code: targetLanguage.code,
+        label: targetLanguage.name,
+      },
+      audioBuffer: input.sourceAudioFile.buffer,
+      audioMimeType: input.sourceAudioFile.mimeType ?? "audio/webm",
+    };
+  }
+
   const result = await runSpeechTranslation({
     responseMode: "json",
     sourceLanguage: sourceLanguage.code,
@@ -80,6 +150,8 @@ export async function runVoiceChatMessage(
     ok: true,
     transcript: result.transcript,
     translatedText: result.translation,
+    originalPronunciation: "",
+    translatedPronunciation: "",
     sourceLanguage: {
       code: sourceLanguage.code,
       label: sourceLanguage.name,
@@ -89,5 +161,6 @@ export async function runVoiceChatMessage(
       label: targetLanguage.name,
     },
     audioBuffer: result.audioBuffer,
+    audioMimeType: "audio/mpeg",
   };
 }

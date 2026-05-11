@@ -62,10 +62,12 @@ export default {
     return jsonResponse({
       transcript: result.transcript,
       translatedText: result.translatedText,
+      originalPronunciation: result.originalPronunciation,
+      translatedPronunciation: result.translatedPronunciation,
       sourceLanguage: result.sourceLanguage,
       targetLanguage: result.targetLanguage,
       audio: {
-        mimeType: "audio/mpeg",
+        mimeType: result.audioMimeType,
         base64: result.audioBuffer.toString("base64"),
       },
     });

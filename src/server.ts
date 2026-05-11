@@ -207,8 +207,10 @@ async function processRoomVoiceMessage({
     updateRoomMessage(room, existingMessageId, {
       status: "transcribing",
       originalText: "",
+      originalPronunciation: "",
       transcript: "",
       translatedText: "",
+      translatedPronunciation: "",
       errorMessage: "",
       translatedAudio: undefined,
     });
@@ -243,10 +245,12 @@ async function processRoomVoiceMessage({
     updateRoomMessage(room, messageId, {
       status: "ready",
       originalText: result.transcript,
+      originalPronunciation: result.originalPronunciation,
       transcript: result.transcript,
       translatedText: result.translatedText,
+      translatedPronunciation: result.translatedPronunciation,
       translatedAudio: {
-        mimeType: "audio/mpeg",
+        mimeType: result.audioMimeType,
         base64: result.audioBuffer.toString("base64"),
       },
       errorMessage: "",
@@ -550,10 +554,12 @@ app.post(
       return res.status(200).json({
         transcript: result.transcript,
         translatedText: result.translatedText,
+        originalPronunciation: result.originalPronunciation,
+        translatedPronunciation: result.translatedPronunciation,
         sourceLanguage: result.sourceLanguage,
         targetLanguage: result.targetLanguage,
         audio: {
-          mimeType: "audio/mpeg",
+          mimeType: result.audioMimeType,
           base64: result.audioBuffer.toString("base64"),
         },
       });

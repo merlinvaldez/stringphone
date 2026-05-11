@@ -1416,6 +1416,11 @@ function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-white">
                     {message.transcript}
                   </p>
+                  {originalPronunciation ? (
+                    <p className="mt-2 text-sm leading-6 text-zinc-300">
+                      {originalPronunciation}
+                    </p>
+                  ) : null}
                 </div>
               ) : message.status !== "error" ? (
                 <p className="text-sm leading-6 text-zinc-400">
@@ -1428,6 +1433,11 @@ function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-zinc-200">
                     {message.translatedText}
                   </p>
+                  {translatedPronunciation ? (
+                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                      ({translatedPronunciation})
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -2339,19 +2349,14 @@ function ChatComposer({
   onStartRecording,
   onStopRecording,
   supportsVoiceInput = true,
+  showInvertLanguages = false,
   disabled = false,
   disabledPlaceholder = "",
 }) {
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
   const actionKind =
-    recordingStatus === "recording"
-      ? "stop"
-      : hasText
-        ? "send"
-        : supportsVoiceInput
-          ? "mic"
-          : "invert";
+    recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
 
   const actionProps =
     actionKind === "stop"
@@ -2372,23 +2377,14 @@ function ChatComposer({
             icon: <Send size={18} />,
             disabled: false,
           }
-        : actionKind === "mic"
-          ? {
-              onClick: onStartRecording,
-              title: uiStrings.recordVoiceNote,
-              className:
-                "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
-              icon: <Mic size={18} />,
-              disabled: recordingStatus === "processing",
-            }
-          : {
-              onClick: onInvertLanguages,
-              title: uiStrings.invertLanguages,
-              className:
-                "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
-              icon: <ArrowLeftRight size={18} />,
-              disabled: recordingStatus === "processing",
-            };
+        : {
+            onClick: onStartRecording,
+            title: uiStrings.recordVoiceNote,
+            className:
+              "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
+            icon: <Mic size={18} />,
+            disabled: recordingStatus === "processing" || !supportsVoiceInput,
+          };
 
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
@@ -2432,6 +2428,19 @@ function ChatComposer({
            }
            className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
          />
+
+          {showInvertLanguages ? (
+            <button
+              type="button"
+              onClick={onInvertLanguages}
+              disabled={recordingStatus !== "idle" || disabled}
+              className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              title={uiStrings.invertLanguages}
+              aria-label={uiStrings.invertLanguages}
+            >
+              <ArrowLeftRight size={18} />
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -2536,7 +2545,7 @@ function ChatScreen({
   };
 
   const handleStartRecording = async () => {
-    if (status !== "idle" || textOnlyChat) return;
+    if (status !== "idle") return;
 
     try {
       setError("");
@@ -2637,7 +2646,8 @@ function ChatScreen({
         onInvertLanguages={onInvertLanguages}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        supportsVoiceInput={!textOnlyChat}
+        supportsVoiceInput
+        showInvertLanguages={textOnlyChat}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}
       />
@@ -2750,7 +2760,7 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setModeLockNotice({
       id: Date.now(),
-      message: "Persian is text-only for now. Use Chat mode.",
+      message: "Persian is only available in Chat mode for now.",
     });
   }, [appMode, isFarsiChatOnly]);
 
@@ -3079,12 +3089,6 @@ export default function StringPhoneApp() {
     recording,
     existingMessageId,
   }) => {
-    if (usesChatOnlyTextLanguage(sourceLanguage, targetLanguage)) {
-      throw new Error(
-        "Persian is text-only right now. Use Chat mode for Persian messages.",
-      );
-    }
-
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
     const retryPayload = {
@@ -3104,7 +3108,9 @@ export default function StringPhoneApp() {
         sender,
         status: "transcribing",
         originalText: "",
+        originalPronunciation: "",
         translatedText: "",
+        translatedPronunciation: "",
         transcript: "",
         audioUrl: "",
         errorMessage: "",
@@ -3123,7 +3129,9 @@ export default function StringPhoneApp() {
         originMode,
         status: "transcribing",
         originalText: "",
+        originalPronunciation: "",
         translatedText: "",
+        translatedPronunciation: "",
         transcript: "",
         audioUrl: "",
         errorMessage: "",
@@ -3149,8 +3157,10 @@ export default function StringPhoneApp() {
       updateMessage(messageId, {
         status: "ready",
         originalText: data.transcript,
+        originalPronunciation: data.originalPronunciation ?? "",
         transcript: data.transcript,
         translatedText: data.translatedText,
+        translatedPronunciation: data.translatedPronunciation ?? "",
         audioUrl,
         errorMessage: "",
       });
@@ -3477,7 +3487,7 @@ export default function StringPhoneApp() {
       : sharedRoomSession
         ? "Please untoggle shared chat to use live conversation modes."
         : isFarsiChatOnly
-          ? "Persian is text-only for now. Use Chat mode."
+          ? "Persian is only available in Chat mode for now."
           : "Please untoggle shared chat to use live conversation modes.";
 
     setModeLockNotice({

@@ -11,6 +11,7 @@ export type TranscribeAudioInput = {
   filename: string;
   mimeType?: string;
   sourceLanguage?: SupportedTtsLanguage | null;
+  forceProvider?: "elevenlabs" | "mistral";
 };
 
 const MISTRAL_TRANSCRIPTION_LANGUAGE_CODES = new Set([
@@ -166,6 +167,14 @@ async function transcribeWithMistral(input: TranscribeAudioInput) {
 }
 
 export async function transcribeAudio(input: TranscribeAudioInput) {
+  if (input.forceProvider === "elevenlabs") {
+    return transcribeWithElevenLabs(input);
+  }
+
+  if (input.forceProvider === "mistral") {
+    return transcribeWithMistral(input);
+  }
+
   if (input.sourceLanguage?.code === "fa") {
     return transcribeWithElevenLabs(input);
   }
