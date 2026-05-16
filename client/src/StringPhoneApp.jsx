@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import BD from "country-flag-icons/react/3x2/BD";
 import BG from "country-flag-icons/react/3x2/BG";
 import CN from "country-flag-icons/react/3x2/CN";
@@ -61,6 +62,7 @@ import {
   interpolateTemplate,
   useUiStrings,
 } from "./uiStrings.js";
+import { useAppAuth } from "./AuthContext.jsx";
 import {
   buildSharedRoomEventsUrl,
   createSharedRoom,
@@ -329,6 +331,74 @@ function FloatingBrand() {
       style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
     >
       <StringPhoneBrand compact />
+    </div>
+  );
+}
+
+function FloatingAuthControls() {
+  const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const accountLabel = account?.display_name ?? account?.email ?? "Signed in";
+
+  const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+
+    try {
+      setIsSigningOut(true);
+      await signOut();
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
+  return (
+    <div
+      className="absolute right-4 z-50 sm:right-6"
+      style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
+    >
+      {!isLoaded ? (
+        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-3 py-2 text-[0.72rem] font-medium text-zinc-300 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>Loading account</span>
+        </div>
+      ) : isSignedIn ? (
+        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-2 py-2 text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+          <div className="hidden items-center gap-2 rounded-[0.8rem] bg-white/[0.04] px-3 py-2 text-[0.72rem] font-medium text-zinc-300 sm:inline-flex">
+            <User className="h-3.5 w-3.5" />
+            <span>{accountLabel}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={isSigningOut}
+            className="inline-flex items-center gap-2 rounded-[0.8rem] border border-white/12 px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSigningOut ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <User className="h-3.5 w-3.5" />
+            )}
+            <span>{isSigningOut ? "Logging out" : "Log out"}</span>
+          </button>
+        </div>
+      ) : (
+        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-2 py-2 text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+          <Link
+            to="/login"
+            className="inline-flex items-center gap-2 rounded-[0.8rem] border border-white/12 px-3 py-2 text-[0.72rem] font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.06]"
+          >
+            <span>Log In</span>
+          </Link>
+          <Link
+            to="/signup"
+            className="inline-flex items-center gap-2 rounded-[0.8rem] bg-white px-3 py-2 text-[0.72rem] font-semibold text-zinc-950 transition hover:bg-zinc-100"
+          >
+            <span>Sign Up</span>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -3502,6 +3572,7 @@ export default function StringPhoneApp() {
       style={{ minHeight: "100svh", height: "100dvh" }}
     >
       <FloatingBrand />
+      <FloatingAuthControls />
       <ModeSwitcher
         appMode={appMode}
         setAppMode={setAppMode}

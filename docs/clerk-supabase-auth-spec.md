@@ -72,7 +72,7 @@ Phase 1 only creates the base account layer:
 
 This spec must respect the current repo shape:
 
-- `client/src/main.jsx` now wraps the routed app in `ClerkProvider`, but the app-specific `AuthProvider` is still not implemented.
+- `client/src/main.jsx` now wraps the routed app in both `ClerkProvider` and the app-specific `AuthProvider`.
 - `client/src/App.jsx` now owns the route shell for `/`, `/login/*`, and `/signup/*`.
 - `client/package.json` now includes Clerk and `react-router-dom`.
 - `StringPhoneApp.jsx` is a single-screen application shell that owns app mode, languages, recording state, shared-room state, and invite query handling.
@@ -398,22 +398,23 @@ Progress snapshot as of 2026-05-16:
 - Clerk is bootstrapped in `client/src/main.jsx`.
 - Dedicated Clerk-powered `/login/*` and `/signup/*` pages are implemented.
 - Signed-in redirect guards and fallback redirects to `/` are implemented.
-- The next unfinished slice starts with the app-specific `AuthProvider`, visible auth UI in `StringPhoneApp.jsx`, and return-state handling.
+- The app-specific `AuthProvider` is wired and the first visible guest-first account controls are live in `StringPhoneApp.jsx`.
+- The next unfinished slice starts with auth return-state handling, then backend account bootstrap/loading.
 
 ### Phase 1: Dependencies And Routing
 
 - [x] Add client dependencies for Clerk and `react-router-dom`.
 - [x] Add server dependencies for Clerk middleware and `pg`.
 - [x] Introduce `client/src/App.jsx` and route the current app shell through `/`.
-- [ ] Wrap the client entrypoint with `ClerkProvider` and a VoteFeed-style `AuthProvider`. `ClerkProvider` is done; `AuthProvider` is still pending.
+- [x] Wrap the client entrypoint with `ClerkProvider` and a VoteFeed-style `AuthProvider`.
 - [x] Add dedicated `Login` and `Signup` pages that render Clerk `SignIn` and `SignUp`.
 - [x] Add signed-in guards so `/login` and `/signup` redirect to `/`.
 - [x] Set Clerk fallback redirects to `/`.
 
 ### Phase 2: Visible Guest-First Auth UI
 
-- [ ] Add a visible signed-out CTA inside the current app shell without blocking translation use.
-- [ ] Add a signed-in account affordance with a logout action.
+- [x] Add a visible signed-out CTA inside the current app shell without blocking translation use.
+- [x] Add a signed-in account affordance with a logout action.
 - [ ] Add session storage return-state handling so mode and language context survive Clerk redirects.
 - [ ] Do not persist audio blobs or message history in the new auth-return state.
 

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
 import { ClerkProvider } from "@clerk/clerk-react";
 import App from "./App.jsx";
+import { AuthProvider } from "./AuthContext.jsx";
 import "./styles.css";
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -20,7 +21,9 @@ createRoot(document.getElementById("root")).render(
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
     >
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </ClerkProvider>
     <Analytics />
   </React.StrictMode>,
