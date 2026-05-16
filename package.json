@@ -25,11 +25,13 @@
   },
   "homepage": "https://github.com/merlinvaldez/stringphone#readme",
   "dependencies": {
+    "@clerk/express": "^2.1.17",
     "@mistralai/mistralai": "^2.2.0",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "ffmpeg-static": "^5.2.0",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
