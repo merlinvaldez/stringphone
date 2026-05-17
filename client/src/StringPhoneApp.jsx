@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import BD from "country-flag-icons/react/3x2/BD";
 import BG from "country-flag-icons/react/3x2/BG";
 import CN from "country-flag-icons/react/3x2/CN";
@@ -63,6 +63,11 @@ import {
   useUiStrings,
 } from "./uiStrings.js";
 import { useAppAuth } from "./AuthContext.jsx";
+import {
+  clearAuthReturnState,
+  readAuthReturnState,
+  saveAuthReturnState,
+} from "./authReturnState.js";
 import {
   buildSharedRoomEventsUrl,
   createSharedRoom,
@@ -335,9 +340,15 @@ function FloatingBrand() {
   );
 }
 
-function FloatingAuthControls() {
+function FloatingAuthControls({
+  appMode,
+  myLanguageCode,
+  theirLanguageCode,
+  joinQueryToken,
+}) {
   const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const navigate = useNavigate();
   const accountLabel = account?.display_name ?? account?.email ?? "Signed in";
 
   const handleSignOut = async () => {
@@ -351,6 +362,16 @@ function FloatingAuthControls() {
     } finally {
       setIsSigningOut(false);
     }
+  };
+
+  const handleAuthNavigation = (nextPath) => {
+    saveAuthReturnState({
+      appMode,
+      myLanguageCode,
+      theirLanguageCode,
+      joinQueryToken,
+    });
+    navigate(nextPath);
   };
 
   return (
@@ -385,18 +406,20 @@ function FloatingAuthControls() {
         </div>
       ) : (
         <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-2 py-2 text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
-          <Link
-            to="/login"
+          <button
+            type="button"
+            onClick={() => handleAuthNavigation("/login")}
             className="inline-flex items-center gap-2 rounded-[0.8rem] border border-white/12 px-3 py-2 text-[0.72rem] font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.06]"
           >
             <span>Log In</span>
-          </Link>
-          <Link
-            to="/signup"
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAuthNavigation("/signup")}
             className="inline-flex items-center gap-2 rounded-[0.8rem] bg-white px-3 py-2 text-[0.72rem] font-semibold text-zinc-950 transition hover:bg-zinc-100"
           >
             <span>Sign Up</span>
-          </Link>
+          </button>
         </div>
       )}
     </div>
@@ -2728,6 +2751,7 @@ function ChatScreen({
 }
 
 export default function StringPhoneApp() {
+  const { isLoaded: isAuthLoaded } = useAppAuth();
   const [appMode, setAppMode] = useState("chat");
   const [myLang, setMyLang] = useState(LANGUAGES[0]);
   const [theirLang, setTheirLang] = useState(LANGUAGES[1]);
@@ -2736,6 +2760,7 @@ export default function StringPhoneApp() {
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
   const initialJoinTokenRef = useRef(getInitialJoinToken());
+  const hasRestoredAuthReturnStateRef = useRef(false);
   const attemptedAutoJoinTokenRef = useRef("");
   const sharedRoomAudioUrlCacheRef = useRef(new Map());
   const [pendingInviteToken, setPendingInviteToken] = useState(
@@ -2775,6 +2800,27 @@ export default function StringPhoneApp() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    if (!isAuthLoaded || hasRestoredAuthReturnStateRef.current) {
+      return;
+    }
+
+    hasRestoredAuthReturnStateRef.current = true;
+
+    const savedReturnState = readAuthReturnState();
+
+    if (!savedReturnState) {
+      return;
+    }
+
+    setAppMode(savedReturnState.appMode);
+    setMyLang(getLanguageOption(savedReturnState.myLanguageCode));
+    setTheirLang(getLanguageOption(savedReturnState.theirLanguageCode));
+    setPendingInviteToken(savedReturnState.joinQueryToken);
+    syncSharedRoomInviteToken(savedReturnState.joinQueryToken);
+    clearAuthReturnState();
+  }, [isAuthLoaded]);
 
   useEffect(() => {
     persistSharedRoomSession(sharedRoomSession);
@@ -3572,7 +3618,12 @@ export default function StringPhoneApp() {
       style={{ minHeight: "100svh", height: "100dvh" }}
     >
       <FloatingBrand />
-      <FloatingAuthControls />
+      <FloatingAuthControls
+        appMode={appMode}
+        myLanguageCode={myLang.code}
+        theirLanguageCode={theirLang.code}
+        joinQueryToken={pendingInviteToken}
+      />
       <ModeSwitcher
         appMode={appMode}
         setAppMode={setAppMode}

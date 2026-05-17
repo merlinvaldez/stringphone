@@ -80,7 +80,7 @@ This spec must respect the current repo shape:
 - Shared room access is currently guarded only by `participantSessionToken`, which is intentionally out of scope for this auth rollout.
 - `src/server.ts` serves local Express routes, while `api/` contains deployed Vercel handlers for production parity.
 - `src/server.ts` currently allows only `Content-Type` in CORS headers, so authenticated local requests will need `Authorization` added.
-- The repo does not currently contain a DB client layer, a `supabase/` folder, or user query helpers.
+- The repo now contains `supabase/config.toml` and the initial `users` table migration, but it does not yet contain a shared DB client layer or user query helpers.
 
 ## 6. Product Intent
 
@@ -399,7 +399,9 @@ Progress snapshot as of 2026-05-16:
 - Dedicated Clerk-powered `/login/*` and `/signup/*` pages are implemented.
 - Signed-in redirect guards and fallback redirects to `/` are implemented.
 - The app-specific `AuthProvider` is wired and the first visible guest-first account controls are live in `StringPhoneApp.jsx`.
-- The next unfinished slice starts with auth return-state handling, then backend account bootstrap/loading.
+- Auth return-state storage now preserves mode, languages, and invite-token context across Clerk redirects without storing audio blobs or message history.
+- Supabase repo scaffolding and the minimal remote `users` table migration are now in place.
+- The next unfinished slice starts with the shared `DATABASE_URL` DB client and backend user query helpers.
 
 ### Phase 1: Dependencies And Routing
 
@@ -415,12 +417,12 @@ Progress snapshot as of 2026-05-16:
 
 - [x] Add a visible signed-out CTA inside the current app shell without blocking translation use.
 - [x] Add a signed-in account affordance with a logout action.
-- [ ] Add session storage return-state handling so mode and language context survive Clerk redirects.
-- [ ] Do not persist audio blobs or message history in the new auth-return state.
+- [x] Add session storage return-state handling so mode and language context survive Clerk redirects.
+- [x] Do not persist audio blobs or message history in the new auth-return state.
 
 ### Phase 3: Supabase And Backend User Layer
 
-- [ ] Add `supabase/` scaffolding and a migration for the minimal `users` table.
+- [x] Add `supabase/` scaffolding and a migration for the minimal `users` table.
 - [ ] Add a shared DB client for `DATABASE_URL`.
 - [ ] Add `upsertUserByClerkId`.
 - [ ] Add `getUserByClerkId`.
