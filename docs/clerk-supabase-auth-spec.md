@@ -79,8 +79,8 @@ This spec must respect the current repo shape:
 - Shared chat rooms currently use in-memory room records from `src/lib/realtimeRooms.ts`.
 - Shared room access is currently guarded only by `participantSessionToken`, which is intentionally out of scope for this auth rollout.
 - `src/server.ts` serves local Express routes, while `api/` contains deployed Vercel handlers for production parity.
-- `src/server.ts` currently allows only `Content-Type` in CORS headers, so authenticated local requests will need `Authorization` added.
-- The repo now contains `supabase/config.toml` and the initial `users` table migration, but it does not yet contain a shared DB client layer or user query helpers.
+- `src/server.ts` now allows `Authorization` in local CORS headers and runs Clerk middleware before route handlers.
+- The repo now contains `supabase/config.toml`, the initial `users` table migration, a shared DB client layer, user query helpers, local authenticated `/users/me` routes, deployed `/api/users/me` routes, and Vercel-side token verification helpers.
 
 ## 6. Product Intent
 
@@ -316,6 +316,43 @@ These stay public in phase 1:
 
 This auth rollout must not retroactively gate those flows.
 
+### 12.4 Phase 1 Scope Lock
+
+Only the current-user account routes are auth-protected in phase 1:
+
+- `GET /users/me`
+- `POST /users/me/bootstrap`
+- `GET /api/users/me`
+- `POST /api/users/me/bootstrap`
+
+Everything else remains guest-accessible, including:
+
+- `/speech/translate`
+- `/chat/messages/text`
+- `/chat/messages/voice`
+- `/chat/rooms`
+- `/chat/rooms/join`
+- `/chat/rooms/:roomId`
+- `/chat/rooms/:roomId/languages`
+- `/chat/rooms/:roomId/messages/text`
+- `/chat/rooms/:roomId/messages/voice`
+- `/chat/rooms/:roomId/messages/:messageId/retry`
+- `/ui/translations`
+
+`clerkMiddleware()` now runs globally in local Express, but only the `/users/me*` routes call `requireAuthenticatedAppRequest`. The deployed Vercel auth helper is likewise used only by `/api/users/me*`.
+
+### 12.5 Shared Room Scope Lock
+
+The shared-room model stays on `participantSessionToken` for this rollout.
+
+That means:
+
+- room create and join still issue `participantSessionToken`
+- room snapshot, language update, send, and retry flows still require `participantSessionToken`
+- no Clerk user lookup is attached to the room routes
+- no room ownership migration is made from `participantSessionToken` to Clerk identity
+- no client payloads or response shapes are renamed away from `participantSessionToken` in phase 1
+
 ## 13. Local Express And Vercel Parity
 
 The repo already supports both local Express development and deployed Vercel `api/` handlers. The auth rollout must preserve that split.
@@ -379,6 +416,22 @@ Clerk redirect configuration should include:
 
 Fallback redirect behavior should return users to `/`.
 
+Concrete path values for this repo:
+
+- sign-in page: `<origin>/login`
+- sign-up page: `<origin>/signup`
+- after sign-in redirect: `<origin>/`
+- after sign-up redirect: `<origin>/`
+
+These values match the current client wiring:
+
+- `client/src/main.jsx` sets `signInUrl="/login"` and `signUpUrl="/signup"`
+- `client/src/main.jsx` sets fallback redirects for both flows to `/`
+- `client/src/Login.jsx` points sign-in users toward `/signup`
+- `client/src/Signup.jsx` points sign-up users toward `/login`
+
+If Clerk asks for allowed origins, redirect URLs, or authentication URLs, use the deployed origin plus the localhost ports above and keep the routed auth pages on `/login` and `/signup`.
+
 ### 15.3 Vercel
 
 Vercel needs matching environment variables for:
@@ -388,6 +441,51 @@ Vercel needs matching environment variables for:
 - `DATABASE_URL`
 
 If `VITE_API_BASE_URL` is used in production, it must continue resolving to the same deployed `/api` surface.
+
+Recommended Vercel setup notes:
+
+- set `VITE_CLERK_PUBLISHABLE_KEY` in Preview and Production because both the client and the deployed Clerk request verifier depend on it
+- set `CLERK_SECRET_KEY` in Preview and Production as a server-only secret for deployed auth verification and Clerk user lookup
+- set `DATABASE_URL` in Preview and Production so the shared `pg` client can reach the Supabase Postgres database
+- leave `VITE_API_BASE_URL` unset when the frontend and API ship in the same Vercel project, because the client already defaults to same-origin `/api`
+- set `VITE_API_BASE_URL` only if the frontend will call a different deployed API origin
+- redeploy after any env-var change so both the built client bundle and the serverless functions see the new values
+- no additional Vercel rewrite is required for `/api/users/me*` because those are file-backed handlers; the only custom rewrite that remains is the existing `/api/chat/rooms/:path*` rewrite
+
+### 15.4 Supabase `DATABASE_URL` Setup And Migrations
+
+This repo now has the Supabase CLI installed locally through `node_modules`, so phase 1 rollout docs can stay repo-native.
+
+Expected setup steps:
+
+1. Copy the Postgres connection string for the target Supabase project.
+2. Store that connection string in local env as `DATABASE_URL`.
+3. Store the same connection string in Vercel as `DATABASE_URL`.
+4. If the repo is not already linked to the target Supabase project, link it first:
+
+```powershell
+& '.\node_modules\.bin\supabase.cmd' link --project-ref <your-project-ref>
+```
+
+5. Apply the checked-in migrations to the linked project:
+
+```powershell
+& '.\node_modules\.bin\supabase.cmd' db push --linked
+```
+
+6. If you prefer not to link the repo, push directly against a connection string instead:
+
+```powershell
+& '.\node_modules\.bin\supabase.cmd' db push --db-url "<percent-encoded-database-url>"
+```
+
+7. The first phase-1 database artifact expected by this auth rollout is `supabase/migrations/20260517121651_create_users_table.sql`.
+
+Notes:
+
+- the `supabase db push --help` output in this repo confirms both `--linked` and `--db-url` flows are available
+- the CLI help also notes that `--db-url` must be percent-encoded
+- phase 1 uses Supabase only as hosted Postgres behind backend-owned `pg` queries; no browser-side Supabase auth, storage, or Edge Functions are required
 
 ## 16. Implementation Checklist
 
@@ -401,7 +499,7 @@ Progress snapshot as of 2026-05-16:
 - The app-specific `AuthProvider` is wired and the first visible guest-first account controls are live in `StringPhoneApp.jsx`.
 - Auth return-state storage now preserves mode, languages, and invite-token context across Clerk redirects without storing audio blobs or message history.
 - Supabase repo scaffolding and the minimal remote `users` table migration are now in place.
-- The next unfinished slice starts with the shared `DATABASE_URL` DB client and backend user query helpers.
+- The next unfinished slice starts with scope-protection verification and rollout documentation for Clerk redirects, Vercel env vars, and Supabase `DATABASE_URL` setup.
 
 ### Phase 1: Dependencies And Routing
 
@@ -423,22 +521,22 @@ Progress snapshot as of 2026-05-16:
 ### Phase 3: Supabase And Backend User Layer
 
 - [x] Add `supabase/` scaffolding and a migration for the minimal `users` table.
-- [ ] Add a shared DB client for `DATABASE_URL`.
-- [ ] Add `upsertUserByClerkId`.
-- [ ] Add `getUserByClerkId`.
-- [ ] Add local Express auth handling and attach the app user lookup to authenticated requests.
-- [ ] Add matching Vercel token verification helpers for authenticated user routes.
-- [ ] Add `POST /users/me/bootstrap` and `GET /users/me` locally.
-- [ ] Add `POST /api/users/me/bootstrap` and `GET /api/users/me` for deployed parity.
-- [ ] Update local Express CORS to allow `Authorization`.
+- [x] Add a shared DB client for `DATABASE_URL`.
+- [x] Add `upsertUserByClerkId`.
+- [x] Add `getUserByClerkId`.
+- [x] Add local Express auth handling and attach the app user lookup to authenticated requests.
+- [x] Add matching Vercel token verification helpers for authenticated user routes.
+- [x] Add `POST /users/me/bootstrap` and `GET /users/me` locally.
+- [x] Add `POST /api/users/me/bootstrap` and `GET /api/users/me` for deployed parity.
+- [x] Update local Express CORS to allow `Authorization`.
 
 ### Phase 4: Scope Protection And Rollout Notes
 
-- [ ] Keep `/speech/translate`, `/chat/messages/*`, and the current shared-room routes public.
-- [ ] Keep the current `participantSessionToken` room model out of scope for phase 1 auth.
-- [ ] Document Clerk dashboard redirect setup.
-- [ ] Document required Vercel environment variables.
-- [ ] Document Supabase `DATABASE_URL` setup and migration application steps.
+- [x] Keep `/speech/translate`, `/chat/messages/*`, and the current shared-room routes public.
+- [x] Keep the current `participantSessionToken` room model out of scope for phase 1 auth.
+- [x] Document Clerk dashboard redirect setup.
+- [x] Document required Vercel environment variables.
+- [x] Document Supabase `DATABASE_URL` setup and migration application steps.
 
 ## 17. Acceptance Criteria
 
@@ -456,11 +554,11 @@ This auth foundation is complete for phase 1 when all of the following are true:
 
 ## 18. Verification Checklist
 
-- [ ] Open `/` while signed out and confirm all current translation modes still work.
-- [ ] Click `Sign Up`, complete Clerk signup, and confirm the app returns to `/`.
-- [ ] Confirm the app calls user bootstrap and creates a minimal `users` row in Supabase.
-- [ ] Click `Log In`, complete Clerk sign in, and confirm the app returns to `/`.
-- [ ] Visit `/login` while already signed in and confirm it redirects to `/`.
+- [x] Open `/` while signed out and confirm all current translation modes still work.
+- [x] Click `Sign Up`, complete Clerk signup, and confirm the app returns to `/`.
+- [x] Confirm the app calls user bootstrap and creates a minimal `users` row in Supabase.
+- [x] Click `Log In`, complete Clerk sign in, and confirm the app returns to `/`.
+- [x] Visit `/login` while already signed in and confirm it redirects to `/`.
 - [ ] Visit `/signup` while already signed in and confirm it redirects to `/`.
 - [ ] Call `GET /api/users/me` with a valid Clerk session and confirm it returns the current app user.
 - [ ] Call `POST /api/users/me/bootstrap` with a valid Clerk session and confirm it upserts the current app user.

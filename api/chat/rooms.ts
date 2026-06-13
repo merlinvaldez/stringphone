@@ -19,6 +19,7 @@ export const config = {
   runtime: "nodejs",
 };
 
+// Shared-room routes intentionally stay public in phase 1 and keep participantSessionToken auth.
 function jsonResponse(
   body: Record<string, unknown>,
   status = 200,

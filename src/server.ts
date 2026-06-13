@@ -1,6 +1,13 @@
+import { clerkMiddleware } from "@clerk/express";
 import express, { type Response } from "express";
 import "dotenv/config";
 import multer from "multer";
+import {
+  getAuthenticatedAppRequest,
+  requireAuthenticatedAppRequest,
+} from "./auth/express.js";
+import { getClerkUserIdentity } from "./auth/clerkUser.js";
+import { upsertUserByClerkId } from "./db/queries/users.js";
 import {
   assertRoomAccess,
   broadcastRoomSnapshot,
@@ -39,7 +46,7 @@ app.use((req, res, next) => {
 
   res.header("Vary", "Origin");
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -49,6 +56,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(clerkMiddleware());
 
 function getErrorMessage(
   body: Record<string, unknown> | undefined,
@@ -280,6 +288,39 @@ app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
 });
 
+// Phase 1 auth protects only the current-user account endpoints.
+app.get("/users/me", requireAuthenticatedAppRequest, (req, res) => {
+  const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+  if (!authenticatedRequest.appUser) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  return res.status(200).json(authenticatedRequest.appUser);
+});
+
+app.post("/users/me/bootstrap", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const authenticatedRequest = getAuthenticatedAppRequest(req);
+    const clerkIdentity = await getClerkUserIdentity(
+      authenticatedRequest.clerkUserId,
+    );
+    const appUser = await upsertUserByClerkId({
+      clerkUserId: clerkIdentity.clerkUserId,
+      email: clerkIdentity.email,
+      displayName: clerkIdentity.displayName,
+    });
+
+    authenticatedRequest.appUser = appUser;
+
+    return res.status(200).json(appUser);
+  } catch (error) {
+    console.error("Failed to bootstrap current user", error);
+    return res.status(502).json({ error: "Failed to bootstrap current user" });
+  }
+});
+
+// Shared-room and translation routes remain guest-accessible in phase 1.
 app.post("/chat/rooms", (req, res) => {
   try {
     const result = createRoom({
