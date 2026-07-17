@@ -81,6 +81,9 @@ import {
   shouldPollSharedRoomUpdates,
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
+import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
+import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
@@ -291,7 +294,7 @@ function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
   );
 }
 
-function StringPhoneBrand({
+export function StringPhoneBrand({
   className = "",
   compact = false,
   withLabel = false,
@@ -456,25 +459,6 @@ function base64ToBlob(base64, mimeType) {
   return new Blob([bytes], { type: mimeType });
 }
 
-function formatTimestamp(dateString) {
-  return new Intl.DateTimeFormat([], {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(dateString));
-}
-
-function formatDuration(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) {
-    return "--:--";
-  }
-
-  const totalSeconds = Math.max(0, Math.ceil(seconds));
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainder = totalSeconds % 60;
-
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
 function getLanguageOption(code) {
   return LANGUAGE_BY_CODE[code] ?? LANGUAGES[0];
 }
@@ -487,24 +471,10 @@ function buildLanguageSnapshot(language) {
   };
 }
 
-function usesChatOnlyTextLanguage(...languages) {
+export function usesChatOnlyTextLanguage(...languages) {
   return languages.some(
     (language) => language && CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
   );
-}
-
-function formatPronunciationGuide(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  const trimmed = value.trim().replace(/^pronounce:\s*/i, "");
-
-  if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
-    return trimmed.slice(1, -1).trim();
-  }
-
-  return trimmed;
 }
 
 function getInitialJoinToken() {
@@ -707,66 +677,7 @@ function deriveSharedRoomLanguages(roomSnapshot, role) {
   };
 }
 
-async function parseApiError(response, fallbackMessage) {
-  try {
-    const body = await response.json();
-    return body.error ?? fallbackMessage;
-  } catch {
-    return response.statusText || fallbackMessage;
-  }
-}
-
-async function translateTextMessage({ text, sourceLanguage, targetLanguage }) {
-  const response = await fetch(`${API_BASE_URL}/chat/messages/text`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-      sourceLanguage: sourceLanguage.code,
-      targetLanguage: targetLanguage.code,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "Text translation failed."),
-    );
-  }
-
-  return response.json();
-}
-
-async function translateVoiceMessage({
-  recording,
-  sourceLanguage,
-  targetLanguage,
-}) {
-  const formData = new FormData();
-  const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
-  const fileName = `stringphone-turn.${extension}`;
-
-  formData.append("sourceLanguage", sourceLanguage.code);
-  formData.append("targetLanguage", targetLanguage.code);
-  formData.append("sourceAudio", recording.blob, fileName);
-  formData.append("voiceSample", recording.blob, fileName);
-
-  const response = await fetch(`${API_BASE_URL}/chat/messages/voice`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "Voice translation failed."),
-    );
-  }
-
-  return response.json();
-}
-
-function useRecorder() {
+export function useRecorder() {
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -840,7 +751,7 @@ function useRecorder() {
   return { start, stop, cancel };
 }
 
-function useCountdown({ active, onExpire }) {
+export function useCountdown({ active, onExpire }) {
   const [recordingTimer, setRecordingTimer] = useState(MAX_RECORDING_TIME);
   const onExpireRef = useRef(onExpire);
 
@@ -967,7 +878,7 @@ function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
   };
 }
 
-function LanguageSelector({
+export function LanguageSelector({
   selected,
   onSelect,
   options = LANGUAGES,
@@ -1180,7 +1091,7 @@ function LanguageSelector({
   );
 }
 
-function AudioWave({ active, colorClass = "bg-zinc-300" }) {
+export function AudioWave({ active, colorClass = "bg-zinc-300" }) {
   const bars = useMemo(
     () => [
       { height: 36, duration: 0.45 },
@@ -1215,7 +1126,7 @@ function AudioWave({ active, colorClass = "bg-zinc-300" }) {
   );
 }
 
-function ErrorNotice({ message, onDismiss }) {
+export function ErrorNotice({ message, onDismiss }) {
   if (!message) return null;
 
   return (
@@ -1302,319 +1213,6 @@ function ModeSwitcher({
       </div>
 
       <GentleNotice message={noticeMessage} onDismiss={onDismissNotice} />
-    </div>
-  );
-}
-
-function MessageStatusPill({ status, uiStrings = DEFAULT_UI_STRINGS }) {
-  const statusLabel = getStatusLabel(status, uiStrings);
-
-  if (status === "ready") {
-    return null;
-  }
-
-  if (status === "error") {
-    return (
-      <span
-        title={statusLabel}
-        aria-label={statusLabel}
-        className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-500/20 bg-rose-500/10"
-      >
-        <span className="h-2 w-2 rounded-full bg-rose-300" />
-        <span className="sr-only">{statusLabel}</span>
-      </span>
-    );
-  }
-
-  return (
-    <span
-      title={statusLabel}
-      aria-label={statusLabel}
-      className="flex h-6 w-6 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-200"
-    >
-      <Loader2 size={12} className="animate-spin" />
-      <span className="sr-only">{statusLabel}</span>
-    </span>
-  );
-}
-
-function ChatEmptyState() {
-  return (
-    <div className="flex h-full min-h-[18rem] items-center justify-center">
-      <StringPhoneBrand withLabel className="animate-fade-in" />
-    </div>
-  );
-}
-
-function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings }) {
-  const audioRef = useRef(null);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  const accentClass = isSelf ? "text-emerald-200" : "text-zinc-200";
-  const trackClass = isSelf ? "stroke-emerald-300/25" : "stroke-white/15";
-  const progressClass = isSelf ? "stroke-emerald-300" : "stroke-indigo-300";
-  const radius = 18;
-  const circumference = 2 * Math.PI * radius;
-  const remainingSeconds =
-    duration > 0 ? Math.max(duration - currentTime, 0) : 0;
-  const progress =
-    duration > 0 ? Math.max(remainingSeconds / duration, 0) : 0;
-  const dashOffset = circumference * (1 - progress);
-
-  const syncDuration = (audioElement) => {
-    if (!audioElement) {
-      return;
-    }
-
-    if (Number.isFinite(audioElement.duration)) {
-      setDuration(audioElement.duration);
-    }
-  };
-
-  const togglePlayback = async () => {
-    const audioElement = audioRef.current;
-
-    if (!audioElement) {
-      return;
-    }
-
-    if (audioElement.paused) {
-      try {
-        await audioElement.play();
-      } catch {
-        setIsPlaying(false);
-      }
-      return;
-    }
-
-    audioElement.pause();
-  };
-
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`min-w-[2.8rem] text-right text-[11px] font-semibold tabular-nums tracking-[0.12em] ${accentClass}`}
-      >
-        {formatDuration(isPlaying ? remainingSeconds : duration)}
-      </span>
-
-      <button
-        type="button"
-        onClick={() => {
-          void togglePlayback();
-        }}
-        className={`relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/20 transition hover:bg-black/30 ${accentClass}`}
-        title={isPlaying ? uiStrings.pauseAudio : uiStrings.playAudio}
-      >
-        <svg
-          viewBox="0 0 44 44"
-          className="absolute inset-0 h-full w-full -rotate-90"
-          aria-hidden="true"
-        >
-          <circle
-            cx="22"
-            cy="22"
-            r={radius}
-            fill="none"
-            strokeWidth="2.5"
-            className={trackClass}
-          />
-          <circle
-            cx="22"
-            cy="22"
-            r={radius}
-            fill="none"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={dashOffset}
-            className={progressClass}
-          />
-        </svg>
-        {isPlaying ? (
-          <Pause size={16} className="relative z-10" fill="currentColor" />
-        ) : (
-          <Play size={16} className="relative z-10 translate-x-[1px]" fill="currentColor" />
-        )}
-      </button>
-
-      <audio
-        ref={audioRef}
-        preload="metadata"
-        src={audioUrl}
-        onLoadedMetadata={(event) => syncDuration(event.currentTarget)}
-        onDurationChange={(event) => syncDuration(event.currentTarget)}
-        onTimeUpdate={(event) => {
-          setCurrentTime(event.currentTarget.currentTime);
-        }}
-        onPlay={(event) => {
-          setIsPlaying(true);
-          onAudioPlay(event.currentTarget);
-        }}
-        onPause={() => {
-          setIsPlaying(false);
-        }}
-        onEnded={(event) => {
-          event.currentTarget.currentTime = 0;
-          setCurrentTime(0);
-          setIsPlaying(false);
-        }}
-        className="hidden"
-      />
-    </div>
-  );
-}
-
-function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
-  const isSelf = message.sender === "self";
-  const isVoice = message.kind === "voice";
-  const originalPronunciation = formatPronunciationGuide(
-    message.originalPronunciation,
-  );
-  const translatedPronunciation = formatPronunciationGuide(
-    message.translatedPronunciation,
-  );
-  const bubbleClasses = isSelf
-    ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
-    : "mr-auto border-white/10 bg-zinc-900/90";
-
-  return (
-    <article className={`flex w-full ${isSelf ? "justify-end" : "justify-start"}`}>
-      <div className="w-full max-w-[88%] sm:max-w-[78%]">
-        <div
-          className={`rounded-[1.75rem] border px-4 py-3 shadow-xl backdrop-blur-md ${bubbleClasses}`}
-        >
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <span className="pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              {formatTimestamp(message.createdAt)}
-            </span>
-            {isVoice && message.audioUrl ? (
-              <VoiceMessagePlayer
-                audioUrl={message.audioUrl}
-                onAudioPlay={onAudioPlay}
-                isSelf={isSelf}
-                uiStrings={uiStrings}
-              />
-            ) : (
-              <MessageStatusPill status={message.status} uiStrings={uiStrings} />
-            )}
-          </div>
-
-          {isVoice ? (
-            <div className="space-y-3">
-              {message.transcript ? (
-                <div>
-                  <p className="text-sm leading-6 text-white">
-                    {message.transcript}
-                  </p>
-                  {originalPronunciation ? (
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {originalPronunciation}
-                    </p>
-                  ) : null}
-                </div>
-              ) : message.status !== "error" ? (
-                <p className="text-sm leading-6 text-zinc-400">
-                  {uiStrings.preparingAudio}
-                </p>
-              ) : null}
-
-              {message.translatedText ? (
-                <div className="border-t border-white/10 pt-3">
-                  <p className="text-sm leading-6 text-zinc-200">
-                    {message.translatedText}
-                  </p>
-                  {translatedPronunciation ? (
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
-                      ({translatedPronunciation})
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm leading-6 text-white">
-                  {message.originalText}
-                </p>
-                {originalPronunciation ? (
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {originalPronunciation}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="border-t border-white/10 pt-3">
-                <p className="text-sm leading-6 text-zinc-200">
-                  {message.translatedText ||
-                    (message.status === "error"
-                      ? uiStrings.translationFailed
-                      : uiStrings.translatingShort)}
-                </p>
-                {translatedPronunciation ? (
-                  <p className="mt-2 text-xs leading-5 text-zinc-400">
-                    ({translatedPronunciation})
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          )}
-
-          {message.errorMessage ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
-              <span className="text-xs text-rose-200">{message.errorMessage}</span>
-              <button
-                type="button"
-                onClick={() => onRetry(message)}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-white/10"
-              >
-                {uiStrings.retry}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function ChatThread({ messages, onRetry, onAudioPlay, uiStrings }) {
-  const threadRef = useRef(null);
-
-  useEffect(() => {
-    const container = threadRef.current;
-
-    if (!container) return;
-
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages.length]);
-
-  if (messages.length === 0) {
-    return <ChatEmptyState />;
-  }
-
-  return (
-    <div
-      ref={threadRef}
-      className="h-full overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-    >
-      <div className="flex flex-col gap-4 pb-2">
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            onRetry={onRetry}
-            onAudioPlay={onAudioPlay}
-            uiStrings={uiStrings}
-          />
-        ))}
-      </div>
     </div>
   );
 }
@@ -2204,7 +1802,7 @@ function SingleModeScreen({
   );
 }
 
-function SharedRoomControls({
+export function SharedRoomControls({
   roomSession,
   room,
   roomStatus,
@@ -2325,428 +1923,6 @@ function SharedRoomControls({
         <Share2 size={14} />
       )}
     </button>
-  );
-}
-
-function ChatHeader({
-  myLang,
-  setMyLang,
-  theirLang,
-  setTheirLang,
-  disabled,
-  uiStrings,
-  sharedRoomSession,
-  sharedRoom,
-  sharedRoomStatus,
-  sharedRoomInviteUrl,
-  pendingInviteToken,
-  sharedRoomCopyNotice,
-  onDismissSharedRoomCopyNotice,
-  onToggleSharedRoom,
-  onCopySharedRoomInvite,
-}) {
-  const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
-  const useCompactMobileLanguageButtons = Boolean(sharedRoomSession);
-  const hostCanEditSharedRoomLanguages =
-    sharedRoomSession?.role === "host" && !sharedRoom?.guestJoined;
-  const selectorsDisabled =
-    disabled || (Boolean(sharedRoomSession) && !hostCanEditSharedRoomLanguages);
-
-  return (
-    <div className="relative z-20 mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
-      <div className="hidden sm:block" />
-
-      <div className="flex min-w-0 items-center gap-2 sm:justify-center sm:gap-3">
-        <LanguageSelector
-          selected={myLang}
-          onSelect={setMyLang}
-          disabled={selectorsDisabled}
-          searchPlaceholder={uiStrings.searchLanguages}
-          menuAlign="left"
-          containerClassName={
-            useCompactMobileLanguageButtons
-              ? "w-11 flex-none sm:min-w-[148px] sm:flex-none"
-              : "min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
-          }
-          buttonClassName={
-            useCompactMobileLanguageButtons
-              ? "min-w-0 px-0 sm:px-4"
-              : "min-w-0 justify-center px-3 sm:px-4"
-          }
-          mobileFlagOnly={useCompactMobileLanguageButtons}
-          isOpen={openLanguageSelector === "my"}
-          onOpenChange={(nextOpen) => {
-            setOpenLanguageSelector((currentOpen) =>
-              nextOpen ? "my" : currentOpen === "my" ? null : currentOpen,
-            );
-          }}
-        />
-        <ArrowRight
-          size={14}
-          className="shrink-0 text-zinc-500"
-          strokeWidth={1.7}
-        />
-        <LanguageSelector
-          selected={theirLang}
-          onSelect={setTheirLang}
-          disabled={selectorsDisabled}
-          searchPlaceholder={uiStrings.searchLanguages}
-          menuAlign="right"
-          mobileMenuFixedCenter
-          containerClassName={
-            useCompactMobileLanguageButtons
-              ? "w-11 flex-none sm:min-w-[148px] sm:flex-none"
-              : "min-w-0 flex-1 sm:min-w-[148px] sm:flex-none"
-          }
-          buttonClassName={
-            useCompactMobileLanguageButtons
-              ? "min-w-0 px-0 sm:px-4"
-              : "min-w-0 justify-center px-3 sm:px-4"
-          }
-          mobileFlagOnly={useCompactMobileLanguageButtons}
-          isOpen={openLanguageSelector === "their"}
-          onOpenChange={(nextOpen) => {
-            setOpenLanguageSelector((currentOpen) =>
-              nextOpen ? "their" : currentOpen === "their" ? null : currentOpen,
-            );
-          }}
-        />
-      </div>
-
-      <div className="justify-self-end">
-        <SharedRoomControls
-          roomSession={sharedRoomSession}
-          room={sharedRoom}
-          roomStatus={sharedRoomStatus}
-          pendingInviteToken={pendingInviteToken}
-          disabled={disabled}
-          copyNoticeMessage={sharedRoomCopyNotice}
-          onDismissCopyNotice={onDismissSharedRoomCopyNotice}
-          onToggleRoom={onToggleSharedRoom}
-          onCopyInviteLink={onCopySharedRoomInvite}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ChatComposer({
-  text,
-  setText,
-  recordingStatus,
-  recordingTimer,
-  sourceLanguage,
-  uiStrings,
-  onSendText,
-  onInvertLanguages,
-  onStartRecording,
-  onStopRecording,
-  supportsVoiceInput = true,
-  showInvertLanguages = false,
-  disabled = false,
-  disabledPlaceholder = "",
-}) {
-  const hasText = text.trim().length > 0;
-  const canSendText = hasText && recordingStatus === "idle" && !disabled;
-  const actionKind =
-    recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
-
-  const actionProps =
-    actionKind === "stop"
-      ? {
-          onClick: onStopRecording,
-          title: uiStrings.stopVoiceNote,
-          className:
-            "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]",
-          icon: <Square size={18} fill="currentColor" />,
-          disabled: false,
-        }
-      : actionKind === "send"
-        ? {
-            onClick: onSendText,
-            title: uiStrings.sendTextMessage,
-            className:
-              "bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.35)] hover:bg-emerald-400",
-            icon: <Send size={18} />,
-            disabled: false,
-          }
-        : {
-            onClick: onStartRecording,
-            title: uiStrings.recordVoiceNote,
-            className:
-              "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
-            icon: <Mic size={18} />,
-            disabled: recordingStatus === "processing" || !supportsVoiceInput,
-          };
-
-  return (
-    <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
-      {recordingStatus !== "idle" ? (
-        <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-          <div className="text-sm text-zinc-200">
-            {recordingStatus === "recording"
-              ? interpolateTemplate(uiStrings.secondsLeft, {
-                  seconds: recordingTimer,
-                })
-              : uiStrings.translatingVoiceNote}
-          </div>
-          {recordingStatus === "recording" ? (
-            <AudioWave active colorClass="bg-rose-400" />
-          ) : (
-            <Loader2 size={18} className="animate-spin text-amber-300" />
-          )}
-        </div>
-      ) : null}
-
-      <div className="flex items-end gap-2">
-        <input
-          type="text"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              if (canSendText) {
-                onSendText();
-              }
-            }
-          }}
-           disabled={recordingStatus !== "idle" || disabled}
-           placeholder={
-             disabled
-               ? disabledPlaceholder
-               : interpolateTemplate(uiStrings.messageIn, {
-                   language: sourceLanguage.name,
-                 })
-           }
-           className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-         />
-
-          {showInvertLanguages ? (
-            <button
-              type="button"
-              onClick={onInvertLanguages}
-              disabled={recordingStatus !== "idle" || disabled}
-              className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              title={uiStrings.invertLanguages}
-              aria-label={uiStrings.invertLanguages}
-            >
-              <ArrowLeftRight size={18} />
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={actionProps.onClick}
-            disabled={actionProps.disabled || disabled}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
-            title={actionProps.title}
-            aria-label={actionProps.title}
-          >
-           {actionProps.icon}
-         </button>
-      </div>
-    </div>
-  );
-}
-
-function ChatScreen({
-  myLang,
-  setMyLang,
-  theirLang,
-  setTheirLang,
-  onInvertLanguages,
-  messages,
-  submitTextMessage,
-  submitVoiceMessage,
-  retryMessage,
-  onAudioPlay,
-  sharedRoomSession,
-  sharedRoom,
-  sharedRoomStatus,
-  sharedRoomInviteUrl,
-  pendingInviteToken,
-  sharedRoomCopyNotice,
-  sharedRoomError,
-  onDismissSharedRoomCopyNotice,
-  onToggleSharedRoom,
-  onCopySharedRoomInvite,
-}) {
-  const recorder = useRecorder();
-  const mountedRef = useRef(true);
-  const [composerText, setComposerText] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState("");
-  const recordingTimer = useCountdown({
-    active: status === "recording",
-    onExpire: () => {
-      if (status === "recording") {
-        void handleStopRecording();
-      }
-    },
-  });
-
-  const sourceLanguage = myLang;
-  const targetLanguage = theirLang;
-  const textOnlyChat = usesChatOnlyTextLanguage(sourceLanguage, targetLanguage);
-  const screenUiStrings = useUiStrings(sourceLanguage);
-  const waitingForSharedRoomAutoJoin =
-    Boolean(pendingInviteToken) && !sharedRoomSession && !sharedRoomError;
-  const liveRoomBusy =
-    sharedRoomStatus === "creating" ||
-    sharedRoomStatus === "joining" ||
-    sharedRoomStatus === "connecting" ||
-    sharedRoomStatus === "updating";
-  const composerDisabled =
-    waitingForSharedRoomAutoJoin ||
-    (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
-  const composerDisabledPlaceholder = waitingForSharedRoomAutoJoin
-    ? "Joining shared chat..."
-    : sharedRoomStatus === "connecting"
-      ? "Live room is reconnecting..."
-      : "";
-
-  useEffect(
-    () => {
-      mountedRef.current = true;
-
-      return () => {
-        mountedRef.current = false;
-        recorder.cancel();
-      };
-    },
-    [],
-  );
-
-  const handleSendText = async () => {
-    const text = composerText.trim();
-
-    if (!text || status !== "idle") {
-      return;
-    }
-
-    setComposerText("");
-    setError("");
-
-    await submitTextMessage({
-      sourceLanguage,
-      targetLanguage,
-      text,
-      originMode: "chat",
-      sender: "self",
-    });
-  };
-
-  const handleStartRecording = async () => {
-    if (status !== "idle") return;
-
-    try {
-      setError("");
-      await recorder.start();
-
-      if (mountedRef.current) {
-        setStatus("recording");
-      }
-    } catch (recordingError) {
-      if (!mountedRef.current) return;
-      setStatus("idle");
-      setError(recordingError.message);
-    }
-  };
-
-  async function handleStopRecording() {
-    if (status !== "recording") return;
-
-    if (mountedRef.current) {
-      setStatus("processing");
-    }
-
-    try {
-      const recording = await recorder.stop();
-
-      await submitVoiceMessage({
-        sourceLanguage,
-        targetLanguage,
-        recording,
-        originMode: "chat",
-        sender: "self",
-      });
-
-      if (mountedRef.current) {
-        setStatus("idle");
-      }
-    } catch (recordingError) {
-      recorder.cancel();
-
-      if (!mountedRef.current) {
-        return;
-      }
-
-      setStatus("idle");
-      setError(recordingError.message);
-    }
-  }
-
-  return (
-    <div
-      className="relative flex h-full w-full flex-col overflow-visible px-4"
-      style={{
-        paddingTop: "calc(env(safe-area-inset-top, 16px) + 5.5rem)",
-        paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 0.85rem)",
-      }}
-    >
-      <ChatHeader
-        myLang={myLang}
-        setMyLang={setMyLang}
-        theirLang={theirLang}
-        setTheirLang={setTheirLang}
-        disabled={status !== "idle" || liveRoomBusy || waitingForSharedRoomAutoJoin}
-        uiStrings={screenUiStrings}
-        sharedRoomSession={sharedRoomSession}
-        sharedRoom={sharedRoom}
-        sharedRoomStatus={sharedRoomStatus}
-        sharedRoomInviteUrl={sharedRoomInviteUrl}
-        pendingInviteToken={pendingInviteToken}
-        sharedRoomCopyNotice={sharedRoomCopyNotice}
-        onDismissSharedRoomCopyNotice={onDismissSharedRoomCopyNotice}
-        onToggleSharedRoom={onToggleSharedRoom}
-        onCopySharedRoomInvite={onCopySharedRoomInvite}
-      />
-
-      {sharedRoomError ? (
-        <div className="mb-3 rounded-[1.4rem] border border-rose-500/20 bg-rose-950/40 px-4 py-3 text-sm text-rose-100">
-          {sharedRoomError}
-        </div>
-      ) : null}
-
-      <div className="min-h-0 flex-1">
-        <ChatThread
-          messages={messages}
-          onRetry={retryMessage}
-          onAudioPlay={onAudioPlay}
-          uiStrings={screenUiStrings}
-        />
-      </div>
-
-      <ChatComposer
-        text={composerText}
-        setText={setComposerText}
-        recordingStatus={status}
-        recordingTimer={recordingTimer}
-        sourceLanguage={sourceLanguage}
-        uiStrings={screenUiStrings}
-        onSendText={handleSendText}
-        onInvertLanguages={onInvertLanguages}
-        onStartRecording={handleStartRecording}
-        onStopRecording={handleStopRecording}
-        supportsVoiceInput
-        showInvertLanguages={textOnlyChat}
-        disabled={composerDisabled}
-        disabledPlaceholder={composerDisabledPlaceholder}
-      />
-
-      <ErrorNotice message={error} onDismiss={() => setError("")} />
-    </div>
   );
 }
 
