@@ -9,6 +9,7 @@ import {
 import { getClerkUserIdentity } from "./auth/clerkUser.js";
 import { upsertUserByClerkId } from "./db/queries/users.js";
 import {
+  archiveConversation,
   createConversation,
   getConversations,
   getConversation,
@@ -16,6 +17,7 @@ import {
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
+import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
   assertRoomAccess,
   broadcastRoomSnapshot,
@@ -602,6 +604,27 @@ app.patch("/chat/conversations/:id", requireAuthenticatedAppRequest, async (req,
   }
 });
 
+app.delete("/chat/conversations/:id", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversation = await archiveConversation({
+      conversationId: req.params.id,
+      userId: user.id,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to archive conversation", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 app.get("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, async (req, res) => {
   try {
     const user = (req as any).appUser;
@@ -627,13 +650,26 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const conversationId = req.params.id;
-    const conversation = await getConversation(conversationId, user.id);
+    let conversation = await getConversation(conversationId, user.id);
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found or unauthorized" });
     }
 
     if (!req.body?.sender || !req.body?.originalText || !req.body?.translatedText) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (req.body?.sourceLanguage && req.body?.targetLanguage) {
+      const updatedConversation = await updateConversationLanguages({
+        conversationId,
+        userId: user.id,
+        sourceLanguage: req.body.sourceLanguage,
+        targetLanguage: req.body.targetLanguage,
+      });
+
+      if (updatedConversation) {
+        conversation = updatedConversation;
+      }
     }
 
     const message = await createMessage({
@@ -644,6 +680,14 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
       transcript: req.body.transcript ?? null,
       audioUrl: req.body.audioUrl ?? null,
     });
+
+    await refreshConversationTitle({
+      conversationId,
+      userId: user.id,
+      sourceLanguageCode: conversation.source_language,
+      targetLanguageCode: conversation.target_language,
+    });
+
     return res.status(200).json(message);
   } catch (error) {
     console.error("Failed to create message", error);

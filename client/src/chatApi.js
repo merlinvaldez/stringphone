@@ -103,6 +103,18 @@ export async function updateConversationLanguages(
   return response.json();
 }
 
+export async function archiveConversation(authFetch, conversationId) {
+  const response = await authFetch(`${API_BASE_URL}/chat/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to archive conversation"),
+    );
+  }
+  return response.json();
+}
+
 export async function saveMessage(authFetch, conversationId, messagePayload) {
   const response = await authFetch(`${API_BASE_URL}/chat/conversations/${conversationId}/messages`, {
     method: "POST",

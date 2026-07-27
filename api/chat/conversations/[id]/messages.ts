@@ -7,7 +7,9 @@ import {
   createMessage,
   getConversation,
   getMessages,
+  updateConversationLanguages,
 } from "../../../../src/db/queries/conversations.js";
+import { refreshConversationTitle } from "../../../../src/services/refreshConversationTitle.js";
 
 export const config = {
   runtime: "nodejs",
@@ -37,8 +39,10 @@ export default {
     }
     const conversationId = pathParts[messagesIndex - 1];
 
+    let conversation;
+
     try {
-      const conversation = await getConversation(conversationId, authenticatedRequest.appUser.id);
+      conversation = await getConversation(conversationId, authenticatedRequest.appUser.id);
       if (!conversation) {
         return jsonResponse({ error: "Conversation not found or unauthorized" }, 404);
       }
@@ -65,6 +69,19 @@ export default {
       }
 
       try {
+        if (body.sourceLanguage && body.targetLanguage) {
+          const updatedConversation = await updateConversationLanguages({
+            conversationId,
+            userId: authenticatedRequest.appUser.id,
+            sourceLanguage: body.sourceLanguage,
+            targetLanguage: body.targetLanguage,
+          });
+
+          if (updatedConversation) {
+            conversation = updatedConversation;
+          }
+        }
+
         const message = await createMessage({
           conversationId,
           sender: body.sender,
@@ -73,6 +90,14 @@ export default {
           transcript: body.transcript ?? null,
           audioUrl: body.audioUrl ?? null,
         });
+
+        await refreshConversationTitle({
+          conversationId,
+          userId: authenticatedRequest.appUser.id,
+          sourceLanguageCode: conversation.source_language,
+          targetLanguageCode: conversation.target_language,
+        });
+
         return jsonResponse(message);
       } catch (error) {
         console.error("Failed to create message", error);

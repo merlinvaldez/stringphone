@@ -3,7 +3,10 @@ import {
   jsonResponse,
   requireAuthenticatedVercelAppRequest,
 } from "../../../../src/auth/vercel.js";
-import { updateConversationLanguages } from "../../../../src/db/queries/conversations.js";
+import {
+  archiveConversation,
+  updateConversationLanguages,
+} from "../../../../src/db/queries/conversations.js";
 
 export const config = {
   runtime: "nodejs",
@@ -25,6 +28,34 @@ export default {
       return jsonResponse({ error: "User not found" }, 404);
     }
 
+    const url = new URL(request.url);
+    const pathParts = url.pathname.split("/");
+    const conversationsIndex = pathParts.indexOf("conversations");
+
+    if (conversationsIndex < 0 || conversationsIndex + 1 >= pathParts.length) {
+      return jsonResponse({ error: "Invalid route" }, 400);
+    }
+
+    const conversationId = pathParts[conversationsIndex + 1];
+
+    if (request.method === "DELETE") {
+      try {
+        const conversation = await archiveConversation({
+          conversationId,
+          userId: authenticatedRequest.appUser.id,
+        });
+
+        if (!conversation) {
+          return jsonResponse({ error: "Conversation not found or unauthorized" }, 404);
+        }
+
+        return jsonResponse(conversation);
+      } catch (error) {
+        console.error("Failed to archive conversation", error);
+        return jsonResponse({ error: "Internal Server Error" }, 500);
+      }
+    }
+
     if (request.method !== "PATCH") {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
@@ -35,17 +66,9 @@ export default {
       return jsonResponse({ error: "Missing required fields" }, 400);
     }
 
-    const url = new URL(request.url);
-    const pathParts = url.pathname.split("/");
-    const conversationsIndex = pathParts.indexOf("conversations");
-
-    if (conversationsIndex < 0 || conversationsIndex + 1 >= pathParts.length) {
-      return jsonResponse({ error: "Invalid route" }, 400);
-    }
-
     try {
       const conversation = await updateConversationLanguages({
-        conversationId: pathParts[conversationsIndex + 1],
+        conversationId,
         userId: authenticatedRequest.appUser.id,
         sourceLanguage: body.sourceLanguage,
         targetLanguage: body.targetLanguage,
