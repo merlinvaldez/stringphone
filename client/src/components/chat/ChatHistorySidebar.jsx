@@ -1,0 +1,311 @@
+import React, { useEffect, useState } from "react";
+import {
+  X,
+  Plus,
+  Loader2,
+  ArrowRight,
+  MoreVertical,
+  Trash2,
+} from "lucide-react";
+import {
+  archiveConversation,
+  createConversation,
+  fetchConversations,
+} from "../../chatApi.js";
+import { useAppAuth } from "../../AuthContext.jsx";
+import { getFlagCountryCode, LanguageFlag } from "../../languageFlags.jsx";
+
+export function ChatHistorySidebar({
+  isOpen,
+  onClose,
+  currentConversationId,
+  onSelectConversation,
+  onNewConversation,
+  onArchiveConversation,
+  currentSourceLanguage,
+  currentTargetLanguage,
+}) {
+  const { authFetch, isSignedIn } = useAppAuth();
+  const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [archivingConversationId, setArchivingConversationId] = useState(null);
+  const [openConversationMenuId, setOpenConversationMenuId] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (isOpen && isSignedIn) {
+      loadConversations();
+    }
+  }, [isOpen, isSignedIn]);
+
+  useEffect(() => {
+    if (!openConversationMenuId) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-conversation-actions]")
+      ) {
+        return;
+      }
+
+      setOpenConversationMenuId(null);
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setOpenConversationMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openConversationMenuId]);
+
+  const isBusy = loading || archivingConversationId !== null;
+
+  async function loadConversations() {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await fetchConversations(authFetch);
+      setConversations(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleNewConversation() {
+    try {
+      setLoading(true);
+      setError("");
+      const title = "New chat";
+      const newConv = await createConversation(authFetch, {
+        title,
+        sourceLanguage: currentSourceLanguage,
+        targetLanguage: currentTargetLanguage,
+      });
+      setConversations((previous) => [newConv, ...previous]);
+      await onNewConversation(newConv);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSelectConversation(conversation) {
+    try {
+      setLoading(true);
+      setError("");
+      setOpenConversationMenuId(null);
+      await onSelectConversation(conversation);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleArchiveConversation(conversationId) {
+    try {
+      setArchivingConversationId(conversationId);
+      setError("");
+      setOpenConversationMenuId(null);
+      await archiveConversation(authFetch, conversationId);
+      await Promise.resolve(onArchiveConversation?.(conversationId));
+      setConversations((previous) =>
+        previous.filter((conversation) => conversation.id !== conversationId),
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setArchivingConversationId(null);
+    }
+  }
+
+  function getDisplayTitle(conversation) {
+    const title = (conversation.title ?? "")
+      .replace(/^[A-Z]{2}\s*(?:->|\u2192)\s*[A-Z]{2}\s+/i, "")
+      .trim();
+
+    return title || "New chat";
+  }
+
+  function renderConversationFlags(conversation) {
+    const sourceCountryCode = getFlagCountryCode(conversation.source_language);
+    const targetCountryCode = getFlagCountryCode(conversation.target_language);
+
+    return (
+      <div className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
+        <LanguageFlag
+          countryCode={sourceCountryCode}
+          label={conversation.source_language}
+          className="h-4 w-5"
+        />
+        <ArrowRight
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 text-zinc-500"
+          strokeWidth={2.25}
+        />
+        <LanguageFlag
+          countryCode={targetCountryCode}
+          label={conversation.target_language}
+          className="h-4 w-5"
+        />
+      </div>
+    );
+  }
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity"
+        onClick={onClose}
+      />
+      <div className="fixed inset-y-0 left-0 z-50 flex w-80 animate-in slide-in-from-left flex-col border-r border-white/10 bg-zinc-900 shadow-2xl duration-300">
+        <div className="flex items-center justify-between border-b border-white/10 p-4">
+          <h2 className="text-lg font-semibold text-white">Chat History</h2>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="border-b border-white/10 p-4">
+          <button
+            onClick={handleNewConversation}
+            disabled={!isSignedIn || isBusy}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+            New Conversation
+          </button>
+          {!isSignedIn && (
+            <p className="mt-2 text-center text-xs text-zinc-500">
+              Sign in to save and continue chats.
+            </p>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {error && (
+            <div className="mb-2 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-400">
+              {error}
+            </div>
+          )}
+
+          {loading && conversations.length === 0 && (
+            <div className="flex justify-center p-8">
+              <Loader2 size={24} className="animate-spin text-zinc-500" />
+            </div>
+          )}
+
+          {!loading && conversations.length === 0 && !error && isSignedIn && (
+            <div className="p-8 text-center text-sm text-zinc-500">
+              No saved conversations yet.
+            </div>
+          )}
+
+          {conversations.map((conv) => {
+            const isArchiving = archivingConversationId === conv.id;
+            const isSelected = currentConversationId === conv.id;
+            const isMenuOpen = openConversationMenuId === conv.id;
+
+            return (
+              <div
+                key={conv.id}
+                className={`mb-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl transition ${
+                  isSelected ? "bg-white/10" : "hover:bg-white/5"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSelectConversation(conv);
+                  }}
+                  disabled={isBusy}
+                  className={`flex min-w-0 items-start gap-3 p-3 text-left transition ${
+                    isSelected
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-300 hover:bg-white/5"
+                  } ${
+                    isBusy ? "cursor-wait opacity-70" : ""
+                  }`}
+                >
+                  {renderConversationFlags(conv)}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{getDisplayTitle(conv)}</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {new Date(conv.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                </button>
+
+                <div
+                  data-conversation-actions
+                  className="mr-2 flex items-center gap-1"
+                >
+                  <button
+                    type="button"
+                    aria-label="Archive conversation"
+                    title="Archive conversation"
+                    onClick={() => {
+                      void handleArchiveConversation(conv.id);
+                    }}
+                    disabled={isBusy}
+                    className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
+                      isMenuOpen
+                        ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
+                        : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
+                    } ${
+                      isBusy ? "cursor-wait" : ""
+                    }`}
+                  >
+                    {isArchiving ? (
+                      <Loader2 size={12} className="shrink-0 animate-spin" />
+                    ) : (
+                      <Trash2 size={12} className="shrink-0" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-label="Conversation actions"
+                    title="Conversation actions"
+                    onClick={() => {
+                      setOpenConversationMenuId((currentId) =>
+                        currentId === conv.id ? null : conv.id,
+                      );
+                    }}
+                    disabled={isBusy}
+                    className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
+                      isBusy ? "cursor-wait" : ""
+                    }`}
+                  >
+                    <MoreVertical size={15} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}

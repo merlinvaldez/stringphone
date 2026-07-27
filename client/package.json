@@ -9,12 +9,14 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.6",
     "@vercel/analytics": "^2.0.1",
     "@vitejs/plugin-react": "^5.1.1",
     "country-flag-icons": "^1.6.17",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "react-router-dom": "^7.15.1",
     "typescript": "^6.0.2",
     "vite": "^7.2.7"
   },

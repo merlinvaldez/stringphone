@@ -1,6 +1,23 @@
+import { clerkMiddleware } from "@clerk/express";
 import express, { type Response } from "express";
 import "dotenv/config";
 import multer from "multer";
+import {
+  getAuthenticatedAppRequest,
+  requireAuthenticatedAppRequest,
+} from "./auth/express.js";
+import { getClerkUserIdentity } from "./auth/clerkUser.js";
+import { upsertUserByClerkId } from "./db/queries/users.js";
+import {
+  archiveConversation,
+  createConversation,
+  getConversations,
+  getConversation,
+  updateConversationLanguages,
+  createMessage,
+  getMessages,
+} from "./db/queries/conversations.js";
+import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
   assertRoomAccess,
   broadcastRoomSnapshot,
@@ -39,7 +56,7 @@ app.use((req, res, next) => {
 
   res.header("Vary", "Origin");
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
@@ -49,6 +66,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(clerkMiddleware());
 
 function getErrorMessage(
   body: Record<string, unknown> | undefined,
@@ -280,6 +298,39 @@ app.use("/health", (_req, res) => {
   res.json({ ok: true, service: "stringphone-backend" });
 });
 
+// Phase 1 auth protects only the current-user account endpoints.
+app.get("/users/me", requireAuthenticatedAppRequest, (req, res) => {
+  const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+  if (!authenticatedRequest.appUser) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  return res.status(200).json(authenticatedRequest.appUser);
+});
+
+app.post("/users/me/bootstrap", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const authenticatedRequest = getAuthenticatedAppRequest(req);
+    const clerkIdentity = await getClerkUserIdentity(
+      authenticatedRequest.clerkUserId,
+    );
+    const appUser = await upsertUserByClerkId({
+      clerkUserId: clerkIdentity.clerkUserId,
+      email: clerkIdentity.email,
+      displayName: clerkIdentity.displayName,
+    });
+
+    authenticatedRequest.appUser = appUser;
+
+    return res.status(200).json(appUser);
+  } catch (error) {
+    console.error("Failed to bootstrap current user", error);
+    return res.status(502).json({ error: "Failed to bootstrap current user" });
+  }
+});
+
+// Shared-room and translation routes remain guest-accessible in phase 1.
 app.post("/chat/rooms", (req, res) => {
   try {
     const result = createRoom({
@@ -489,6 +540,158 @@ app.post("/ui/translations", async (req, res) => {
   } catch (error) {
     console.error("UI translation bundle failed", error);
     return res.status(502).json({ error: "UI translation bundle failed" });
+  }
+});
+
+app.get("/chat/conversations", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const conversations = await getConversations(user.id);
+    return res.status(200).json(conversations);
+  } catch (error) {
+    console.error("Failed to fetch conversations", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/chat/conversations", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!req.body?.title || !req.body?.sourceLanguage || !req.body?.targetLanguage) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const conversation = await createConversation({
+      userId: user.id,
+      title: req.body.title,
+      sourceLanguage: req.body.sourceLanguage,
+      targetLanguage: req.body.targetLanguage,
+    });
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to create conversation", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch("/chat/conversations/:id", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!req.body?.sourceLanguage || !req.body?.targetLanguage) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const conversation = await updateConversationLanguages({
+      conversationId: req.params.id,
+      userId: user.id,
+      sourceLanguage: req.body.sourceLanguage,
+      targetLanguage: req.body.targetLanguage,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to update conversation languages", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.delete("/chat/conversations/:id", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversation = await archiveConversation({
+      conversationId: req.params.id,
+      userId: user.id,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to archive conversation", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversationId = req.params.id;
+    const conversation = await getConversation(conversationId, user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    const messages = await getMessages(conversationId);
+    return res.status(200).json(messages);
+  } catch (error) {
+    console.error("Failed to fetch messages", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversationId = req.params.id;
+    let conversation = await getConversation(conversationId, user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    if (!req.body?.sender || !req.body?.originalText || !req.body?.translatedText) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (req.body?.sourceLanguage && req.body?.targetLanguage) {
+      const updatedConversation = await updateConversationLanguages({
+        conversationId,
+        userId: user.id,
+        sourceLanguage: req.body.sourceLanguage,
+        targetLanguage: req.body.targetLanguage,
+      });
+
+      if (updatedConversation) {
+        conversation = updatedConversation;
+      }
+    }
+
+    const message = await createMessage({
+      conversationId,
+      sender: req.body.sender,
+      originalText: req.body.originalText,
+      translatedText: req.body.translatedText,
+      transcript: req.body.transcript ?? null,
+      audioUrl: req.body.audioUrl ?? null,
+    });
+
+    await refreshConversationTitle({
+      conversationId,
+      userId: user.id,
+      sourceLanguageCode: conversation.source_language,
+      targetLanguageCode: conversation.target_language,
+    });
+
+    return res.status(200).json(message);
+  } catch (error) {
+    console.error("Failed to create message", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
