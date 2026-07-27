@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Menu } from "lucide-react";
 import { LanguageSelector, SharedRoomControls } from "../../StringPhoneApp.jsx";
 
 export function ChatHeader({
@@ -18,6 +18,7 @@ export function ChatHeader({
   onDismissSharedRoomCopyNotice,
   onToggleSharedRoom,
   onCopySharedRoomInvite,
+  onOpenSidebar,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const useCompactMobileLanguageButtons = Boolean(sharedRoomSession);
@@ -28,9 +29,29 @@ export function ChatHeader({
 
   return (
     <div className="relative z-20 mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
-      <div className="hidden sm:block" />
+      <div className="hidden sm:flex items-center justify-start">
+        {onOpenSidebar && (
+          <button
+            onClick={onOpenSidebar}
+            className="p-2 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition"
+            title="Chat History"
+          >
+            <Menu size={18} />
+          </button>
+        )}
+      </div>
 
       <div className="flex min-w-0 items-center gap-2 sm:justify-center sm:gap-3">
+        {/* Mobile sidebar toggle */}
+        {onOpenSidebar && (
+          <button
+            onClick={onOpenSidebar}
+            className="sm:hidden p-2 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition flex-shrink-0"
+            title="Chat History"
+          >
+            <Menu size={18} />
+          </button>
+        )}
         <LanguageSelector
           selected={myLang}
           onSelect={setMyLang}

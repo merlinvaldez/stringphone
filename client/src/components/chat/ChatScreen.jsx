@@ -31,6 +31,7 @@ export function ChatScreen({
   onDismissSharedRoomCopyNotice,
   onToggleSharedRoom,
   onCopySharedRoomInvite,
+  onOpenSidebar,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -171,6 +172,7 @@ export function ChatScreen({
         onDismissSharedRoomCopyNotice={onDismissSharedRoomCopyNotice}
         onToggleSharedRoom={onToggleSharedRoom}
         onCopySharedRoomInvite={onCopySharedRoomInvite}
+        onOpenSidebar={onOpenSidebar}
       />
 
       {sharedRoomError ? (

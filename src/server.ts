@@ -9,6 +9,13 @@ import {
 import { getClerkUserIdentity } from "./auth/clerkUser.js";
 import { upsertUserByClerkId } from "./db/queries/users.js";
 import {
+  createConversation,
+  getConversations,
+  getConversation,
+  createMessage,
+  getMessages,
+} from "./db/queries/conversations.js";
+import {
   assertRoomAccess,
   broadcastRoomSnapshot,
   buildRoomSnapshot,
@@ -530,6 +537,89 @@ app.post("/ui/translations", async (req, res) => {
   } catch (error) {
     console.error("UI translation bundle failed", error);
     return res.status(502).json({ error: "UI translation bundle failed" });
+  }
+});
+
+app.get("/chat/conversations", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const conversations = await getConversations(user.id);
+    return res.status(200).json(conversations);
+  } catch (error) {
+    console.error("Failed to fetch conversations", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/chat/conversations", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    if (!req.body?.title || !req.body?.sourceLanguage || !req.body?.targetLanguage) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const conversation = await createConversation({
+      userId: user.id,
+      title: req.body.title,
+      sourceLanguage: req.body.sourceLanguage,
+      targetLanguage: req.body.targetLanguage,
+    });
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to create conversation", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.get("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversationId = req.params.id;
+    const conversation = await getConversation(conversationId, user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    const messages = await getMessages(conversationId);
+    return res.status(200).json(messages);
+  } catch (error) {
+    console.error("Failed to fetch messages", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const conversationId = req.params.id;
+    const conversation = await getConversation(conversationId, user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    if (!req.body?.sender || !req.body?.originalText || !req.body?.translatedText) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const message = await createMessage({
+      conversationId,
+      sender: req.body.sender,
+      originalText: req.body.originalText,
+      translatedText: req.body.translatedText,
+      transcript: req.body.transcript ?? null,
+      audioUrl: req.body.audioUrl ?? null,
+    });
+    return res.status(200).json(message);
+  } catch (error) {
+    console.error("Failed to create message", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

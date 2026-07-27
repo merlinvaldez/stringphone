@@ -63,6 +63,8 @@ import {
   useUiStrings,
 } from "./uiStrings.js";
 import { useAppAuth } from "./AuthContext.jsx";
+import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
+import { fetchMessages, saveMessage } from "./chatApi.js";
 import {
   clearAuthReturnState,
   readAuthReturnState,
@@ -349,7 +351,7 @@ function FloatingAuthControls({
   theirLanguageCode,
   joinQueryToken,
 }) {
-  const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
+  const { account, isLoaded, isSignedIn, signOut, authFetch } = useAppAuth();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const navigate = useNavigate();
   const accountLabel = account?.display_name ?? account?.email ?? "Signed in";
@@ -1927,11 +1929,13 @@ export function SharedRoomControls({
 }
 
 export default function StringPhoneApp() {
-  const { isLoaded: isAuthLoaded } = useAppAuth();
+  const { isLoaded: isAuthLoaded, authFetch } = useAppAuth();
   const [appMode, setAppMode] = useState("chat");
   const [myLang, setMyLang] = useState(LANGUAGES[0]);
   const [theirLang, setTheirLang] = useState(LANGUAGES[1]);
   const [messages, setMessages] = useState([]);
+  const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesRef = useRef(messages);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
@@ -2363,6 +2367,16 @@ export default function StringPhoneApp() {
         translatedPronunciation: data.translatedPronunciation,
         errorMessage: "",
       });
+
+      if (currentConversationId) {
+        saveMessage(authFetch, currentConversationId, {
+          sender,
+          originalText: data.originalText,
+          translatedText: data.translatedText,
+          transcript: null,
+          audioUrl: null,
+        }).catch(e => console.error("Failed to save text message", e));
+      }
     } catch (translationError) {
       updateMessage(messageId, {
         status: "error",
@@ -2456,6 +2470,16 @@ export default function StringPhoneApp() {
         audioUrl,
         errorMessage: "",
       });
+
+      if (currentConversationId) {
+        saveMessage(authFetch, currentConversationId, {
+          sender,
+          originalText: data.transcript,
+          translatedText: data.translatedText,
+          transcript: data.transcript,
+          audioUrl: data.audio.base64, // We might not want to save full base64 in real app, but this fits the schema for now
+        }).catch(e => console.error("Failed to save voice message", e));
+      }
 
       return { messageId, audioUrl };
     } catch (translationError) {
@@ -2809,6 +2833,36 @@ export default function StringPhoneApp() {
         noticeMessage={modeLockNotice?.message ?? ""}
         onDismissNotice={() => setModeLockNotice(null)}
       />
+      <ChatHistorySidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        currentConversationId={currentConversationId}
+        onSelectConversation={async (id) => {
+          try {
+            const dbMsgs = await fetchMessages(authFetch, id);
+            const mapped = dbMsgs.map(m => ({
+              id: m.id,
+              kind: m.audio_url ? "voice" : "text",
+              status: "ready",
+              sender: m.sender,
+              originalText: m.original_text,
+              translatedText: m.translated_text,
+              transcript: m.transcript || "",
+              audioUrl: m.audio_url ? (m.audio_url.startsWith("data:") ? m.audio_url : `data:audio/webm;base64,${m.audio_url}`) : "",
+            }));
+            setMessages(mapped);
+            setCurrentConversationId(id);
+          } catch (e) {
+            console.error("Failed to load conversation", e);
+          }
+        }}
+        onNewConversation={(id) => {
+          setMessages([]);
+          setCurrentConversationId(id);
+        }}
+        currentSourceLanguage={myLang}
+        currentTargetLanguage={theirLang}
+      />
 
       {appMode === "chat" ? (
         <ChatScreen
@@ -2832,6 +2886,7 @@ export default function StringPhoneApp() {
           onDismissSharedRoomCopyNotice={() => setSharedRoomCopyNotice("")}
           onToggleSharedRoom={handleToggleSharedRoom}
           onCopySharedRoomInvite={handleCopySharedRoomInvite}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
         />
       ) : null}
 
