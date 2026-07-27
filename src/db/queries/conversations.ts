@@ -40,6 +40,31 @@ export async function getConversation(conversationId: string, userId: number) {
   return result.rows[0];
 }
 
+export async function updateConversationLanguages(params: {
+  conversationId: string;
+  userId: number;
+  sourceLanguage: string;
+  targetLanguage: string;
+}) {
+  const result = await db.query(
+    `
+    UPDATE public.conversations
+    SET source_language = $1,
+        target_language = $2,
+        updated_at = now()
+    WHERE id = $3 AND user_id = $4
+    RETURNING *
+    `,
+    [
+      params.sourceLanguage,
+      params.targetLanguage,
+      params.conversationId,
+      params.userId,
+    ]
+  );
+  return result.rows[0];
+}
+
 export async function createMessage(params: {
   conversationId: string;
   sender: string;

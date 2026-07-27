@@ -39,14 +39,28 @@ export function ChatHistorySidebar({
   async function handleNewConversation() {
     try {
       setLoading(true);
+      setError("");
       const title = `Chat - ${new Date().toLocaleDateString()}`;
       const newConv = await createConversation(authFetch, {
         title,
         sourceLanguage: currentSourceLanguage,
         targetLanguage: currentTargetLanguage,
       });
-      setConversations([newConv, ...conversations]);
-      onNewConversation(newConv.id);
+      setConversations((previous) => [newConv, ...previous]);
+      await onNewConversation(newConv);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSelectConversation(conversation) {
+    try {
+      setLoading(true);
+      setError("");
+      await onSelectConversation(conversation);
       onClose();
     } catch (err) {
       setError(err.message);
@@ -96,7 +110,7 @@ export function ChatHistorySidebar({
               {error}
             </div>
           )}
-          
+
           {loading && conversations.length === 0 && (
             <div className="flex justify-center p-8">
               <Loader2 size={24} className="animate-spin text-zinc-500" />
@@ -112,14 +126,17 @@ export function ChatHistorySidebar({
           {conversations.map((conv) => (
             <button
               key={conv.id}
+              type="button"
               onClick={() => {
-                onSelectConversation(conv.id);
-                onClose();
+                void handleSelectConversation(conv);
               }}
+              disabled={loading}
               className={`w-full flex items-start gap-3 p-3 rounded-xl transition text-left mb-1 ${
                 currentConversationId === conv.id
                   ? "bg-white/10 text-white"
                   : "hover:bg-white/5 text-zinc-300"
+              } ${
+                loading ? "cursor-wait opacity-70" : ""
               }`}
             >
               <MessageSquare size={18} className="mt-0.5 shrink-0 text-emerald-400" />

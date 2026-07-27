@@ -82,6 +82,27 @@ export async function fetchMessages(authFetch, conversationId) {
   return response.json();
 }
 
+export async function updateConversationLanguages(
+  authFetch,
+  conversationId,
+  { sourceLanguage, targetLanguage },
+) {
+  const response = await authFetch(`${API_BASE_URL}/chat/conversations/${conversationId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sourceLanguage: sourceLanguage.code,
+      targetLanguage: targetLanguage.code,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to update conversation languages"),
+    );
+  }
+  return response.json();
+}
+
 export async function saveMessage(authFetch, conversationId, messagePayload) {
   const response = await authFetch(`${API_BASE_URL}/chat/conversations/${conversationId}/messages`, {
     method: "POST",

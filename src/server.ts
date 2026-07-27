@@ -12,6 +12,7 @@ import {
   createConversation,
   getConversations,
   getConversation,
+  updateConversationLanguages,
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
@@ -556,7 +557,7 @@ app.post("/chat/conversations", requireAuthenticatedAppRequest, async (req, res)
   try {
     const user = (req as any).appUser;
     if (!user) return res.status(404).json({ error: "User not found" });
-    
+
     if (!req.body?.title || !req.body?.sourceLanguage || !req.body?.targetLanguage) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -570,6 +571,33 @@ app.post("/chat/conversations", requireAuthenticatedAppRequest, async (req, res)
     return res.status(200).json(conversation);
   } catch (error) {
     console.error("Failed to create conversation", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.patch("/chat/conversations/:id", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!req.body?.sourceLanguage || !req.body?.targetLanguage) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const conversation = await updateConversationLanguages({
+      conversationId: req.params.id,
+      userId: user.id,
+      sourceLanguage: req.body.sourceLanguage,
+      targetLanguage: req.body.targetLanguage,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found or unauthorized" });
+    }
+
+    return res.status(200).json(conversation);
+  } catch (error) {
+    console.error("Failed to update conversation languages", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

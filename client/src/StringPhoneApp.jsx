@@ -64,7 +64,11 @@ import {
 } from "./uiStrings.js";
 import { useAppAuth } from "./AuthContext.jsx";
 import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
-import { fetchMessages, saveMessage } from "./chatApi.js";
+import {
+  fetchMessages,
+  saveMessage,
+  updateConversationLanguages,
+} from "./chatApi.js";
 import {
   clearAuthReturnState,
   readAuthReturnState,
@@ -89,6 +93,7 @@ import { formatTimestamp, formatDuration, formatPronunciationGuide } from './uti
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
+const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 
@@ -514,6 +519,47 @@ function syncSharedRoomInviteToken(inviteToken) {
   }
 
   window.history.replaceState({}, "", url.toString());
+}
+
+function readStoredChatLanguages() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(CHAT_LANGUAGE_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+
+    if (
+      typeof parsed?.myLanguageCode !== "string" ||
+      typeof parsed?.theirLanguageCode !== "string"
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistChatLanguages(myLanguageCode, theirLanguageCode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    CHAT_LANGUAGE_STORAGE_KEY,
+    JSON.stringify({
+      myLanguageCode,
+      theirLanguageCode,
+    }),
+  );
 }
 
 function readStoredSharedRoomSession() {
@@ -1930,9 +1976,14 @@ export function SharedRoomControls({
 
 export default function StringPhoneApp() {
   const { isLoaded: isAuthLoaded, authFetch } = useAppAuth();
+  const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
-  const [myLang, setMyLang] = useState(LANGUAGES[0]);
-  const [theirLang, setTheirLang] = useState(LANGUAGES[1]);
+  const [myLang, setMyLang] = useState(() =>
+    getLanguageOption(storedChatLanguages?.myLanguageCode),
+  );
+  const [theirLang, setTheirLang] = useState(() =>
+    getLanguageOption(storedChatLanguages?.theirLanguageCode ?? LANGUAGES[1].code),
+  );
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -2005,6 +2056,14 @@ export default function StringPhoneApp() {
   useEffect(() => {
     persistSharedRoomSession(sharedRoomSession);
   }, [sharedRoomSession]);
+
+  useEffect(() => {
+    if (sharedRoomSession) {
+      return;
+    }
+
+    persistChatLanguages(myLang.code, theirLang.code);
+  }, [myLang.code, theirLang.code, sharedRoomSession]);
 
   useEffect(() => {
     if (!sharedRoomCopyNotice) {
@@ -2369,6 +2428,7 @@ export default function StringPhoneApp() {
       });
 
       if (currentConversationId) {
+        void persistActiveConversationLanguages(sourceLanguage, targetLanguage);
         saveMessage(authFetch, currentConversationId, {
           sender,
           originalText: data.originalText,
@@ -2472,6 +2532,7 @@ export default function StringPhoneApp() {
       });
 
       if (currentConversationId) {
+        void persistActiveConversationLanguages(sourceLanguage, targetLanguage);
         saveMessage(authFetch, currentConversationId, {
           sender,
           originalText: data.transcript,
@@ -2597,6 +2658,67 @@ export default function StringPhoneApp() {
     setSharedRoomSession(null);
     setPendingInviteToken("");
     syncSharedRoomInviteToken("");
+  };
+
+  const mapConversationMessages = (dbMessages) =>
+    dbMessages.map((message) => ({
+      id: message.id,
+      createdAt: message.created_at,
+      kind: message.audio_url ? "voice" : "text",
+      status: "ready",
+      sender: message.sender,
+      originalText: message.original_text,
+      translatedText: message.translated_text,
+      transcript: message.transcript || "",
+      audioUrl: message.audio_url
+        ? (message.audio_url.startsWith("data:")
+          ? message.audio_url
+          : `data:audio/webm;base64,${message.audio_url}`)
+        : "",
+    }));
+
+  const openSavedConversation = async (conversation) => {
+    const dbMessages = await fetchMessages(authFetch, conversation.id);
+
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+    }
+
+    setAppMode("chat");
+    setMyLang(getLanguageOption(conversation.source_language));
+    setTheirLang(getLanguageOption(conversation.target_language));
+    setMessages(mapConversationMessages(dbMessages));
+    setCurrentConversationId(conversation.id);
+  };
+
+  const startNewConversation = async (conversation) => {
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+    }
+
+    setAppMode("chat");
+    setMyLang(getLanguageOption(conversation.source_language));
+    setTheirLang(getLanguageOption(conversation.target_language));
+    setMessages([]);
+    setCurrentConversationId(conversation.id);
+  };
+
+  const persistActiveConversationLanguages = async (
+    sourceLanguage,
+    targetLanguage,
+  ) => {
+    if (!currentConversationId) {
+      return;
+    }
+
+    try {
+      await updateConversationLanguages(authFetch, currentConversationId, {
+        sourceLanguage,
+        targetLanguage,
+      });
+    } catch (error) {
+      console.error("Failed to persist conversation languages", error);
+    }
   };
 
   const handleToggleSharedRoom = async () => {
@@ -2753,6 +2875,7 @@ export default function StringPhoneApp() {
 
     if (outcome === "passthrough") {
       setMyLang(nextLanguage);
+      void persistActiveConversationLanguages(nextLanguage, theirLang);
     }
   };
 
@@ -2768,6 +2891,7 @@ export default function StringPhoneApp() {
 
     if (outcome === "passthrough") {
       setTheirLang(nextLanguage);
+      void persistActiveConversationLanguages(myLang, nextLanguage);
     }
   };
 
@@ -2793,6 +2917,7 @@ export default function StringPhoneApp() {
     if (outcome === "passthrough") {
       setMyLang(nextMyLanguage);
       setTheirLang(nextTheirLanguage);
+      void persistActiveConversationLanguages(nextMyLanguage, nextTheirLanguage);
     }
   };
 
@@ -2837,29 +2962,8 @@ export default function StringPhoneApp() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         currentConversationId={currentConversationId}
-        onSelectConversation={async (id) => {
-          try {
-            const dbMsgs = await fetchMessages(authFetch, id);
-            const mapped = dbMsgs.map(m => ({
-              id: m.id,
-              kind: m.audio_url ? "voice" : "text",
-              status: "ready",
-              sender: m.sender,
-              originalText: m.original_text,
-              translatedText: m.translated_text,
-              transcript: m.transcript || "",
-              audioUrl: m.audio_url ? (m.audio_url.startsWith("data:") ? m.audio_url : `data:audio/webm;base64,${m.audio_url}`) : "",
-            }));
-            setMessages(mapped);
-            setCurrentConversationId(id);
-          } catch (e) {
-            console.error("Failed to load conversation", e);
-          }
-        }}
-        onNewConversation={(id) => {
-          setMessages([]);
-          setCurrentConversationId(id);
-        }}
+        onSelectConversation={openSavedConversation}
+        onNewConversation={startNewConversation}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />

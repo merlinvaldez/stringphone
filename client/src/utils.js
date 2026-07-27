@@ -1,8 +1,14 @@
 export function formatTimestamp(dateString) {
+  const parsedDate = new Date(dateString);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
   return new Intl.DateTimeFormat([], {
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(dateString));
+  }).format(parsedDate);
 }
 
 export function formatDuration(seconds) {
