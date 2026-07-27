@@ -1,0 +1,8 @@
+
+> stringphone@1.0.0 dev
+> concurrently "tsx watch src/server.ts" "npm --prefix client run dev"
+
+[1] 'npm' is not recognized as an internal or external command,
+[1] operable program or batch file.
+[1] npm --prefix client run dev exited with code 1
+[0] StringPhone backend is listening on Port: 3001
