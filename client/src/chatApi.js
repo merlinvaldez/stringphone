@@ -124,3 +124,44 @@ export async function saveMessage(authFetch, conversationId, messagePayload) {
   if (!response.ok) throw new Error(await parseApiError(response, "Failed to save message"));
   return response.json();
 }
+
+export async function fetchLessons(authFetch) {
+  const response = await authFetch(`${API_BASE_URL}/lessons`);
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, "Failed to fetch lessons"));
+  }
+
+  return response.json();
+}
+
+export async function createLanguageLesson(
+  authFetch,
+  {
+    source,
+    topic,
+    sourceLanguage,
+    targetLanguage,
+    conversationId,
+    messages,
+  },
+) {
+  const response = await authFetch(`${API_BASE_URL}/lessons`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source,
+      topic,
+      sourceLanguage: sourceLanguage.code,
+      targetLanguage: targetLanguage.code,
+      conversationId: conversationId ?? null,
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, "Failed to create lesson"));
+  }
+
+  return response.json();
+}

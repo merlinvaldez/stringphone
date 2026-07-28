@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Copy,
   Ear,
+  GraduationCap,
   Loader2,
   MessageSquare,
   Mic,
@@ -29,6 +30,7 @@ import {
 import { useAppAuth } from "./AuthContext.jsx";
 import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
+  createLanguageLesson,
   fetchMessages,
   saveMessage,
   updateConversationLanguages,
@@ -52,6 +54,7 @@ import {
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { LessonScreen } from "./components/lessons/LessonScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
@@ -141,6 +144,7 @@ const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
+  { id: "lesson", label: "Lessons", Icon: GraduationCap },
 ];
 
 function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
@@ -1077,7 +1081,9 @@ function ModeSwitcher({
     >
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
         {MODE_OPTIONS.map(({ id, label, Icon }) => {
-          const modeBlocked = id !== "chat" && (sharedChatLocked || textOnlyChatLocked);
+          const modeBlocked =
+            (id === "single" || id === "conversation") &&
+            (sharedChatLocked || textOnlyChatLocked);
           const blockedTitle = sharedChatLocked
             ? `${label} unavailable while shared chat is active`
             : "Persian is only available in Chat mode right now";
@@ -1833,7 +1839,7 @@ export function SharedRoomControls({
 }
 
 export default function StringPhoneApp() {
-  const { isLoaded: isAuthLoaded, authFetch } = useAppAuth();
+  const { isLoaded: isAuthLoaded, isSignedIn, authFetch } = useAppAuth();
   const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
   const [myLang, setMyLang] = useState(() =>
@@ -1844,6 +1850,7 @@ export default function StringPhoneApp() {
   );
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [activeLesson, setActiveLesson] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesRef = useRef(messages);
   const domAudioRef = useRef(null);
@@ -2574,6 +2581,38 @@ export default function StringPhoneApp() {
     setCurrentConversationId(null);
   };
 
+  const createLessonFromCurrentContext = async ({ source, topic }) => {
+    const lessonMessages = chatMessages
+      .filter(
+        (message) =>
+          message.status === "ready" &&
+          (message.originalText || message.translatedText),
+      )
+      .slice(-12)
+      .map((message) => ({
+        originalText: message.originalText ?? "",
+        translatedText: message.translatedText ?? "",
+      }));
+
+    const lesson = await createLanguageLesson(authFetch, {
+      source,
+      topic,
+      sourceLanguage: myLang,
+      targetLanguage: theirLang,
+      conversationId:
+        source === "chat" && !sharedRoomSession ? currentConversationId : null,
+      messages: source === "chat" ? lessonMessages : [],
+    });
+
+    setActiveLesson(lesson);
+    return lesson;
+  };
+
+  const openNewLesson = () => {
+    setActiveLesson(null);
+    setAppMode("lesson");
+  };
+
   const persistActiveConversationLanguages = async (
     sourceLanguage,
     targetLanguage,
@@ -2836,6 +2875,12 @@ export default function StringPhoneApp() {
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}
         onArchiveConversation={handleArchivedConversation}
+        currentLessonId={activeLesson?.id ?? null}
+        onSelectLesson={(lesson) => {
+          setActiveLesson(lesson);
+          setAppMode("lesson");
+        }}
+        onCreateLesson={openNewLesson}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />
@@ -2876,6 +2921,18 @@ export default function StringPhoneApp() {
           autoplayAudioUrl={autoplayAudioUrl}
           submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
+        />
+      ) : null}
+
+      {appMode === "lesson" ? (
+        <LessonScreen
+          activeLesson={activeLesson}
+          myLang={myLang}
+          theirLang={theirLang}
+          currentMessages={chatMessages}
+          isSignedIn={isSignedIn}
+          onCreateLesson={createLessonFromCurrentContext}
+          onStartNewLesson={openNewLesson}
         />
       ) : null}
 
