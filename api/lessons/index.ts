@@ -7,6 +7,7 @@ import { getConversation } from "../../src/db/queries/conversations.js";
 import { createLesson, getLessons } from "../../src/db/queries/lessons.js";
 import {
   generateLanguageLesson,
+  LessonGenerationError,
   type LessonSourceMessage,
 } from "../../src/services/generateLanguageLesson.js";
 
@@ -129,7 +130,7 @@ export default {
       console.error("Failed to create lesson", error);
       return jsonResponse(
         { error: error instanceof Error ? error.message : "Failed to create lesson" },
-        500,
+        error instanceof LessonGenerationError ? error.status : 500,
       );
     }
   },

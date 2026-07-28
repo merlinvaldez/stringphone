@@ -90,7 +90,7 @@ The history API returns structured lesson content so a prior lesson can open wit
 
 ### Generation contract
 
-`src/services/generateLanguageLesson.ts` calls Mistral with JSON-object output and validates it before persistence. The contract requires compact strings, at least two vocabulary items, at least one phrase, one tip, and a sample answer. It constrains topic and message lengths, passes only the latest twelve eligible messages, and tells the model to treat chat context as reference text rather than instructions.
+`src/services/generateLanguageLesson.ts` calls `mistral-medium-3-5` (Mistral Medium 3.5) with JSON-object output and validates it before persistence. `MISTRAL_LESSON_MODEL` can override that model for an intentional rollout change, but lesson generation no longer falls back to the translation model. The call limits output to 900 tokens, uses low-variance sampling, and disables extra reasoning because this is a short schema-constrained generation task. The contract requires compact strings, at least two vocabulary items, at least one phrase, one tip, and a sample answer. It constrains topic and message lengths, passes only the latest twelve eligible messages, and tells the model to treat chat context as reference text rather than instructions. A Mistral request failure, blank response, invalid JSON, or incomplete lesson is logged server-side and returned to the client as a safe retryable error instead of being persisted.
 
 For chat lessons, the model is instructed not to repeat names, phone numbers, addresses, or other personal details. This is a reduction measure, not a guarantee that model output is free from all sensitive inference; users should not treat a generated lesson as a secure transcript export.
 
