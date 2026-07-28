@@ -1,4 +1,8 @@
-import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
+import {
+  CANONICAL_TTS_LANGUAGES,
+  getSupportedTtsLanguage,
+  requiresPhoneticGuide,
+} from "./languages.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 import { translateText } from "../services/translateText.js";
 
@@ -75,7 +79,10 @@ export async function runTextChatMessage(
   let originalPronunciation = "";
   let translatedPronunciation = "";
 
-  if (sourceLanguage.code === "fa" || targetLanguage.code === "fa") {
+  if (
+    requiresPhoneticGuide(sourceLanguage.code, targetLanguage.code) ||
+    requiresPhoneticGuide(targetLanguage.code, sourceLanguage.code)
+  ) {
     try {
       const guidance = await generatePronunciationGuidance({
         originalText,

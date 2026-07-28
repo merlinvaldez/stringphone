@@ -3,15 +3,19 @@ import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
 import { formatTimestamp, formatPronunciationGuide } from "../../utils.js";
 
+function PronunciationGuide({ value, className }) {
+  const pronunciation = formatPronunciationGuide(value);
+
+  if (!pronunciation) {
+    return null;
+  }
+
+  return <p className={className}>({pronunciation})</p>;
+}
+
 export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
-  const originalPronunciation = formatPronunciationGuide(
-    message.originalPronunciation,
-  );
-  const translatedPronunciation = formatPronunciationGuide(
-    message.translatedPronunciation,
-  );
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
@@ -45,10 +49,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-white">
                     {message.transcript}
                   </p>
-                  {originalPronunciation ? (
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {originalPronunciation}
-                    </p>
+                  {!isSelf ? (
+                    <PronunciationGuide
+                      value={message.originalPronunciation}
+                      className="mt-2 text-sm leading-6 text-zinc-300"
+                    />
                   ) : null}
                 </div>
               ) : message.status !== "error" ? (
@@ -62,10 +67,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-zinc-200">
                     {message.translatedText}
                   </p>
-                  {translatedPronunciation ? (
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
-                      ({translatedPronunciation})
-                    </p>
+                  {isSelf ? (
+                    <PronunciationGuide
+                      value={message.translatedPronunciation}
+                      className="mt-2 text-xs leading-5 text-zinc-400"
+                    />
                   ) : null}
                 </div>
               ) : null}
@@ -76,10 +82,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                 <p className="text-sm leading-6 text-white">
                   {message.originalText}
                 </p>
-                {originalPronunciation ? (
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {originalPronunciation}
-                  </p>
+                {!isSelf ? (
+                  <PronunciationGuide
+                    value={message.originalPronunciation}
+                    className="mt-2 text-sm leading-6 text-zinc-300"
+                  />
                 ) : null}
               </div>
 
@@ -90,10 +97,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                       ? uiStrings.translationFailed
                       : uiStrings.translatingShort)}
                 </p>
-                {translatedPronunciation ? (
-                  <p className="mt-2 text-xs leading-5 text-zinc-400">
-                    ({translatedPronunciation})
-                  </p>
+                {isSelf ? (
+                  <PronunciationGuide
+                    value={message.translatedPronunciation}
+                    className="mt-2 text-xs leading-5 text-zinc-400"
+                  />
                 ) : null}
               </div>
             </div>

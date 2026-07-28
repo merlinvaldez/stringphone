@@ -1,4 +1,8 @@
 import { mistral } from "../lib/mistral.js";
+import {
+  getWritingSystemLabel,
+  requiresPhoneticGuide,
+} from "../lib/languages.js";
 
 type GeneratePronunciationGuidanceInput = {
   originalText: string;
@@ -48,12 +52,18 @@ function normalizeComparableText(value: string) {
 }
 
 function getScriptInstruction(languageCode?: string) {
+  const writingSystemLabel = getWritingSystemLabel(languageCode);
+
   if (languageCode === "fa") {
     return "Use Persian script only. Never use Latin letters. This is a sound-out guide, not a Persian translation.";
   }
 
   if (languageCode === "en") {
     return "Use Latin letters only. Do not use Persian script. This is a sound-out guide, not an English translation.";
+  }
+
+  if (writingSystemLabel) {
+    return `Use the reader's everyday ${writingSystemLabel}. Return a pronunciation guide, not a meaning translation.`;
   }
 
   return "Use the everyday writing system that the reader language uses. Return a pronunciation guide, not a meaning translation.";
@@ -130,6 +140,10 @@ function validatePronunciationLine(
 async function generatePronunciationLine(
   input: GeneratePronunciationLineInput,
 ) {
+  if (!requiresPhoneticGuide(input.textLanguageCode, input.readerLanguageCode)) {
+    return "";
+  }
+
   const response = await mistral.chat.complete({
     model:
       process.env.MISTRAL_PRONUNCIATION_MODEL ??

@@ -2933,6 +2933,7 @@ export default function StringPhoneApp() {
           isSignedIn={isSignedIn}
           onCreateLesson={createLessonFromCurrentContext}
           onStartNewLesson={openNewLesson}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
         />
       ) : null}
 

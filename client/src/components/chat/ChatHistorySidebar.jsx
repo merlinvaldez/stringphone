@@ -209,7 +209,14 @@ export function ChatHistorySidebar({
   }
 
   function getLessonTitle(lesson) {
-    return lesson.content?.title || lesson.topic || "New lesson";
+    const historyTitle =
+      lesson.content?.historyTitle ||
+      lesson.content?.summary ||
+      lesson.topic ||
+      lesson.content?.title ||
+      "New lesson";
+
+    return typeof historyTitle === "string" ? historyTitle.trim() : "New lesson";
   }
 
   if (!isOpen) return null;

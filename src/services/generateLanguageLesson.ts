@@ -1,4 +1,8 @@
 import { mistral } from "../lib/mistral.js";
+import {
+  getWritingSystemLabel,
+  requiresPhoneticGuide,
+} from "../lib/languages.js";
 
 export type LessonSourceMessage = {
   originalText: string;
@@ -7,6 +11,8 @@ export type LessonSourceMessage = {
 
 export type GeneratedLesson = {
   title: string;
+  historyTitle: string;
+  titleTransliteration: string;
   summary: string;
   topic: string;
   vocabulary: Array<{
@@ -14,10 +20,12 @@ export type GeneratedLesson = {
     transliteration: string;
     translation: string;
     example: string;
+    exampleTransliteration: string;
     exampleTranslation: string;
   }>;
   phrases: Array<{
     phrase: string;
+    transliteration: string;
     translation: string;
     note: string;
   }>;
@@ -28,6 +36,7 @@ export type GeneratedLesson = {
   challenge: {
     prompt: string;
     sampleAnswer: string;
+    sampleAnswerTransliteration: string;
   };
 };
 
@@ -87,6 +96,7 @@ function coerceLesson(value: unknown): GeneratedLesson {
       transliteration: cleanText(entry.transliteration, 120),
       translation,
       example: cleanText(entry.example, 220),
+      exampleTransliteration: cleanText(entry.exampleTransliteration, 220),
       exampleTranslation: cleanText(entry.exampleTranslation, 220),
     };
   }).slice(0, 4);
@@ -100,6 +110,7 @@ function coerceLesson(value: unknown): GeneratedLesson {
 
     return {
       phrase,
+      transliteration: cleanText(entry.transliteration, 220),
       translation,
       note: cleanText(entry.note, 180),
     };
@@ -108,6 +119,8 @@ function coerceLesson(value: unknown): GeneratedLesson {
   const challengeValue = candidate.challenge as Record<string, unknown> | null;
   const lesson: GeneratedLesson = {
     title: cleanText(candidate.title, 80),
+    historyTitle: cleanText(candidate.historyTitle, 80),
+    titleTransliteration: cleanText(candidate.titleTransliteration, 120),
     summary: cleanText(candidate.summary, 220),
     topic: cleanText(candidate.topic, 160),
     vocabulary,
@@ -119,6 +132,10 @@ function coerceLesson(value: unknown): GeneratedLesson {
     challenge: {
       prompt: cleanText(challengeValue?.prompt, 240),
       sampleAnswer: cleanText(challengeValue?.sampleAnswer, 280),
+      sampleAnswerTransliteration: cleanText(
+        challengeValue?.sampleAnswerTransliteration,
+        320,
+      ),
     },
   };
 
@@ -162,6 +179,14 @@ export async function generateLanguageLesson(input: {
 }) {
   const sourceLanguage = languageName(input.sourceLanguageCode);
   const targetLanguage = languageName(input.targetLanguageCode);
+  const needsCrossScriptPhonetics = requiresPhoneticGuide(
+    input.targetLanguageCode,
+    input.sourceLanguageCode,
+  );
+  const learnerWritingSystem =
+    getWritingSystemLabel(input.sourceLanguageCode) ?? "the learner's script";
+  const practiceWritingSystem =
+    getWritingSystemLabel(input.targetLanguageCode) ?? "the practice script";
   const model =
     process.env.MISTRAL_LESSON_MODEL?.trim() || DEFAULT_LESSON_MODEL;
   const chatContext = formatChatContext(input.messages);
@@ -176,23 +201,29 @@ export async function generateLanguageLesson(input: {
     response = await mistral.chat.complete({
       model,
       responseFormat: { type: "json_object" },
-      maxTokens: 900,
+      maxTokens: 1100,
       temperature: 0.2,
       reasoningEffort: "none",
       messages: [
         {
           role: "system",
-          content: `You are a careful language tutor designing a three-minute, practical lesson. The learner's home language is ${sourceLanguage}; the language they are practicing is ${targetLanguage}. Make the target language the primary language of all terms, examples, phrases, and the sample answer. Use the home language for concise translations and explanations. Prefer useful everyday wording over obscure vocabulary. Do not invent slang or cultural claims. Return only a JSON object with this exact shape:
+          content: `You are a careful language tutor designing a three-minute, practical lesson. The learner's home language is ${sourceLanguage}; the language they are practicing is ${targetLanguage}. Make the target language the primary language of the title, all terms, examples, phrases, and the sample answer. Use the home language for concise translations and explanations. Prefer useful everyday wording over obscure vocabulary. Do not invent slang or cultural claims. Return only a JSON object with this exact shape:
 {
   "title": "short target-language lesson title",
+  "historyTitle": "2 to 5 word home-language sidebar title",
+  "titleTransliteration": "",
   "summary": "one sentence in the home language",
   "topic": "short plain-language topic",
-  "vocabulary": [{"term":"", "transliteration":"", "translation":"", "example":"", "exampleTranslation":""}],
-  "phrases": [{"phrase":"", "translation":"", "note":""}],
+  "vocabulary": [{"term":"", "transliteration":"", "translation":"", "example":"", "exampleTransliteration":"", "exampleTranslation":""}],
+  "phrases": [{"phrase":"", "transliteration":"", "translation":"", "note":""}],
   "tip": {"title":"", "body":""},
-  "challenge": {"prompt":"", "sampleAnswer":""}
+  "challenge": {"prompt":"", "sampleAnswer":"", "sampleAnswerTransliteration":""}
 }
-Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Leave transliteration as an empty string for languages normally written with Latin characters. Keep every string compact and appropriate for a learner.`,
+Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every string compact and appropriate for a learner. ${
+            needsCrossScriptPhonetics
+              ? `Because ${targetLanguage} uses ${practiceWritingSystem} and the learner reads ${learnerWritingSystem}, fill every transliteration field with a phonetic spelling in ${learnerWritingSystem}. Do not add parentheses, labels, or meaning translations inside those transliteration fields.`
+              : `Because ${sourceLanguage} and ${targetLanguage} share the same writing system for this lesson, leave every transliteration field as an empty string.`
+          }`,
         },
         {
           role: "user",

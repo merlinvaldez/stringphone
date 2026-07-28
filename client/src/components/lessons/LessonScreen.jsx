@@ -4,10 +4,40 @@ import {
   ChevronRight,
   GraduationCap,
   Loader2,
+  Menu,
   MessageSquareText,
   Plus,
   Sparkles,
 } from "lucide-react";
+import { formatPronunciationGuide } from "../../utils.js";
+
+function PhoneticSpelling({ value, className }) {
+  const pronunciation = formatPronunciationGuide(value);
+
+  if (!pronunciation) {
+    return null;
+  }
+
+  return <p className={className}>({pronunciation})</p>;
+}
+
+function LessonHistoryButton({ onOpenSidebar }) {
+  if (!onOpenSidebar) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenSidebar}
+      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+      title="History"
+      aria-label="Open history"
+    >
+      <Menu size={18} />
+    </button>
+  );
+}
 
 function LessonBuilder({
   myLang,
@@ -15,6 +45,7 @@ function LessonBuilder({
   currentMessages,
   isSignedIn,
   onCreateLesson,
+  onOpenSidebar,
 }) {
   const [source, setSource] = useState("topic");
   const [topic, setTopic] = useState("");
@@ -55,6 +86,9 @@ function LessonBuilder({
 
   return (
     <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
+      <div className="mx-auto mb-4 flex w-full max-w-2xl justify-start">
+        <LessonHistoryButton onOpenSidebar={onOpenSidebar} />
+      </div>
       <div className="mx-auto w-full max-w-2xl rounded-[2rem] border border-white/10 bg-zinc-900/70 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
         <div className="mb-7 flex items-start gap-4">
           <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 text-emerald-200 shadow-[0_0_30px_rgba(16,185,129,0.12)]">
@@ -163,7 +197,7 @@ function LessonBuilder({
   );
 }
 
-function LessonContent({ lesson, onStartNewLesson }) {
+function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
   const content = lesson?.content ?? lesson?.lesson_content ?? lesson;
   const [showAnswer, setShowAnswer] = useState(false);
   const vocabulary = Array.isArray(content?.vocabulary) ? content.vocabulary : [];
@@ -174,12 +208,19 @@ function LessonContent({ lesson, onStartNewLesson }) {
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
+            <div className="mb-4 flex justify-start">
+              <LessonHistoryButton onOpenSidebar={onOpenSidebar} />
+            </div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/80">
               {lesson.source === "chat" ? "From this chat" : "On-demand lesson"}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
               {content.title}
             </h1>
+            <PhoneticSpelling
+              value={content.titleTransliteration}
+              className="mt-2 text-sm text-emerald-200/80"
+            />
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{content.summary}</p>
           </div>
           <button
@@ -201,9 +242,16 @@ function LessonContent({ lesson, onStartNewLesson }) {
             {vocabulary.map((item, index) => (
               <div key={`${item.term}-${index}`} className="rounded-2xl border border-white/8 bg-black/20 p-4">
                 <p className="font-medium text-white">{item.term}</p>
-                {item.transliteration ? <p className="mt-1 text-sm text-emerald-200/80">{item.transliteration}</p> : null}
+                <PhoneticSpelling
+                  value={item.transliteration}
+                  className="mt-1 text-sm text-emerald-200/80"
+                />
                 <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
                 {item.example ? <p className="mt-3 text-sm leading-5 text-zinc-300">“{item.example}”</p> : null}
+                <PhoneticSpelling
+                  value={item.exampleTransliteration}
+                  className="mt-1 text-xs leading-5 text-emerald-100/70"
+                />
                 {item.exampleTranslation ? <p className="mt-1 text-xs leading-5 text-zinc-500">{item.exampleTranslation}</p> : null}
               </div>
             ))}
@@ -219,6 +267,10 @@ function LessonContent({ lesson, onStartNewLesson }) {
             {phrases.map((item, index) => (
               <div key={`${item.phrase}-${index}`} className="rounded-2xl border border-white/8 bg-black/20 p-4">
                 <p className="font-medium text-white">{item.phrase}</p>
+                <PhoneticSpelling
+                  value={item.transliteration}
+                  className="mt-1 text-sm text-emerald-200/80"
+                />
                 <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
                 {item.note ? <p className="mt-2 text-xs leading-5 text-emerald-100/65">{item.note}</p> : null}
               </div>
@@ -236,9 +288,15 @@ function LessonContent({ lesson, onStartNewLesson }) {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200/75">Try it</p>
             <p className="mt-2 text-sm leading-6 text-white">{content.challenge?.prompt}</p>
             {showAnswer ? (
-              <p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-emerald-100">
-                {content.challenge?.sampleAnswer}
-              </p>
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+                <p className="text-sm leading-6 text-emerald-100">
+                  {content.challenge?.sampleAnswer}
+                </p>
+                <PhoneticSpelling
+                  value={content.challenge?.sampleAnswerTransliteration}
+                  className="mt-2 text-xs leading-5 text-emerald-100/70"
+                />
+              </div>
             ) : (
               <button
                 type="button"
@@ -263,6 +321,7 @@ export function LessonScreen({
   isSignedIn,
   onCreateLesson,
   onStartNewLesson,
+  onOpenSidebar,
 }) {
   const content = activeLesson?.content ?? activeLesson?.lesson_content;
 
@@ -272,6 +331,7 @@ export function LessonScreen({
         key={activeLesson?.id ?? content.title}
         lesson={activeLesson}
         onStartNewLesson={onStartNewLesson}
+        onOpenSidebar={onOpenSidebar}
       />
     );
   }
@@ -283,6 +343,7 @@ export function LessonScreen({
       currentMessages={currentMessages}
       isSignedIn={isSignedIn}
       onCreateLesson={onCreateLesson}
+      onOpenSidebar={onOpenSidebar}
     />
   );
 }
