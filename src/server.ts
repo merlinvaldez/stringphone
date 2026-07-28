@@ -17,7 +17,13 @@ import {
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
+import { getLessons } from "./db/queries/lessons.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
+import {
+  createLanguageLessonForUser,
+  LessonRequestError,
+} from "./services/createLanguageLessonForUser.js";
+import { LessonGenerationError } from "./services/generateLanguageLesson.js";
 import {
   assertRoomAccess,
   broadcastRoomSnapshot,
@@ -540,6 +546,48 @@ app.post("/ui/translations", async (req, res) => {
   } catch (error) {
     console.error("UI translation bundle failed", error);
     return res.status(502).json({ error: "UI translation bundle failed" });
+  }
+});
+
+app.get("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const lessons = await getLessons(user.id);
+    return res.status(200).json(lessons);
+  } catch (error) {
+    console.error("Failed to fetch lessons", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const lesson = await createLanguageLessonForUser({
+      userId: user.id,
+      body: req.body,
+    });
+
+    return res.status(201).json(lesson);
+  } catch (error) {
+    console.error("Failed to create lesson", error);
+    return res.status(
+      error instanceof LessonGenerationError || error instanceof LessonRequestError
+        ? error.status
+        : 500,
+    ).json({
+      error: error instanceof Error ? error.message : "Failed to create lesson",
+    });
   }
 });
 
