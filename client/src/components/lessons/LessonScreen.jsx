@@ -9,6 +9,8 @@ import {
   Plus,
   Sparkles,
 } from "lucide-react";
+import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
+import { useUiStrings } from "../../uiStrings.js";
 import { formatPronunciationGuide } from "../../utils.js";
 
 function PhoneticSpelling({ value, className }) {
@@ -102,7 +104,8 @@ function LessonBuilder({
               Practice {theirLang.name} for a real moment.
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-              Build a short lesson from what you have been chatting about or from a situation you want to handle.
+              Build a short lesson from what you have been chatting about or from a
+              situation you want to handle.
             </p>
           </div>
         </div>
@@ -156,7 +159,7 @@ function LessonBuilder({
                   void handleCreate();
                 }
               }}
-              placeholder="e.g., ordering breakfast at a café"
+              placeholder="e.g., ordering breakfast at a cafe"
               disabled={isCreating}
               className="h-14 w-full rounded-2xl border border-white/10 bg-black/25 px-4 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-emerald-400/40 disabled:cursor-wait disabled:opacity-60"
             />
@@ -167,7 +170,8 @@ function LessonBuilder({
               Use the latest {chatTurnCount} {chatTurnCount === 1 ? "message" : "messages"}
             </p>
             <p className="mt-1 text-sm leading-5 text-zinc-500">
-              We will extract practical words and phrases from this conversation without adding the raw transcript to your lesson history.
+              We will extract practical words and phrases from this conversation
+              without adding the raw transcript to your lesson history.
             </p>
           </div>
         )}
@@ -180,7 +184,7 @@ function LessonBuilder({
 
         <div className="mt-6 flex items-center justify-between gap-4 border-t border-white/10 pt-5">
           <p className="text-xs text-zinc-500">
-            {myLang.name} → {theirLang.name}
+            {myLang.name} {"→"} {theirLang.name}
           </p>
           <button
             type="button"
@@ -188,8 +192,12 @@ function LessonBuilder({
             disabled={isCreating || (source === "chat" && chatTurnCount === 0)}
             className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {isCreating ? "Creating…" : "Create lesson"}
+            {isCreating ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}
+            {isCreating ? "Creating..." : "Create lesson"}
           </button>
         </div>
       </div>
@@ -197,11 +205,24 @@ function LessonBuilder({
   );
 }
 
-function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
+function LessonContent({
+  lesson,
+  defaultTargetLanguageCode,
+  onStartNewLesson,
+  onOpenSidebar,
+  onPlayGeneratedSpeech,
+  uiStrings,
+}) {
   const content = lesson?.content ?? lesson?.lesson_content ?? lesson;
   const [showAnswer, setShowAnswer] = useState(false);
   const vocabulary = Array.isArray(content?.vocabulary) ? content.vocabulary : [];
   const phrases = Array.isArray(content?.phrases) ? content.phrases : [];
+  const targetLanguageCode =
+    lesson?.target_language ??
+    lesson?.targetLanguage ??
+    lesson?.targetLanguageCode ??
+    defaultTargetLanguageCode ??
+    "";
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
@@ -214,14 +235,29 @@ function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/80">
               {lesson.source === "chat" ? "From this chat" : "On-demand lesson"}
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-              {content.title}
-            </h1>
-            <PhoneticSpelling
-              value={content.titleTransliteration}
-              className="mt-2 text-sm text-emerald-200/80"
-            />
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{content.summary}</p>
+            <div className="mt-1 flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                  {content.title}
+                </h1>
+                <PhoneticSpelling
+                  value={content.titleTransliteration}
+                  className="mt-2 text-sm text-emerald-200/80"
+                />
+              </div>
+              {content.title ? (
+                <TextToSpeechButton
+                  text={content.title}
+                  languageCode={targetLanguageCode}
+                  onPlay={onPlayGeneratedSpeech}
+                  uiStrings={uiStrings}
+                  className="mt-1"
+                />
+              ) : null}
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+              {content.summary}
+            </p>
           </div>
           <button
             type="button"
@@ -240,19 +276,52 @@ function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {vocabulary.map((item, index) => (
-              <div key={`${item.term}-${index}`} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                <p className="font-medium text-white">{item.term}</p>
-                <PhoneticSpelling
-                  value={item.transliteration}
-                  className="mt-1 text-sm text-emerald-200/80"
-                />
-                <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
-                {item.example ? <p className="mt-3 text-sm leading-5 text-zinc-300">“{item.example}”</p> : null}
-                <PhoneticSpelling
-                  value={item.exampleTransliteration}
-                  className="mt-1 text-xs leading-5 text-emerald-100/70"
-                />
-                {item.exampleTranslation ? <p className="mt-1 text-xs leading-5 text-zinc-500">{item.exampleTranslation}</p> : null}
+              <div
+                key={`${item.term}-${index}`}
+                className="rounded-2xl border border-white/8 bg-black/20 p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-white">{item.term}</p>
+                    <PhoneticSpelling
+                      value={item.transliteration}
+                      className="mt-1 text-sm text-emerald-200/80"
+                    />
+                    <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
+                  </div>
+                  {item.term ? (
+                    <TextToSpeechButton
+                      text={item.term}
+                      languageCode={targetLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                </div>
+                {item.example ? (
+                  <div className="mt-3 flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-5 text-zinc-300">"{item.example}"</p>
+                      <PhoneticSpelling
+                        value={item.exampleTransliteration}
+                        className="mt-1 text-xs leading-5 text-emerald-100/70"
+                      />
+                      {item.exampleTranslation ? (
+                        <p className="mt-1 text-xs leading-5 text-zinc-500">
+                          {item.exampleTranslation}
+                        </p>
+                      ) : null}
+                    </div>
+                    <TextToSpeechButton
+                      text={item.example}
+                      languageCode={targetLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -265,14 +334,34 @@ function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
           </div>
           <div className="space-y-3">
             {phrases.map((item, index) => (
-              <div key={`${item.phrase}-${index}`} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                <p className="font-medium text-white">{item.phrase}</p>
-                <PhoneticSpelling
-                  value={item.transliteration}
-                  className="mt-1 text-sm text-emerald-200/80"
-                />
-                <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
-                {item.note ? <p className="mt-2 text-xs leading-5 text-emerald-100/65">{item.note}</p> : null}
+              <div
+                key={`${item.phrase}-${index}`}
+                className="rounded-2xl border border-white/8 bg-black/20 p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-white">{item.phrase}</p>
+                    <PhoneticSpelling
+                      value={item.transliteration}
+                      className="mt-1 text-sm text-emerald-200/80"
+                    />
+                    <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
+                    {item.note ? (
+                      <p className="mt-2 text-xs leading-5 text-emerald-100/65">
+                        {item.note}
+                      </p>
+                    ) : null}
+                  </div>
+                  {item.phrase ? (
+                    <TextToSpeechButton
+                      text={item.phrase}
+                      languageCode={targetLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
@@ -280,22 +369,39 @@ function LessonContent({ lesson, onStartNewLesson, onOpenSidebar }) {
 
         <section className="mt-4 grid gap-4 sm:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-[1.75rem] border border-amber-300/15 bg-amber-300/[0.06] p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200/75">Quick tip</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-200/75">
+              Quick tip
+            </p>
             <h2 className="mt-2 font-semibold text-white">{content.tip?.title}</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-300">{content.tip?.body}</p>
           </div>
           <div className="rounded-[1.75rem] border border-emerald-300/15 bg-emerald-400/[0.06] p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200/75">Try it</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-200/75">
+              Try it
+            </p>
             <p className="mt-2 text-sm leading-6 text-white">{content.challenge?.prompt}</p>
             {showAnswer ? (
               <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
-                <p className="text-sm leading-6 text-emerald-100">
-                  {content.challenge?.sampleAnswer}
-                </p>
-                <PhoneticSpelling
-                  value={content.challenge?.sampleAnswerTransliteration}
-                  className="mt-2 text-xs leading-5 text-emerald-100/70"
-                />
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-6 text-emerald-100">
+                      {content.challenge?.sampleAnswer}
+                    </p>
+                    <PhoneticSpelling
+                      value={content.challenge?.sampleAnswerTransliteration}
+                      className="mt-2 text-xs leading-5 text-emerald-100/70"
+                    />
+                  </div>
+                  {content.challenge?.sampleAnswer ? (
+                    <TextToSpeechButton
+                      text={content.challenge.sampleAnswer}
+                      languageCode={targetLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                </div>
               </div>
             ) : (
               <button
@@ -322,7 +428,9 @@ export function LessonScreen({
   onCreateLesson,
   onStartNewLesson,
   onOpenSidebar,
+  onPlayGeneratedSpeech,
 }) {
+  const lessonUiStrings = useUiStrings(myLang);
   const content = activeLesson?.content ?? activeLesson?.lesson_content;
 
   if (content?.title) {
@@ -330,8 +438,11 @@ export function LessonScreen({
       <LessonContent
         key={activeLesson?.id ?? content.title}
         lesson={activeLesson}
+        defaultTargetLanguageCode={theirLang?.code}
         onStartNewLesson={onStartNewLesson}
         onOpenSidebar={onOpenSidebar}
+        onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+        uiStrings={lessonUiStrings}
       />
     );
   }

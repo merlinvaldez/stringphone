@@ -4,6 +4,7 @@ import "dotenv/config";
 import multer from "multer";
 import {
   getAuthenticatedAppRequest,
+  getOptionalAuthenticatedAppRequest,
   requireAuthenticatedAppRequest,
 } from "./auth/express.js";
 import { getClerkUserIdentity } from "./auth/clerkUser.js";
@@ -18,6 +19,7 @@ import {
   getMessages,
 } from "./db/queries/conversations.js";
 import { getLessons } from "./db/queries/lessons.js";
+import { runSaveUserVoiceSample } from "./lib/runSaveUserVoiceSample.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
   createLanguageLessonForUser,
@@ -39,6 +41,7 @@ import {
   updateRoomLanguages,
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
+import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 import { runUiTranslations } from "./lib/runUiTranslations.js";
@@ -335,6 +338,38 @@ app.post("/users/me/bootstrap", requireAuthenticatedAppRequest, async (req, res)
     return res.status(502).json({ error: "Failed to bootstrap current user" });
   }
 });
+
+app.post(
+  "/users/me/voice-samples",
+  requireAuthenticatedAppRequest,
+  upload.single("voiceSample"),
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const result = await runSaveUserVoiceSample({
+        userId: authenticatedRequest.appUser.id,
+        conversationId: req.body?.conversationId,
+        sourceLanguage: req.body?.sourceLanguage,
+        targetLanguage: req.body?.targetLanguage,
+        voiceSampleFile: coerceUploadedFile(req.file),
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(201).json({ id: result.voiceSampleId });
+    } catch (error) {
+      console.error("Failed to save user voice sample", error);
+      return res.status(502).json({ error: "Failed to save voice sample" });
+    }
+  },
+);
 
 // Shared-room and translation routes remain guest-accessible in phase 1.
 app.post("/chat/rooms", (req, res) => {
@@ -779,6 +814,8 @@ app.post(
     const voiceSampleFile = uploadedFiles?.voiceSample?.[0];
 
     try {
+      const authenticatedRequest =
+        await getOptionalAuthenticatedAppRequest(req);
       const result = await runVoiceChatMessage({
         sourceLanguage: req.body?.sourceLanguage,
         targetLanguage: req.body?.targetLanguage,
@@ -800,6 +837,27 @@ app.post(
 
       if (!result.ok) {
         return res.status(result.status).json(result.body);
+      }
+
+      if (authenticatedRequest?.appUser && voiceSampleFile) {
+        const voiceSampleSaveResult = await runSaveUserVoiceSample({
+          userId: authenticatedRequest.appUser.id,
+          conversationId: req.body?.conversationId,
+          sourceLanguage: req.body?.sourceLanguage,
+          targetLanguage: req.body?.targetLanguage,
+          voiceSampleFile: {
+            buffer: voiceSampleFile.buffer,
+            filename: voiceSampleFile.originalname,
+            mimeType: voiceSampleFile.mimetype,
+          },
+        });
+
+        if (!voiceSampleSaveResult.ok) {
+          console.warn(
+            "Failed to persist authenticated voice sample during chat translation",
+            voiceSampleSaveResult,
+          );
+        }
       }
 
       return res.status(200).json({
@@ -886,6 +944,40 @@ app.post(
     }
   },
 );
+
+app.post("/speech/output", async (req, res) => {
+  try {
+    let appUserId: number | null = null;
+
+    try {
+      const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+      appUserId = authenticatedRequest?.appUser?.id ?? null;
+    } catch (error) {
+      console.warn("Failed to resolve optional speech auth context", error);
+    }
+
+    const result = await runOutputTextToSpeech({
+      text: req.body?.text,
+      language: req.body?.language,
+      conversationId: req.body?.conversationId,
+      userId: appUserId,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(result.body);
+    }
+
+    res.setHeader("Content-Type", result.contentType);
+    res.setHeader(
+      "Content-Disposition",
+      'inline; filename="stringphone-output-speech.mp3"',
+    );
+    return res.status(200).send(result.audioBuffer);
+  } catch (error) {
+    console.error("Output speech generation failed", error);
+    return res.status(502).json({ error: "Output speech generation failed" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`StringPhone backend is listening on Port: ${port}`);

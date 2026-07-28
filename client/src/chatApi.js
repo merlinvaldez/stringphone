@@ -36,6 +36,8 @@ export async function translateVoiceMessage({
   recording,
   sourceLanguage,
   targetLanguage,
+  authFetch,
+  conversationId = null,
 }) {
   const formData = new FormData();
   const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
@@ -46,7 +48,12 @@ export async function translateVoiceMessage({
   formData.append("sourceAudio", recording.blob, fileName);
   formData.append("voiceSample", recording.blob, fileName);
 
-  const response = await fetch(`${API_BASE_URL}/chat/messages/voice`, {
+  if (conversationId) {
+    formData.append("conversationId", conversationId);
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/messages/voice`, {
     method: "POST",
     body: formData,
   });
@@ -125,6 +132,42 @@ export async function saveMessage(authFetch, conversationId, messagePayload) {
   return response.json();
 }
 
+export async function saveVoiceSample(
+  authFetch,
+  { recording, conversationId = null, sourceLanguage, targetLanguage },
+) {
+  const formData = new FormData();
+  const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
+  const fileName = `stringphone-voice-sample.${extension}`;
+
+  formData.append("voiceSample", recording.blob, fileName);
+
+  if (conversationId) {
+    formData.append("conversationId", conversationId);
+  }
+
+  if (sourceLanguage?.code) {
+    formData.append("sourceLanguage", sourceLanguage.code);
+  }
+
+  if (targetLanguage?.code) {
+    formData.append("targetLanguage", targetLanguage.code);
+  }
+
+  const response = await authFetch(`${API_BASE_URL}/users/me/voice-samples`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to save voice sample"),
+    );
+  }
+
+  return response.json();
+}
+
 export async function fetchLessons(authFetch) {
   const response = await authFetch(`${API_BASE_URL}/lessons`);
 
@@ -133,6 +176,36 @@ export async function fetchLessons(authFetch) {
   }
 
   return response.json();
+}
+
+export async function fetchOutputSpeech({
+  text,
+  language,
+  conversationId = null,
+  authFetch,
+}) {
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/speech/output`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text,
+      language,
+      conversationId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Speech generation failed."),
+    );
+  }
+
+  return new Blob([await response.arrayBuffer()], {
+    type: response.headers.get("Content-Type") ?? "audio/mpeg",
+  });
 }
 
 export async function createLanguageLesson(

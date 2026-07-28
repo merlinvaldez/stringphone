@@ -126,7 +126,7 @@ export async function runSpeechTranslation(
     text: translation,
     targetLanguage: supportedTargetLanguage,
     voiceSample: voiceReferenceBuffer,
-    forceElevenLabsVoiceId: null,
+    voiceIdOverride: null,
   });
 
   return {

@@ -4,7 +4,6 @@ import {
   Plus,
   Loader2,
   ArrowRight,
-  BookOpen,
   GraduationCap,
   MessageSquare,
   MoreVertical,
@@ -219,6 +218,17 @@ export function ChatHistorySidebar({
     return typeof historyTitle === "string" ? historyTitle.trim() : "New lesson";
   }
 
+  function getLessonTargetCountryCode(lesson) {
+    const targetLanguageCode =
+      lesson.target_language ||
+      lesson.targetLanguage ||
+      lesson.targetLanguageCode ||
+      currentTargetLanguage?.code ||
+      "";
+
+    return getFlagCountryCode(targetLanguageCode);
+  }
+
   if (!isOpen) return null;
 
   return (
@@ -415,6 +425,7 @@ export function ChatHistorySidebar({
 
           {historyType === "lessons" && lessons.map((lesson) => {
             const isSelected = currentLessonId === lesson.id;
+            const targetCountryCode = getLessonTargetCountryCode(lesson);
 
             return (
               <button
@@ -428,9 +439,16 @@ export function ChatHistorySidebar({
                     : "text-zinc-300 hover:bg-white/5"
                 } ${isBusy ? "cursor-wait opacity-70" : ""}`}
               >
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-300/15 bg-emerald-400/10 text-emerald-200">
-                  <BookOpen size={15} />
-                </span>
+                <LanguageFlag
+                  countryCode={targetCountryCode}
+                  label={
+                    lesson.target_language ||
+                    lesson.targetLanguage ||
+                    lesson.targetLanguageCode ||
+                    "Lesson language"
+                  }
+                  className="mt-1 h-5 w-7 shrink-0"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{getLessonTitle(lesson)}</span>
                   <span className="mt-1 block text-xs text-zinc-500">

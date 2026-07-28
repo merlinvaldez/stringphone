@@ -2,7 +2,13 @@ import React, { useEffect, useRef } from "react";
 import { MessageBubble } from "./MessageBubble.jsx";
 import ChatEmptyState from "./ChatEmptyState.jsx";
 
-export function ChatThread({ messages, onRetry, onAudioPlay, uiStrings }) {
+export function ChatThread({
+  messages,
+  onRetry,
+  onAudioPlay,
+  onPlayGeneratedSpeech,
+  uiStrings,
+}) {
   const threadRef = useRef(null);
 
   useEffect(() => {
@@ -32,6 +38,7 @@ export function ChatThread({ messages, onRetry, onAudioPlay, uiStrings }) {
             message={message}
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
+            onPlayGeneratedSpeech={onPlayGeneratedSpeech}
             uiStrings={uiStrings}
           />
         ))}

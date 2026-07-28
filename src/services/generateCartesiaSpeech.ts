@@ -10,7 +10,8 @@ import type { PreparedVoiceReference } from "./prepareVoiceReference.js";
 export type GenerateCartesiaSpeechInput = {
   text: string;
   targetLanguage: SupportedTtsLanguage;
-  voiceSample: PreparedVoiceReference;
+  voiceSample?: PreparedVoiceReference | null;
+  voiceIdOverride?: string | null;
 };
 
 type CartesiaCloneVoiceResponse = {
@@ -36,7 +37,9 @@ async function readCartesiaError(response: Response, fallbackMessage: string) {
   return `${fallbackMessage}: ${response.status} ${response.statusText}`;
 }
 
-async function cloneCartesiaVoice(input: GenerateCartesiaSpeechInput) {
+async function cloneCartesiaVoice(
+  input: GenerateCartesiaSpeechInput & { voiceSample: PreparedVoiceReference },
+) {
   const formData = new FormData();
 
   formData.append(
@@ -115,10 +118,23 @@ async function deleteCartesiaVoice(voiceId: string) {
 }
 
 export async function generateCartesiaSpeech(input: GenerateCartesiaSpeechInput) {
+  if (input.voiceIdOverride) {
+    return synthesizeCartesiaSpeech(input, input.voiceIdOverride);
+  }
+
+  const voiceSample = input.voiceSample;
+
+  if (!voiceSample) {
+    throw new Error("Cartesia speech generation requires a voice sample or voice id.");
+  }
+
   let voiceId: string | null = null;
 
   try {
-    voiceId = await cloneCartesiaVoice(input);
+    voiceId = await cloneCartesiaVoice({
+      ...input,
+      voiceSample,
+    });
     return await synthesizeCartesiaSpeech(input, voiceId);
   } finally {
     if (voiceId) {

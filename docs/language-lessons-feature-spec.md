@@ -1,6 +1,6 @@
 # StringPhone language lessons
 
-**Status:** Implemented on `feat/6-language-lessons` for issue [#6](https://github.com/merlinvaldez/stringphone/issues/6) on 2026-07-28, including the cross-script phonetic-guidance update on 2026-07-28.  
+**Status:** Implemented on `feat/6-language-lessons` for issue [#6](https://github.com/merlinvaldez/stringphone/issues/6) on 2026-07-28, including the cross-script phonetic-guidance and output-language text-to-speech updates on 2026-07-28.  
 **Product:** StringPhone  
 **Audience:** people using StringPhone to communicate across two languages who want a short, practical way to reinforce a situation or recent exchange.
 
@@ -44,6 +44,9 @@ The public Labs page was not server-rendered in the research tool, so exact curr
 4. An existing saved lesson opens from lesson history and preserves its generated content.
 5. Lesson mode keeps a visible History trigger so the learner can reopen the side panel without leaving the lesson.
 6. Lesson rows in the History side panel use a short home-language label rather than the target-language lesson title.
+7. Tapping the top lesson-mode icon from chat resolves lesson state from the current chat:
+   - if the active saved conversation already has one or more chat-derived lessons, the latest one opens;
+   - if that specific chat has no lesson yet, the learner lands on the new-lesson builder instead of a stale lesson from another chat.
 
 All icon-only controls retain `aria-label`, `title`, `aria-selected`, and tab semantics.
 
@@ -55,6 +58,20 @@ StringPhone now treats phonetic spelling as a script-support affordance, not as 
 - The guide is rendered in parentheses and uses the viewer's writing system rather than IPA by default.
 - Same-script pairs such as English-Spanish or Hindi-Marathi do not show an extra phonetic line.
 - Cross-script lesson content follows the same rule for target-language strings.
+
+### Output-language text-to-speech playback
+
+StringPhone now exposes on-demand playback for generated lesson text and typed chat output without changing the voice-note flow.
+
+- In chat, the foreign-language line in a text bubble gets a speaker control:
+  - outgoing text message: the translated practice-language line;
+  - incoming shared-chat text message: the original foreign-language line.
+- In lessons, the target-language title, vocabulary terms, vocabulary examples, phrases, and revealed sample answer each get their own speaker control.
+- Playback is manual and ephemeral. Audio is generated on demand, cached in the current client session, and not written into lesson history rows.
+- Saved chat hydration restores each message's language metadata, so the in-chat speaker control stays clickable after reopening history.
+- `POST /api/speech/output` reuses the existing speech-provider stack. When the signed-in user already has saved self-authored voice examples in the database, playback prefers the latest matching sample and prioritizes the active lesson or chat conversation when that ID is available. When no saved sample exists, playback falls back to the provider or model default voice instead of a bundled reference clip.
+- Authenticated self voice recordings are also persisted into a dedicated `public.voice_samples` table, so reusable voice cloning still works for unsaved chats and shared-room chats that never create a saved conversation message row.
+- Saved lesson rows in History use the target-language flag as their visual marker instead of a generic lesson icon.
 
 ### Lesson builder
 
@@ -81,7 +98,7 @@ Every persisted lesson contains:
 5. one open Try it prompt with a revealable sample answer, including cross-script phonetic spelling when needed; and
 6. a **New lesson** action to return to the builder.
 
-The initial release intentionally does not include text-to-speech, answer grading, progress scoring, editing, deletion, or a raw transcript viewer. These are follow-on decisions, not silent omissions.
+The initial release intentionally does not include answer grading, progress scoring, editing, deletion, or a raw transcript viewer. These are follow-on decisions, not silent omissions.
 
 ## Data, privacy, and generation
 
@@ -98,6 +115,19 @@ The initial release intentionally does not include text-to-speech, answer gradin
 | `content` | structured generated lesson JSON |
 
 The history API returns structured lesson content so a prior lesson can open without another model call. The raw input transcript is not stored in the lesson row. A chat-derived lesson keeps only the generated lesson plus its optional conversation reference.
+
+### Voice sample record
+
+`public.voice_samples` is introduced by `supabase/migrations/20260728133000_create_voice_samples.sql`.
+
+| Field | Purpose |
+| --- | --- |
+| `id`, `user_id`, `created_at` | user-owned voice-sample identity and recency ordering |
+| `source_conversation_id` | optional link to the owned saved conversation when one exists |
+| `source_language`, `target_language` | lightweight matching hints for playback selection |
+| `audio_url` | persisted self-recorded source audio used as the preferred voice reference |
+
+This table is written whenever an authenticated user records their own voice in chat. For normal chat voice turns, the authenticated `/api/chat/messages/voice` request persists the exact uploaded source sample that was used for speech generation. Shared-room chat still uses the dedicated authenticated sample-upload path. Playback lookup uses `public.voice_samples` as the authoritative source of reusable voice references.
 
 ### Generation contract
 
@@ -130,19 +160,46 @@ Accepts:
 
 The route requires StringPhone authentication, validates both language codes, requires a topic or messages as appropriate, verifies ownership for a supplied conversation ID, generates structured content, and persists the result. It never accepts a lesson owner ID from the client.
 
+### `POST /api/speech/output`
+
+Accepts:
+
+```json
+{
+  "text": "target-language text to speak",
+  "language": "fr",
+  "conversationId": "optional owned conversation UUID"
+}
+```
+
+The route is guest-accessible because it only generates ephemeral playback audio for already-visible UI text. It validates the requested language against the existing supported speech list, enforces a short text-length cap, and returns `audio/mpeg` bytes. When the request is authenticated, it may use the current app user plus the optional conversation ID to look up a saved voice example; otherwise it uses the configured provider default voice path. It does not persist audio.
+
+### `POST /api/users/me/voice-samples`
+
+Accepts multipart form data:
+
+- `voiceSample`: required recorded audio blob
+- `conversationId`: optional owned conversation UUID
+- `sourceLanguage`: optional ISO language code
+- `targetLanguage`: optional ISO language code
+
+The route requires StringPhone authentication. It persists the caller's self-recorded source audio into `public.voice_samples`, optionally links it to an owned conversation, and makes that recording eligible for later lesson and typed-chat playback voice selection. The current app still uses this route for shared-room voice samples, but normal chat now persists samples directly from the authenticated `/api/chat/messages/voice` request.
+
 ## Implemented file map
 
 | Area | Files |
 | --- | --- |
 | Lesson UI | `client/src/components/lessons/LessonScreen.jsx` |
-| Chat bubble phonetic rendering | `client/src/components/chat/MessageBubble.jsx` |
+| On-demand text playback UI | `client/src/components/audio/TextToSpeechButton.jsx`, `client/src/components/chat/MessageBubble.jsx`, `client/src/components/lessons/LessonScreen.jsx` |
 | History toggle and saved-lesson list | `client/src/components/chat/ChatHistorySidebar.jsx` |
 | Mode icon, state, and lesson orchestration | `client/src/StringPhoneApp.jsx` |
 | Client API | `client/src/chatApi.js` |
-| Server route and persistence | `api/lessons/index.ts`, `src/db/queries/lessons.ts` |
+| Lesson server route and persistence | `api/lessons/index.ts`, `src/db/queries/lessons.ts` |
+| Output speech route and orchestration | `api/speech/output.ts`, `src/lib/runOutputTextToSpeech.ts`, `src/server.ts`, `src/services/resolveOutputSpeechVoiceId.ts`, `src/db/queries/voiceSamples.ts` |
+| Voice sample capture and persistence | `api/users/me/voice-samples.ts`, `src/lib/runSaveUserVoiceSample.ts`, `src/db/queries/voiceSamples.ts`, `src/server.ts`, `client/src/chatApi.js`, `client/src/StringPhoneApp.jsx` |
 | Structured generation | `src/services/generateLanguageLesson.ts`, `src/services/generatePronunciationGuidance.ts` |
 | Script-awareness | `src/lib/languages.ts` |
-| Database | `supabase/migrations/20260728093000_create_lessons.sql` |
+| Database | `supabase/migrations/20260728093000_create_lessons.sql`, `supabase/migrations/20260728133000_create_voice_samples.sql` |
 
 ## Acceptance and verification plan
 
@@ -158,8 +215,15 @@ The route requires StringPhone authentication, validates both language codes, re
 - [x] The lesson builder includes a clear New lesson path.
 - [x] The lesson builder and saved-lesson view both keep direct access to the History side panel.
 - [x] Lesson rows in History are labeled in the learner's language instead of the target-language lesson title.
+- [x] Entering Lessons from chat opens the latest lesson tied to the current saved conversation, or the builder when none exists.
 - [x] Cross-script chat text shows one parenthesized phonetic guide in the viewer's writing system, only on the unfamiliar-script line.
 - [x] Cross-script lesson content shows phonetic spellings for target-language title, key words, examples, phrases, and sample answer.
+- [x] Text chat exposes output-language playback from the bubble itself.
+- [x] Saved lesson content exposes target-language playback for title, vocabulary, examples, phrases, and sample answer.
+- [x] Reopened saved chats keep the text-message speaker control clickable because message language metadata is restored during hydration.
+- [x] Lesson and chat playback use a saved user-voice example when one exists and otherwise fall back to the provider default voice.
+- [x] Authenticated self voice recordings are persisted even when the user is in an unsaved chat or shared-room chat, so later lesson and typed-chat playback can still find a DB voice sample.
+- [x] Saved lesson rows in History show the target-language flag instead of a generic lesson icon.
 
 ### Required deployment checks
 
@@ -172,11 +236,17 @@ The route requires StringPhone authentication, validates both language codes, re
 7. Exercise an unauthenticated lesson creation attempt and verify it prompts for sign-in rather than leaking a lesson or writing a row.
 8. Test an outgoing message in a cross-script pair, such as English to Persian, and verify the translated line shows a parenthesized phonetic guide in the sender's own writing system.
 9. Test an incoming message in the same pair and verify the original foreign-script line, not the translated home-language line, shows the phonetic guide.
-10. Create a lesson in a cross-script pair and verify the title, key words, examples, phrases, and sample answer show parenthesized phonetic spellings while same-script language pairs do not.
+10. Click the speaker control on an outgoing typed chat message and verify it generates and plays the practice-language audio locally.
+11. Open a saved lesson, play the title, a vocabulary item, a phrase, and the revealed sample answer, and verify each uses the target language rather than the home-language explanation text.
+12. Open saved conversation A, create a lesson from chat, switch back to chat, open saved conversation B with no lesson, tap the top lesson icon, and verify the builder opens instead of conversation A's lesson.
+13. Return to saved conversation A, tap the top lesson icon again, and verify the latest lesson tied to conversation A opens.
+14. Create a lesson in a cross-script pair and verify the title, key words, examples, phrases, and sample answer show parenthesized phonetic spellings while same-script language pairs do not.
+15. Reopen a saved conversation with typed messages, hover the speaker button in a text bubble, and verify it shows a normal actionable pointer state instead of a loading cursor and plays on click.
+16. In an account with saved voice-message history, play lesson or typed-chat output and verify it uses the saved user-style voice; then test an account with no saved voice examples and verify playback still works with the provider default voice.
 
 ## Follow-up questions
 
 - Should lesson history support archive/delete before wider usage produces clutter?
-- Should existing StringPhone speech generation power per-term playback, with an explicit dialect setting?
+- Should typed chat and lesson playback expose an explicit saved voice or dialect preference instead of the current provider-default path?
 - Should the learner be able to save a chat-derived lesson to a particular conversation after initially creating it from an unsaved chat?
 - Do we want educator/linguist review for the generation prompt and an in-product accuracy-report affordance before adding slang or culture-specific content?
