@@ -4,6 +4,8 @@ import {
   Plus,
   Loader2,
   ArrowRight,
+  GraduationCap,
+  MessageSquare,
   MoreVertical,
   Trash2,
 } from "lucide-react";
@@ -11,6 +13,7 @@ import {
   archiveConversation,
   createConversation,
   fetchConversations,
+  fetchLessons,
 } from "../../chatApi.js";
 import { useAppAuth } from "../../AuthContext.jsx";
 import { getFlagCountryCode, LanguageFlag } from "../../languageFlags.jsx";
@@ -22,6 +25,9 @@ export function ChatHistorySidebar({
   onSelectConversation,
   onNewConversation,
   onArchiveConversation,
+  currentLessonId,
+  onSelectLesson,
+  onCreateLesson,
   currentSourceLanguage,
   currentTargetLanguage,
 }) {
@@ -30,13 +36,15 @@ export function ChatHistorySidebar({
   const [loading, setLoading] = useState(false);
   const [archivingConversationId, setArchivingConversationId] = useState(null);
   const [openConversationMenuId, setOpenConversationMenuId] = useState(null);
+  const [lessons, setLessons] = useState([]);
+  const [historyType, setHistoryType] = useState("chats");
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (isOpen && isSignedIn) {
-      loadConversations();
+      void loadHistory();
     }
-  }, [isOpen, isSignedIn]);
+  }, [historyType, isOpen, isSignedIn]);
 
   useEffect(() => {
     if (!openConversationMenuId) {
@@ -84,6 +92,27 @@ export function ChatHistorySidebar({
     }
   }
 
+  async function loadLessons() {
+    try {
+      setLoading(true);
+      setError("");
+      setLessons(await fetchLessons(authFetch));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadHistory() {
+    if (historyType === "lessons") {
+      await loadLessons();
+      return;
+    }
+
+    await loadConversations();
+  }
+
   async function handleNewConversation() {
     try {
       setLoading(true);
@@ -116,6 +145,16 @@ export function ChatHistorySidebar({
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSelectLesson(lesson) {
+    onSelectLesson?.(lesson);
+    onClose();
+  }
+
+  function handleCreateLesson() {
+    onCreateLesson?.();
+    onClose();
   }
 
   async function handleArchiveConversation(conversationId) {
@@ -168,6 +207,28 @@ export function ChatHistorySidebar({
     );
   }
 
+  function getLessonTitle(lesson) {
+    const historyTitle =
+      lesson.content?.historyTitle ||
+      lesson.content?.summary ||
+      lesson.topic ||
+      lesson.content?.title ||
+      "New lesson";
+
+    return typeof historyTitle === "string" ? historyTitle.trim() : "New lesson";
+  }
+
+  function getLessonTargetCountryCode(lesson) {
+    const targetLanguageCode =
+      lesson.target_language ||
+      lesson.targetLanguage ||
+      lesson.targetLanguageCode ||
+      currentTargetLanguage?.code ||
+      "";
+
+    return getFlagCountryCode(targetLanguageCode);
+  }
+
   if (!isOpen) return null;
 
   return (
@@ -177,25 +238,76 @@ export function ChatHistorySidebar({
         onClick={onClose}
       />
       <div className="fixed inset-y-0 left-0 z-50 flex w-80 animate-in slide-in-from-left flex-col border-r border-white/10 bg-zinc-900 shadow-2xl duration-300">
-        <div className="flex items-center justify-between border-b border-white/10 p-4">
-          <h2 className="text-lg font-semibold text-white">Chat History</h2>
-          <button
-            onClick={onClose}
-            className="rounded-full p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+        <div className="border-b border-white/10 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">History</h2>
+            <button
+              onClick={onClose}
+              className="rounded-full p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+              aria-label="Close history"
+              title="Close history"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div
+            role="tablist"
+            aria-label="History type"
+            className="mt-3 inline-flex rounded-xl border border-white/10 bg-black/20 p-1"
           >
-            <X size={20} />
-          </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={historyType === "chats"}
+              onClick={() => setHistoryType("chats")}
+              className={`flex h-8 w-9 items-center justify-center rounded-lg transition ${
+                historyType === "chats"
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              aria-label="Chat history"
+              title="Chat history"
+            >
+              <MessageSquare size={15} />
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={historyType === "lessons"}
+              onClick={() => setHistoryType("lessons")}
+              className={`flex h-8 w-9 items-center justify-center rounded-lg transition ${
+                historyType === "lessons"
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              aria-label="Lesson history"
+              title="Lesson history"
+            >
+              <GraduationCap size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="border-b border-white/10 p-4">
-          <button
-            onClick={handleNewConversation}
-            disabled={!isSignedIn || isBusy}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-            New Conversation
-          </button>
+          {historyType === "chats" ? (
+            <button
+              onClick={handleNewConversation}
+              disabled={!isSignedIn || isBusy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+              New Conversation
+            </button>
+          ) : (
+            <button
+              onClick={handleCreateLesson}
+              disabled={!isSignedIn || isBusy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <GraduationCap size={18} />
+              New lesson
+            </button>
+          )}
           {!isSignedIn && (
             <p className="mt-2 text-center text-xs text-zinc-500">
               Sign in to save and continue chats.
@@ -210,19 +322,25 @@ export function ChatHistorySidebar({
             </div>
           )}
 
-          {loading && conversations.length === 0 && (
+          {loading && ((historyType === "chats" && conversations.length === 0) || (historyType === "lessons" && lessons.length === 0)) && (
             <div className="flex justify-center p-8">
               <Loader2 size={24} className="animate-spin text-zinc-500" />
             </div>
           )}
 
-          {!loading && conversations.length === 0 && !error && isSignedIn && (
+          {!loading && historyType === "chats" && conversations.length === 0 && !error && isSignedIn && (
             <div className="p-8 text-center text-sm text-zinc-500">
               No saved conversations yet.
             </div>
           )}
 
-          {conversations.map((conv) => {
+          {!loading && historyType === "lessons" && lessons.length === 0 && !error && isSignedIn && (
+            <div className="p-8 text-center text-sm text-zinc-500">
+              No saved lessons yet.
+            </div>
+          )}
+
+          {historyType === "chats" && conversations.map((conv) => {
             const isArchiving = archivingConversationId === conv.id;
             const isSelected = currentConversationId === conv.id;
             const isMenuOpen = openConversationMenuId === conv.id;
@@ -302,6 +420,42 @@ export function ChatHistorySidebar({
                   </button>
                 </div>
               </div>
+            );
+          })}
+
+          {historyType === "lessons" && lessons.map((lesson) => {
+            const isSelected = currentLessonId === lesson.id;
+            const targetCountryCode = getLessonTargetCountryCode(lesson);
+
+            return (
+              <button
+                key={lesson.id}
+                type="button"
+                onClick={() => handleSelectLesson(lesson)}
+                disabled={isBusy}
+                className={`mb-1 flex w-full items-start gap-3 rounded-xl p-3 text-left transition ${
+                  isSelected
+                    ? "bg-white/10 text-white"
+                    : "text-zinc-300 hover:bg-white/5"
+                } ${isBusy ? "cursor-wait opacity-70" : ""}`}
+              >
+                <LanguageFlag
+                  countryCode={targetCountryCode}
+                  label={
+                    lesson.target_language ||
+                    lesson.targetLanguage ||
+                    lesson.targetLanguageCode ||
+                    "Lesson language"
+                  }
+                  className="mt-1 h-5 w-7 shrink-0"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{getLessonTitle(lesson)}</span>
+                  <span className="mt-1 block text-xs text-zinc-500">
+                    {new Date(lesson.created_at).toLocaleDateString()}
+                  </span>
+                </span>
+              </button>
             );
           })}
         </div>

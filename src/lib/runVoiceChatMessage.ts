@@ -1,4 +1,8 @@
-import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
+import {
+  CANONICAL_TTS_LANGUAGES,
+  getSupportedTtsLanguage,
+  requiresPhoneticGuide,
+} from "./languages.js";
 import { runSpeechTranslation } from "./runSpeechTranslation.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 import { transcribeAudio } from "../services/transcribeAudio.js";
@@ -80,6 +84,9 @@ export async function runVoiceChatMessage(
 
   const usesFarsiChatVoice =
     sourceLanguage.code === "fa" || targetLanguage.code === "fa";
+  const shouldGeneratePronunciationGuidance =
+    requiresPhoneticGuide(sourceLanguage.code, targetLanguage.code) ||
+    requiresPhoneticGuide(targetLanguage.code, sourceLanguage.code);
 
   if (usesFarsiChatVoice) {
     const transcript = await transcribeAudio({
@@ -99,20 +106,22 @@ export async function runVoiceChatMessage(
     let originalPronunciation = "";
     let translatedPronunciation = "";
 
-    try {
-      const guidance = await generatePronunciationGuidance({
-        originalText: transcript,
-        translatedText,
-        sourceLanguageCode: sourceLanguage.code,
-        sourceLanguage: sourceLanguage.name,
-        targetLanguageCode: targetLanguage.code,
-        targetLanguage: targetLanguage.name,
-      });
+    if (shouldGeneratePronunciationGuidance) {
+      try {
+        const guidance = await generatePronunciationGuidance({
+          originalText: transcript,
+          translatedText,
+          sourceLanguageCode: sourceLanguage.code,
+          sourceLanguage: sourceLanguage.name,
+          targetLanguageCode: targetLanguage.code,
+          targetLanguage: targetLanguage.name,
+        });
 
-      originalPronunciation = guidance.originalPronunciation;
-      translatedPronunciation = guidance.translatedPronunciation;
-    } catch (error) {
-      console.error("Voice pronunciation guidance failed", error);
+        originalPronunciation = guidance.originalPronunciation;
+        translatedPronunciation = guidance.translatedPronunciation;
+      } catch (error) {
+        console.error("Voice pronunciation guidance failed", error);
+      }
     }
 
     return {
@@ -146,12 +155,33 @@ export async function runVoiceChatMessage(
     return result;
   }
 
+  let originalPronunciation = "";
+  let translatedPronunciation = "";
+
+  if (shouldGeneratePronunciationGuidance) {
+    try {
+      const guidance = await generatePronunciationGuidance({
+        originalText: result.transcript,
+        translatedText: result.translation,
+        sourceLanguageCode: sourceLanguage.code,
+        sourceLanguage: sourceLanguage.name,
+        targetLanguageCode: targetLanguage.code,
+        targetLanguage: targetLanguage.name,
+      });
+
+      originalPronunciation = guidance.originalPronunciation;
+      translatedPronunciation = guidance.translatedPronunciation;
+    } catch (error) {
+      console.error("Voice pronunciation guidance failed", error);
+    }
+  }
+
   return {
     ok: true,
     transcript: result.transcript,
     translatedText: result.translation,
-    originalPronunciation: "",
-    translatedPronunciation: "",
+    originalPronunciation,
+    translatedPronunciation,
     sourceLanguage: {
       code: sourceLanguage.code,
       label: sourceLanguage.name,

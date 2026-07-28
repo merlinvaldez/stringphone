@@ -1,0 +1,160 @@
+import { db } from "../client.js";
+
+let ensureVoiceSamplesSchemaPromise: Promise<void> | null = null;
+
+type VoiceSampleSchemaExistsRow = {
+  voice_samples_exists: boolean;
+};
+
+export type StoredVoiceSample = {
+  id: string;
+  user_id: number;
+  source_conversation_id: string | null;
+  source_language: string | null;
+  target_language: string | null;
+  audio_url: string;
+  created_at: string;
+};
+
+type VoiceSampleLookupRow = {
+  conversation_id: string | null;
+  created_at: string;
+  target_language: string | null;
+  audio_url: string;
+};
+
+async function runEnsureVoiceSamplesSchema() {
+  const tableResult = await db.query<VoiceSampleSchemaExistsRow>(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'voice_samples'
+    ) AS voice_samples_exists
+    `,
+  );
+
+  if (!tableResult.rows[0]?.voice_samples_exists) {
+    await db.query(
+      `
+      CREATE TABLE IF NOT EXISTS public.voice_samples (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+        source_conversation_id uuid REFERENCES public.conversations(id) ON DELETE SET NULL,
+        source_language text,
+        target_language text,
+        audio_url text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+      `,
+    );
+  }
+
+  await db.query(
+    `
+    CREATE INDEX IF NOT EXISTS voice_samples_by_user_created_at_idx
+    ON public.voice_samples (user_id, created_at DESC)
+    `,
+  );
+
+  await db.query(
+    `
+    CREATE INDEX IF NOT EXISTS voice_samples_by_user_target_language_created_at_idx
+    ON public.voice_samples (user_id, target_language, created_at DESC)
+    `,
+  );
+}
+
+async function ensureVoiceSamplesSchema() {
+  if (!ensureVoiceSamplesSchemaPromise) {
+    ensureVoiceSamplesSchemaPromise = runEnsureVoiceSamplesSchema().catch((error) => {
+      ensureVoiceSamplesSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  await ensureVoiceSamplesSchemaPromise;
+}
+
+export async function createVoiceSample(params: {
+  userId: number;
+  sourceConversationId: string | null;
+  sourceLanguage: string | null;
+  targetLanguage: string | null;
+  audioUrl: string;
+}) {
+  await ensureVoiceSamplesSchema();
+
+  const result = await db.query<StoredVoiceSample>(
+    `
+    INSERT INTO public.voice_samples (
+      user_id,
+      source_conversation_id,
+      source_language,
+      target_language,
+      audio_url
+    )
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING *
+    `,
+    [
+      params.userId,
+      params.sourceConversationId,
+      params.sourceLanguage,
+      params.targetLanguage,
+      params.audioUrl,
+    ],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getLatestUserVoiceSample(params: {
+  userId: number;
+  preferredConversationId?: string | null;
+  targetLanguage?: string | null;
+}) {
+  await ensureVoiceSamplesSchema();
+
+  const preferredConversationId =
+    typeof params.preferredConversationId === "string" &&
+    params.preferredConversationId.trim()
+      ? params.preferredConversationId.trim()
+      : null;
+  const targetLanguage =
+    typeof params.targetLanguage === "string" && params.targetLanguage.trim()
+      ? params.targetLanguage.trim().toLowerCase()
+      : null;
+
+  const result = await db.query<VoiceSampleLookupRow>(
+    `
+    SELECT
+      vs.source_conversation_id AS conversation_id,
+      vs.created_at,
+      vs.target_language,
+      vs.audio_url
+    FROM public.voice_samples vs
+    WHERE vs.user_id = $1
+      AND btrim(vs.audio_url) <> ''
+    ORDER BY
+      CASE
+        WHEN $2::text IS NOT NULL
+         AND vs.source_conversation_id::text = $2
+          THEN 0
+        ELSE 1
+      END,
+      CASE
+        WHEN $3::text IS NOT NULL
+         AND lower(COALESCE(vs.target_language, '')) = $3
+          THEN 0
+        ELSE 1
+      END,
+      vs.created_at DESC
+    LIMIT 1
+    `,
+    [params.userId, preferredConversationId, targetLanguage],
+  );
+
+  return result.rows[0] ?? null;
+}

@@ -21,6 +21,7 @@ export function ChatScreen({
   submitVoiceMessage,
   retryMessage,
   onAudioPlay,
+  onPlayGeneratedSpeech,
   sharedRoomSession,
   sharedRoom,
   sharedRoomStatus,
@@ -186,6 +187,7 @@ export function ChatScreen({
           messages={messages}
           onRetry={retryMessage}
           onAudioPlay={onAudioPlay}
+          onPlayGeneratedSpeech={onPlayGeneratedSpeech}
           uiStrings={screenUiStrings}
         />
       </div>

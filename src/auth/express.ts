@@ -25,23 +25,35 @@ export function getAuthenticatedAppRequest(request: Request) {
   return authenticatedRequest as AuthenticatedAppRequest;
 }
 
+export async function getOptionalAuthenticatedAppRequest(
+  request: Request,
+): Promise<AuthenticatedAppRequest | null> {
+  const { userId } = getAuth(toExpressRequestWithAuth(request));
+
+  if (!userId) {
+    return null;
+  }
+
+  const appUser = await getUserByClerkId(userId);
+  const authenticatedRequest = toAuthenticatedAppRequest(request);
+
+  authenticatedRequest.clerkUserId = userId;
+  authenticatedRequest.appUser = appUser;
+
+  return authenticatedRequest as AuthenticatedAppRequest;
+}
+
 export async function requireAuthenticatedAppRequest(
   request: Request,
   response: Response,
   next: NextFunction,
 ) {
-  const { userId } = getAuth(toExpressRequestWithAuth(request));
-
-  if (!userId) {
-    return response.status(401).json({ error: "Unauthorized" });
-  }
-
   try {
-    const appUser = await getUserByClerkId(userId);
-    const authenticatedRequest = toAuthenticatedAppRequest(request);
+    const authenticatedRequest = await getOptionalAuthenticatedAppRequest(request);
 
-    authenticatedRequest.clerkUserId = userId;
-    authenticatedRequest.appUser = appUser;
+    if (!authenticatedRequest) {
+      return response.status(401).json({ error: "Unauthorized" });
+    }
 
     return next();
   } catch (error) {

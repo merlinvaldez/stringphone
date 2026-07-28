@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Copy,
   Ear,
+  GraduationCap,
   Loader2,
   MessageSquare,
   Mic,
@@ -29,8 +30,12 @@ import {
 import { useAppAuth } from "./AuthContext.jsx";
 import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
+  createLanguageLesson,
+  fetchOutputSpeech,
+  fetchLessons,
   fetchMessages,
   saveMessage,
+  saveVoiceSample,
   updateConversationLanguages,
 } from "./chatApi.js";
 import {
@@ -52,6 +57,7 @@ import {
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { LessonScreen } from "./components/lessons/LessonScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
@@ -141,6 +147,7 @@ const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
+  { id: "lesson", label: "Lessons", Icon: GraduationCap },
 ];
 
 function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
@@ -489,6 +496,14 @@ function revokeSharedRoomAudioUrls(audioUrlCacheRef) {
     URL.revokeObjectURL(url);
   });
   audioUrlCacheRef.current.clear();
+}
+
+function getLessonConversationId(lesson) {
+  return (
+    lesson?.source_conversation_id ??
+    lesson?.sourceConversationId ??
+    null
+  );
 }
 
 function mapSharedRoomMessages({
@@ -1077,7 +1092,9 @@ function ModeSwitcher({
     >
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
         {MODE_OPTIONS.map(({ id, label, Icon }) => {
-          const modeBlocked = id !== "chat" && (sharedChatLocked || textOnlyChatLocked);
+          const modeBlocked =
+            (id === "single" || id === "conversation") &&
+            (sharedChatLocked || textOnlyChatLocked);
           const blockedTitle = sharedChatLocked
             ? `${label} unavailable while shared chat is active`
             : "Persian is only available in Chat mode right now";
@@ -1092,7 +1109,7 @@ function ModeSwitcher({
                   return;
                 }
 
-                setAppMode(id);
+                void setAppMode(id);
               }}
               aria-label={label}
               aria-pressed={appMode === id}
@@ -1833,7 +1850,7 @@ export function SharedRoomControls({
 }
 
 export default function StringPhoneApp() {
-  const { isLoaded: isAuthLoaded, authFetch } = useAppAuth();
+  const { isLoaded: isAuthLoaded, isSignedIn, authFetch } = useAppAuth();
   const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
   const [myLang, setMyLang] = useState(() =>
@@ -1844,6 +1861,7 @@ export default function StringPhoneApp() {
   );
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [activeLesson, setActiveLesson] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesRef = useRef(messages);
   const domAudioRef = useRef(null);
@@ -1852,6 +1870,7 @@ export default function StringPhoneApp() {
   const hasRestoredAuthReturnStateRef = useRef(false);
   const attemptedAutoJoinTokenRef = useRef("");
   const sharedRoomAudioUrlCacheRef = useRef(new Map());
+  const generatedSpeechUrlCacheRef = useRef(new Map());
   const [pendingInviteToken, setPendingInviteToken] = useState(
     initialJoinTokenRef.current,
   );
@@ -2012,6 +2031,10 @@ export default function StringPhoneApp() {
       autoplayAudioRef.current?.pause();
       domAudioRef.current?.pause();
       revokeSharedRoomAudioUrls(sharedRoomAudioUrlCacheRef);
+      generatedSpeechUrlCacheRef.current.forEach((audioUrl) => {
+        URL.revokeObjectURL(audioUrl);
+      });
+      generatedSpeechUrlCacheRef.current.clear();
     },
     [],
   );
@@ -2174,6 +2197,35 @@ export default function StringPhoneApp() {
 
       onEnded?.();
     });
+  };
+
+  const playGeneratedSpeech = async ({ text, languageCode }) => {
+    const trimmedText = typeof text === "string" ? text.trim() : "";
+    const normalizedLanguageCode =
+      typeof languageCode === "string" ? languageCode.trim().toLowerCase() : "";
+    const preferredConversationId =
+      appMode === "lesson" ? getLessonConversationId(activeLesson) ?? null : currentConversationId;
+
+    if (!trimmedText || !normalizedLanguageCode) {
+      throw new Error("Audio unavailable.");
+    }
+
+    const cacheScope = preferredConversationId ?? (isSignedIn ? "signed-in" : "guest");
+    const cacheKey = `${normalizedLanguageCode}:${cacheScope}:${trimmedText}`;
+    let audioUrl = generatedSpeechUrlCacheRef.current.get(cacheKey);
+
+    if (!audioUrl) {
+      const audioBlob = await fetchOutputSpeech({
+        text: trimmedText,
+        language: normalizedLanguageCode,
+        conversationId: preferredConversationId,
+        authFetch: isSignedIn ? authFetch : undefined,
+      });
+      audioUrl = URL.createObjectURL(audioBlob);
+      generatedSpeechUrlCacheRef.current.set(cacheKey, audioUrl);
+    }
+
+    autoplayAudioUrl(audioUrl);
   };
 
   const replayVoiceMessage = (message) => {
@@ -2376,6 +2428,8 @@ export default function StringPhoneApp() {
         recording,
         sourceLanguage,
         targetLanguage,
+        authFetch: isSignedIn ? authFetch : undefined,
+        conversationId: currentConversationId,
       });
       const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -2483,11 +2537,24 @@ export default function StringPhoneApp() {
     recording,
   }) => {
     if (sharedRoomSession) {
-      return sendSharedRoomVoiceMessage({
+      const result = await sendSharedRoomVoiceMessage({
         roomId: sharedRoomSession.roomId,
         participantSessionToken: sharedRoomSession.participantSessionToken,
         recording,
       });
+
+      if (isSignedIn && sender === "self") {
+        saveVoiceSample(authFetch, {
+          recording,
+          conversationId: null,
+          sourceLanguage,
+          targetLanguage,
+        }).catch((error) => {
+          console.error("Failed to save shared-room voice sample", error);
+        });
+      }
+
+      return result;
     }
 
     return sendVoiceMessage({
@@ -2522,22 +2589,39 @@ export default function StringPhoneApp() {
     syncSharedRoomInviteToken("");
   };
 
-  const mapConversationMessages = (dbMessages) =>
-    dbMessages.map((message) => ({
+  const mapConversationMessages = (dbMessages, conversation) => {
+    const sourceSnapshot = buildLanguageSnapshot(
+      getLanguageOption(conversation.source_language),
+    );
+    const targetSnapshot = buildLanguageSnapshot(
+      getLanguageOption(conversation.target_language),
+    );
+
+    return dbMessages.map((message) => ({
       id: message.id,
       createdAt: message.created_at,
       kind: message.audio_url ? "voice" : "text",
       status: "ready",
       sender: message.sender,
       originalText: message.original_text,
+      originalPronunciation: "",
       translatedText: message.translated_text,
+      translatedPronunciation: "",
       transcript: message.transcript || "",
       audioUrl: message.audio_url
         ? (message.audio_url.startsWith("data:")
           ? message.audio_url
-          : `data:audio/webm;base64,${message.audio_url}`)
+          : `data:audio/mpeg;base64,${message.audio_url}`)
         : "",
+      errorMessage: "",
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
     }));
+  };
 
   const openSavedConversation = async (conversation) => {
     const dbMessages = await fetchMessages(authFetch, conversation.id);
@@ -2549,8 +2633,9 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
-    setMessages(mapConversationMessages(dbMessages));
+    setMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
+    setActiveLesson(null);
   };
 
   const startNewConversation = async (conversation) => {
@@ -2563,6 +2648,7 @@ export default function StringPhoneApp() {
     setTheirLang(getLanguageOption(conversation.target_language));
     setMessages([]);
     setCurrentConversationId(conversation.id);
+    setActiveLesson(null);
   };
 
   const handleArchivedConversation = (conversationId) => {
@@ -2572,6 +2658,75 @@ export default function StringPhoneApp() {
 
     setMessages([]);
     setCurrentConversationId(null);
+    setActiveLesson(null);
+  };
+
+  const createLessonFromCurrentContext = async ({ source, topic }) => {
+    const lessonMessages = chatMessages
+      .filter(
+        (message) =>
+          message.status === "ready" &&
+          (message.originalText || message.translatedText),
+      )
+      .slice(-12)
+      .map((message) => ({
+        originalText: message.originalText ?? "",
+        translatedText: message.translatedText ?? "",
+      }));
+
+    const lesson = await createLanguageLesson(authFetch, {
+      source,
+      topic,
+      sourceLanguage: myLang,
+      targetLanguage: theirLang,
+      conversationId:
+        source === "chat" && !sharedRoomSession ? currentConversationId : null,
+      messages: source === "chat" ? lessonMessages : [],
+    });
+
+    setActiveLesson(lesson);
+    return lesson;
+  };
+
+  const openNewLesson = () => {
+    setActiveLesson(null);
+    setAppMode("lesson");
+  };
+
+  const openLessonForCurrentChat = async () => {
+    if (!currentConversationId || !isSignedIn) {
+      setActiveLesson(null);
+      setAppMode("lesson");
+      return;
+    }
+
+    if (getLessonConversationId(activeLesson) === currentConversationId) {
+      setAppMode("lesson");
+      return;
+    }
+
+    try {
+      const lessons = await fetchLessons(authFetch);
+      const matchingLesson =
+        lessons.find(
+          (lesson) => getLessonConversationId(lesson) === currentConversationId,
+        ) ?? null;
+      setActiveLesson(matchingLesson);
+    } catch (error) {
+      console.error("Failed to resolve lesson for current chat", error);
+      setActiveLesson(null);
+    }
+
+    setAppMode("lesson");
+  };
+
+  const handleSelectAppMode = async (nextMode) => {
+    if (nextMode === "lesson") {
+      await openLessonForCurrentChat();
+      return;
+    }
+
+    setAppMode(nextMode);
   };
 
   const persistActiveConversationLanguages = async (
@@ -2822,7 +2977,7 @@ export default function StringPhoneApp() {
       />
       <ModeSwitcher
         appMode={appMode}
-        setAppMode={setAppMode}
+        setAppMode={handleSelectAppMode}
         sharedChatLocked={Boolean(sharedRoomSession)}
         textOnlyChatLocked={isFarsiChatOnly}
         onBlockedModeChange={handleBlockedModeChange}
@@ -2836,6 +2991,12 @@ export default function StringPhoneApp() {
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}
         onArchiveConversation={handleArchivedConversation}
+        currentLessonId={activeLesson?.id ?? null}
+        onSelectLesson={(lesson) => {
+          setActiveLesson(lesson);
+          setAppMode("lesson");
+        }}
+        onCreateLesson={openNewLesson}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />
@@ -2852,6 +3013,7 @@ export default function StringPhoneApp() {
           submitVoiceMessage={submitChatVoiceMessage}
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
+          onPlayGeneratedSpeech={playGeneratedSpeech}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
           sharedRoomStatus={sharedRoomStatus}
@@ -2876,6 +3038,20 @@ export default function StringPhoneApp() {
           autoplayAudioUrl={autoplayAudioUrl}
           submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
+        />
+      ) : null}
+
+      {appMode === "lesson" ? (
+        <LessonScreen
+          activeLesson={activeLesson}
+          myLang={myLang}
+          theirLang={theirLang}
+          currentMessages={chatMessages}
+          isSignedIn={isSignedIn}
+          onCreateLesson={createLessonFromCurrentContext}
+          onStartNewLesson={openNewLesson}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
+          onPlayGeneratedSpeech={playGeneratedSpeech}
         />
       ) : null}
 

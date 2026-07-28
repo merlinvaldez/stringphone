@@ -36,6 +36,29 @@ export function authRouteOptionsResponse() {
   });
 }
 
+export async function getOptionalAuthenticatedVercelAppRequest(
+  request: Request,
+): Promise<{ clerkUserId: string; appUser: AppUser | null } | null> {
+  try {
+    const requestState = await clerkClient.authenticateRequest(request);
+    const auth = requestState.toAuth();
+
+    if (!auth?.userId) {
+      return null;
+    }
+
+    const appUser = await getUserByClerkId(auth.userId);
+
+    return {
+      clerkUserId: auth.userId,
+      appUser,
+    };
+  } catch (error) {
+    console.error("Failed to resolve optional authenticated Vercel request", error);
+    return null;
+  }
+}
+
 export async function requireAuthenticatedVercelAppRequest(
   request: Request,
 ): Promise<AuthenticatedVercelAppRequest> {

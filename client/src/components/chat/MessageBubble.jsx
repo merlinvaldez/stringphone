@@ -1,17 +1,28 @@
 import React from "react";
+import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
 import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
 import { formatTimestamp, formatPronunciationGuide } from "../../utils.js";
 
-export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
+function PronunciationGuide({ value, className }) {
+  const pronunciation = formatPronunciationGuide(value);
+
+  if (!pronunciation) {
+    return null;
+  }
+
+  return <p className={className}>({pronunciation})</p>;
+}
+
+export function MessageBubble({
+  message,
+  onRetry,
+  onAudioPlay,
+  onPlayGeneratedSpeech,
+  uiStrings,
+}) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
-  const originalPronunciation = formatPronunciationGuide(
-    message.originalPronunciation,
-  );
-  const translatedPronunciation = formatPronunciationGuide(
-    message.translatedPronunciation,
-  );
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
@@ -45,10 +56,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-white">
                     {message.transcript}
                   </p>
-                  {originalPronunciation ? (
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {originalPronunciation}
-                    </p>
+                  {!isSelf ? (
+                    <PronunciationGuide
+                      value={message.originalPronunciation}
+                      className="mt-2 text-sm leading-6 text-zinc-300"
+                    />
                   ) : null}
                 </div>
               ) : message.status !== "error" ? (
@@ -62,10 +74,11 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
                   <p className="text-sm leading-6 text-zinc-200">
                     {message.translatedText}
                   </p>
-                  {translatedPronunciation ? (
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
-                      ({translatedPronunciation})
-                    </p>
+                  {isSelf ? (
+                    <PronunciationGuide
+                      value={message.translatedPronunciation}
+                      className="mt-2 text-xs leading-5 text-zinc-400"
+                    />
                   ) : null}
                 </div>
               ) : null}
@@ -73,28 +86,56 @@ export function MessageBubble({ message, onRetry, onAudioPlay, uiStrings }) {
           ) : (
             <div className="space-y-3">
               <div>
-                <p className="text-sm leading-6 text-white">
-                  {message.originalText}
-                </p>
-                {originalPronunciation ? (
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {originalPronunciation}
-                  </p>
-                ) : null}
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-6 text-white">
+                      {message.originalText}
+                    </p>
+                    {!isSelf ? (
+                      <PronunciationGuide
+                        value={message.originalPronunciation}
+                        className="mt-2 text-sm leading-6 text-zinc-300"
+                      />
+                    ) : null}
+                  </div>
+                  {!isSelf && message.originalText ? (
+                    <TextToSpeechButton
+                      text={message.originalText}
+                      languageCode={message.sourceLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                </div>
               </div>
 
               <div className="border-t border-white/10 pt-3">
-                <p className="text-sm leading-6 text-zinc-200">
-                  {message.translatedText ||
-                    (message.status === "error"
-                      ? uiStrings.translationFailed
-                      : uiStrings.translatingShort)}
-                </p>
-                {translatedPronunciation ? (
-                  <p className="mt-2 text-xs leading-5 text-zinc-400">
-                    ({translatedPronunciation})
-                  </p>
-                ) : null}
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-6 text-zinc-200">
+                      {message.translatedText ||
+                        (message.status === "error"
+                          ? uiStrings.translationFailed
+                          : uiStrings.translatingShort)}
+                    </p>
+                    {isSelf ? (
+                      <PronunciationGuide
+                        value={message.translatedPronunciation}
+                        className="mt-2 text-xs leading-5 text-zinc-400"
+                      />
+                    ) : null}
+                  </div>
+                  {isSelf && message.translatedText ? (
+                    <TextToSpeechButton
+                      text={message.translatedText}
+                      languageCode={message.targetLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={uiStrings}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
           )}

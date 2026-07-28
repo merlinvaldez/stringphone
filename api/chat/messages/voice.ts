@@ -1,4 +1,6 @@
 import "../../../src/lib/mistral.js";
+import { getOptionalAuthenticatedVercelAppRequest } from "../../../src/auth/vercel.js";
+import { runSaveUserVoiceSample } from "../../../src/lib/runSaveUserVoiceSample.js";
 import { runVoiceChatMessage } from "../../../src/lib/runVoiceChatMessage.js";
 
 export const config = {
@@ -21,7 +23,7 @@ export default {
         status: 204,
         headers: {
           "Access-Control-Allow-Methods": "POST,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization",
         },
       });
     }
@@ -30,6 +32,8 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
+    const authenticatedRequest =
+      await getOptionalAuthenticatedVercelAppRequest(request);
     const formData = await request.formData();
     const sourceAudio = formData.get("sourceAudio");
     const voiceSample = formData.get("voiceSample");
@@ -57,6 +61,27 @@ export default {
 
     if (!result.ok) {
       return jsonResponse(result.body, result.status);
+    }
+
+    if (authenticatedRequest?.appUser && voiceSample instanceof File) {
+      const voiceSampleSaveResult = await runSaveUserVoiceSample({
+        userId: authenticatedRequest.appUser.id,
+        conversationId: formData.get("conversationId"),
+        sourceLanguage: formData.get("sourceLanguage"),
+        targetLanguage: formData.get("targetLanguage"),
+        voiceSampleFile: {
+          buffer: Buffer.from(await voiceSample.arrayBuffer()),
+          filename: voiceSample.name || "voice-sample.webm",
+          mimeType: voiceSample.type || undefined,
+        },
+      });
+
+      if (!voiceSampleSaveResult.ok) {
+        console.warn(
+          "Failed to persist authenticated Vercel voice sample during chat translation",
+          voiceSampleSaveResult,
+        );
+      }
     }
 
     return jsonResponse({

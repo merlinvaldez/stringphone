@@ -34,7 +34,7 @@ export function ChatHeader({
           <button
             onClick={onOpenSidebar}
             className="p-2 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition"
-            title="Chat History"
+            title="History"
           >
             <Menu size={18} />
           </button>
@@ -47,7 +47,7 @@ export function ChatHeader({
           <button
             onClick={onOpenSidebar}
             className="sm:hidden p-2 rounded-full bg-white/5 border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 transition flex-shrink-0"
-            title="Chat History"
+            title="History"
           >
             <Menu size={18} />
           </button>

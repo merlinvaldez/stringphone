@@ -11,7 +11,7 @@ import type { PreparedVoiceReference } from "./prepareVoiceReference.js";
 export type GenerateElevenLabsSpeechInput = {
   text: string;
   targetLanguage: SupportedTtsLanguage;
-  voiceSample: PreparedVoiceReference;
+  voiceSample?: PreparedVoiceReference | null;
   voiceIdOverride?: string | null;
 };
 
@@ -50,7 +50,9 @@ async function readElevenLabsError(response: Response, fallbackMessage: string) 
   return `${fallbackMessage}: ${response.status} ${response.statusText}`;
 }
 
-async function cloneElevenLabsVoice(input: GenerateElevenLabsSpeechInput) {
+async function cloneElevenLabsVoice(
+  input: GenerateElevenLabsSpeechInput & { voiceSample: PreparedVoiceReference },
+) {
   const formData = new FormData();
 
   formData.append("name", `stringphone-${input.targetLanguage.code}-${randomUUID()}`);
@@ -132,10 +134,19 @@ export async function generateElevenLabsSpeech(
     return synthesizeElevenLabsSpeech(input, input.voiceIdOverride);
   }
 
+  const voiceSample = input.voiceSample;
+
+  if (!voiceSample) {
+    throw new Error("ElevenLabs speech generation requires a voice sample or voice id.");
+  }
+
   let voiceId: string | null = null;
 
   try {
-    voiceId = await cloneElevenLabsVoice(input);
+    voiceId = await cloneElevenLabsVoice({
+      ...input,
+      voiceSample,
+    });
     return await synthesizeElevenLabsSpeech(input, voiceId);
   } finally {
     if (voiceId) {
