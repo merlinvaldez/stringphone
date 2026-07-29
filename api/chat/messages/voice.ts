@@ -41,6 +41,7 @@ export default {
     const result = await runVoiceChatMessage({
       sourceLanguage: formData.get("sourceLanguage"),
       targetLanguage: formData.get("targetLanguage"),
+      userId: authenticatedRequest?.appUser?.id ?? null,
       sourceAudioFile:
         sourceAudio instanceof File
           ? {

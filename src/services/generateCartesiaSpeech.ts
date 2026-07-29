@@ -53,6 +53,7 @@ async function cloneCartesiaVoice(
     `Ephemeral StringPhone voice clone for ${input.targetLanguage.name}`,
   );
   formData.append("language", input.targetLanguage.code);
+  formData.append("enhance", "false");
 
   const response = await fetch(`${CARTESIA_API_BASE_URL}/voices/clone`, {
     method: "POST",

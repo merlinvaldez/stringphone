@@ -1,0 +1,469 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.6.2
+2 info using node@v25.0.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\merli\Desktop\repos\stringphone\.npmrc
+5 silly config load:file:C:\Users\merli\.npmrc
+6 silly config load:file:C:\Users\merli\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install playwright
+8 verbose argv "install" "--no-save" "--cache" ".\\.npm-cache" "playwright"
+9 verbose logfile logs-max:10 dir:C:\Users\merli\Desktop\repos\stringphone\.npm-cache\_logs\2026-07-29T12_49_29_923Z-
+10 verbose logfile C:\Users\merli\Desktop\repos\stringphone\.npm-cache\_logs\2026-07-29T12_49_29_923Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 silly idealTree buildDeps
+14 silly fetch manifest playwright@*
+15 silly packumentCache full:https://registry.npmjs.org/playwright cache-miss
+16 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules/supabase
+17 http fetch GET 200 https://registry.npmjs.org/npm 514ms
+18 http fetch GET 200 https://registry.npmjs.org/playwright 1076ms (cache miss)
+19 silly packumentCache full:https://registry.npmjs.org/playwright set size:undefined disposed:false
+20 silly placeDep ROOT playwright@1.62.0 OK for: stringphone@1.0.0 want: *
+21 silly fetch manifest playwright-core@1.62.0
+22 silly packumentCache full:https://registry.npmjs.org/playwright-core cache-miss
+23 silly fetch manifest fsevents@2.3.2
+24 silly packumentCache full:https://registry.npmjs.org/fsevents cache-miss
+25 http fetch GET 200 https://registry.npmjs.org/fsevents 83ms (cache miss)
+26 silly packumentCache full:https://registry.npmjs.org/fsevents set size:undefined disposed:false
+27 http fetch GET 200 https://registry.npmjs.org/playwright-core 691ms (cache miss)
+28 silly packumentCache full:https://registry.npmjs.org/playwright-core set size:undefined disposed:false
+29 silly placeDep node_modules/playwright fsevents@2.3.2 OK for: playwright@1.62.0 want: 2.3.2
+30 silly placeDep ROOT playwright-core@1.62.0 OK for: playwright@1.62.0 want: 1.62.0
+31 silly reify moves {}
+32 silly audit bulk request {
+32 silly audit   '@clerk/backend': [ '3.4.9' ],
+32 silly audit   '@clerk/express': [ '2.1.17' ],
+32 silly audit   '@clerk/shared': [ '4.12.0' ],
+32 silly audit   '@derhuerst/http-basic': [ '8.2.4' ],
+32 silly audit   '@esbuild/aix-ppc64': [ '0.27.7' ],
+32 silly audit   '@esbuild/android-arm': [ '0.27.7' ],
+32 silly audit   '@esbuild/android-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/android-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/darwin-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/darwin-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/freebsd-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/freebsd-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-arm': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-ia32': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-loong64': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-mips64el': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-ppc64': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-riscv64': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-s390x': [ '0.27.7' ],
+32 silly audit   '@esbuild/linux-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/netbsd-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/netbsd-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/openbsd-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/openbsd-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/openharmony-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/sunos-x64': [ '0.27.7' ],
+32 silly audit   '@esbuild/win32-arm64': [ '0.27.7' ],
+32 silly audit   '@esbuild/win32-ia32': [ '0.27.7' ],
+32 silly audit   '@esbuild/win32-x64': [ '0.27.7' ],
+32 silly audit   '@isaacs/fs-minipass': [ '4.0.1' ],
+32 silly audit   '@mistralai/mistralai': [ '2.2.0' ],
+32 silly audit   '@stablelib/base64': [ '1.0.1' ],
+32 silly audit   '@tanstack/query-core': [ '5.100.10' ],
+32 silly audit   '@types/body-parser': [ '1.19.6' ],
+32 silly audit   '@types/connect': [ '3.4.38' ],
+32 silly audit   '@types/express': [ '5.0.6' ],
+32 silly audit   '@types/express-serve-static-core': [ '5.1.1' ],
+32 silly audit   '@types/http-errors': [ '2.0.5' ],
+32 silly audit   '@types/multer': [ '2.1.0' ],
+32 silly audit   '@types/node': [ '25.6.0', '10.17.60' ],
+32 silly audit   '@types/qs': [ '6.15.0' ],
+32 silly audit   '@types/range-parser': [ '1.2.7' ],
+32 silly audit   '@types/send': [ '1.2.1' ],
+32 silly audit   '@types/serve-static': [ '2.2.0' ],
+32 silly audit   accepts: [ '2.0.0' ],
+32 silly audit   'agent-base': [ '6.0.2', '9.0.0' ],
+32 silly audit   'ansi-regex': [ '5.0.1' ],
+32 silly audit   'ansi-styles': [ '4.3.0' ],
+32 silly audit   'append-field': [ '1.0.0' ],
+32 silly audit   'bin-links': [ '6.0.0' ],
+32 silly audit   'body-parser': [ '2.2.2' ],
+32 silly audit   'buffer-from': [ '1.1.2' ],
+32 silly audit   busboy: [ '1.6.0' ],
+32 silly audit   bytes: [ '3.1.2' ],
+32 silly audit   'call-bind-apply-helpers': [ '1.0.2' ],
+32 silly audit   'call-bound': [ '1.0.4' ],
+32 silly audit   caseless: [ '0.12.0' ],
+32 silly audit   chalk: [ '4.1.2' ],
+32 silly audit   'supports-color': [ '7.2.0', '8.1.1' ],
+32 silly audit   chownr: [ '3.0.0' ],
+32 silly audit   cliui: [ '8.0.1' ],
+32 silly audit   'cmd-shim': [ '8.0.0' ],
+32 silly audit   'color-convert': [ '2.0.1' ],
+32 silly audit   'color-name': [ '1.1.4' ],
+32 silly audit   'concat-stream': [ '2.0.0' ],
+32 silly audit   concurrently: [ '9.2.1' ],
+32 silly audit   'content-disposition': [ '1.1.0' ],
+32 silly audit   'content-type': [ '1.0.5' ],
+32 silly audit   cookie: [ '0.7.2' ],
+32 silly audit   'cookie-signature': [ '1.2.2' ],
+32 silly audit   'data-uri-to-buffer': [ '4.0.1' ],
+32 silly audit   debug: [ '4.4.3' ],
+32 silly audit   depd: [ '2.0.0' ],
+32 silly audit   dequal: [ '2.0.3' ],
+32 silly audit   dotenv: [ '17.4.1' ],
+32 silly audit   'dunder-proto': [ '1.0.1' ],
+32 silly audit   'ee-first': [ '1.1.1' ],
+32 silly audit   'emoji-regex': [ '8.0.0' ],
+32 silly audit   encodeurl: [ '2.0.0' ],
+32 silly audit   'env-paths': [ '2.2.1' ],
+32 silly audit   'es-define-property': [ '1.0.1' ],
+32 silly audit   'es-errors': [ '1.3.0' ],
+32 silly audit   'es-object-atoms': [ '1.1.1' ],
+32 silly audit   esbuild: [ '0.27.7' ],
+32 silly audit   escalade: [ '3.2.0' ],
+32 silly audit   'escape-html': [ '1.0.3' ],
+32 silly audit   etag: [ '1.8.1' ],
+32 silly audit   express: [ '5.2.1' ],
+32 silly audit   'fast-sha256': [ '1.3.0' ],
+32 silly audit   'fetch-blob': [ '3.2.0' ],
+32 silly audit   'ffmpeg-static': [ '5.3.0' ],
+32 silly audit   finalhandler: [ '2.1.1' ],
+32 silly audit   'formdata-polyfill': [ '4.0.10' ],
+32 silly audit   forwarded: [ '0.2.0' ],
+32 silly audit   fresh: [ '2.0.0' ],
+32 silly audit   fsevents: [ '2.3.3', '2.3.2' ],
+32 silly audit   'function-bind': [ '1.1.2' ],
+32 silly audit   'get-caller-file': [ '2.0.5' ],
+32 silly audit   'get-intrinsic': [ '1.3.0' ],
+32 silly audit   'get-proto': [ '1.0.1' ],
+32 silly audit   'get-tsconfig': [ '4.13.7' ],
+32 silly audit   'glob-to-regexp': [ '0.4.1' ],
+32 silly audit   gopd: [ '1.2.0' ],
+32 silly audit   'has-flag': [ '4.0.0' ],
+32 silly audit   'has-symbols': [ '1.1.0' ],
+32 silly audit   hasown: [ '2.0.2' ],
+32 silly audit   'http-errors': [ '2.0.1' ],
+32 silly audit   'http-response-object': [ '3.0.2' ],
+32 silly audit   'https-proxy-agent': [ '5.0.1', '9.0.0' ],
+32 silly audit   'iconv-lite': [ '0.7.2' ],
+32 silly audit   inherits: [ '2.0.4' ],
+32 silly audit   'ipaddr.js': [ '1.9.1' ],
+32 silly audit   'is-fullwidth-code-point': [ '3.0.0' ],
+32 silly audit   'is-promise': [ '4.0.0' ],
+32 silly audit   'js-cookie': [ '3.0.5' ],
+32 silly audit   'math-intrinsics': [ '1.1.0' ],
+32 silly audit   'media-typer': [ '1.1.0', '0.3.0' ],
+32 silly audit   'merge-descriptors': [ '2.0.0' ],
+32 silly audit   'mime-db': [ '1.54.0', '1.52.0' ],
+32 silly audit   'mime-types': [ '3.0.2', '2.1.35' ],
+32 silly audit   minipass: [ '7.1.3' ],
+32 silly audit   minizlib: [ '3.1.0' ],
+32 silly audit   ms: [ '2.1.3' ],
+32 silly audit   multer: [ '2.1.1' ],
+32 silly audit   'type-is': [ '1.6.18', '2.0.1' ],
+32 silly audit   negotiator: [ '1.0.0' ],
+32 silly audit   'node-domexception': [ '1.0.0' ],
+32 silly audit   'node-fetch': [ '3.3.2' ],
+32 silly audit   'npm-normalize-package-bin': [ '5.0.0' ],
+32 silly audit   'object-inspect': [ '1.13.4' ],
+32 silly audit   'on-finished': [ '2.4.1' ],
+32 silly audit   once: [ '1.4.0' ],
+32 silly audit   'parse-cache-control': [ '1.0.1' ],
+32 silly audit   parseurl: [ '1.3.3' ],
+32 silly audit   'path-to-regexp': [ '8.4.2' ],
+32 silly audit   pg: [ '8.20.0' ],
+32 silly audit   'pg-cloudflare': [ '1.3.0' ],
+32 silly audit   'pg-connection-string': [ '2.12.0' ],
+32 silly audit   'pg-int8': [ '1.0.1' ],
+32 silly audit   'pg-pool': [ '3.13.0' ],
+32 silly audit   'pg-protocol': [ '1.13.0' ],
+32 silly audit   'pg-types': [ '2.2.0' ],
+32 silly audit   pgpass: [ '1.0.5' ],
+32 silly audit   'postgres-array': [ '2.0.0' ],
+32 silly audit   'postgres-bytea': [ '1.0.1' ],
+32 silly audit   'postgres-date': [ '1.0.7' ],
+32 silly audit   'postgres-interval': [ '1.2.0' ],
+32 silly audit   'proc-log': [ '6.1.0' ],
+32 silly audit   progress: [ '2.0.3' ],
+32 silly audit   'proxy-addr': [ '2.0.7' ],
+32 silly audit   qs: [ '6.15.1' ],
+32 silly audit   'range-parser': [ '1.2.1' ],
+32 silly audit   'raw-body': [ '3.0.2' ],
+32 silly audit   'read-cmd-shim': [ '6.0.0' ],
+32 silly audit   'readable-stream': [ '3.6.2' ],
+32 silly audit   'require-directory': [ '2.1.1' ],
+32 silly audit   'resolve-pkg-maps': [ '1.0.0' ],
+32 silly audit   router: [ '2.2.0' ],
+32 silly audit   rxjs: [ '7.8.2' ],
+32 silly audit   'safe-buffer': [ '5.2.1' ],
+32 silly audit   'safer-buffer': [ '2.1.2' ],
+32 silly audit   send: [ '1.2.1' ],
+32 silly audit   'serve-static': [ '2.2.1' ],
+32 silly audit   setprototypeof: [ '1.2.0' ],
+32 silly audit   'shell-quote': [ '1.8.3' ],
+32 silly audit   'side-channel': [ '1.1.0' ],
+32 silly audit   'side-channel-list': [ '1.0.1' ],
+32 silly audit   'side-channel-map': [ '1.0.1' ],
+32 silly audit   'side-channel-weakmap': [ '1.0.2' ],
+32 silly audit   'signal-exit': [ '4.1.0' ],
+32 silly audit   split2: [ '4.2.0' ],
+32 silly audit   standardwebhooks: [ '1.0.0' ],
+32 silly audit   statuses: [ '2.0.2' ],
+32 silly audit   'std-env': [ '3.10.0' ],
+32 silly audit   streamsearch: [ '1.1.0' ],
+32 silly audit   string_decoder: [ '1.3.0' ],
+32 silly audit   'string-width': [ '4.2.3' ],
+32 silly audit   'strip-ansi': [ '6.0.1' ],
+32 silly audit   supabase: [ '2.98.2' ],
+32 silly audit   tar: [ '7.5.13' ],
+32 silly audit   toidentifier: [ '1.0.1' ],
+32 silly audit   'tree-kill': [ '1.2.2' ],
+32 silly audit   tslib: [ '2.8.1' ],
+32 silly audit   tsx: [ '4.21.0' ],
+32 silly audit   typedarray: [ '0.0.6' ],
+32 silly audit   typescript: [ '6.0.2' ],
+32 silly audit   'undici-types': [ '7.19.2' ],
+32 silly audit   unpipe: [ '1.0.0' ],
+32 silly audit   'util-deprecate': [ '1.0.2' ],
+32 silly audit   vary: [ '1.1.2' ],
+32 silly audit   'web-streams-polyfill': [ '3.3.3' ],
+32 silly audit   'wrap-ansi': [ '7.0.0' ],
+32 silly audit   wrappy: [ '1.0.2' ],
+32 silly audit   'write-file-atomic': [ '7.0.1' ],
+32 silly audit   ws: [ '8.20.0' ],
+32 silly audit   xtend: [ '4.0.2' ],
+32 silly audit   y18n: [ '5.0.8' ],
+32 silly audit   yallist: [ '5.0.0' ],
+32 silly audit   yargs: [ '17.7.2' ],
+32 silly audit   'yargs-parser': [ '21.1.1' ],
+32 silly audit   zod: [ '4.3.6' ],
+32 silly audit   'zod-to-json-schema': [ '3.25.2' ],
+32 silly audit   playwright: [ '1.62.0' ],
+32 silly audit   'playwright-core': [ '1.62.0' ]
+32 silly audit }
+33 http cache playwright-core@https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.0.tgz 1ms (cache hit)
+34 http cache playwright@https://registry.npmjs.org/playwright/-/playwright-1.62.0.tgz 0ms (cache hit)
+35 silly tarball no local data for playwright-core@https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.0.tgz. Extracting by manifest.
+36 silly tarball no local data for playwright@https://registry.npmjs.org/playwright/-/playwright-1.62.0.tgz. Extracting by manifest.
+37 http fetch POST 200 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk 140ms
+38 silly audit report {
+38 silly audit report   'body-parser': [
+38 silly audit report     {
+38 silly audit report       id: 1123976,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-v422-hmwv-36x6',
+38 silly audit report       title: 'body-parser vulnerable to denial of service when invalid limit value silently disables size enforcement',
+38 silly audit report       severity: 'low',
+38 silly audit report       vulnerable_versions: '>=2.0.0 <2.3.0',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   esbuild: [
+38 silly audit report     {
+38 silly audit report       id: 1120680,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-g7r4-m6w7-qqqr',
+38 silly audit report       title: 'esbuild allows arbitrary file read when running the development server on Windows',
+38 silly audit report       severity: 'low',
+38 silly audit report       vulnerable_versions: '>=0.27.3 <0.28.1',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   'js-cookie': [
+38 silly audit report     {
+38 silly audit report       id: 1120607,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-qjx8-664m-686j',
+38 silly audit report       title: 'JavaScript Cookie: Per-instance prototype hijack in assign() enables cookie-attribute injection',
+38 silly audit report       severity: 'high',
+38 silly audit report       vulnerable_versions: '<=3.0.5',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   multer: [
+38 silly audit report     {
+38 silly audit report       id: 1121089,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-72gw-mp4g-v24j',
+38 silly audit report       title: 'Multer vulnerable to Denial of Service via deeply nested field names',
+38 silly audit report       severity: 'high',
+38 silly audit report       vulnerable_versions: '>=1.0.0 <2.2.0',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1121091,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-3p4h-7m6x-2hcm',
+38 silly audit report       title: 'Multer vulnerable to Denial of Service via incomplete cleanup of aborted uploads',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '>=2.0.0-alpha.1 <2.2.0',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   qs: [
+38 silly audit report     {
+38 silly audit report       id: 1119502,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-q8mj-m7cp-5q26',
+38 silly audit report       title: 'qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined entries in comma-format arrays when encodeValuesOnly is set',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '>=6.11.1 <=6.15.1',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   'shell-quote': [
+38 silly audit report     {
+38 silly audit report       id: 1120422,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-w7jw-789q-3m8p',
+38 silly audit report       title: 'shell-quote quote() does not escape newlines in object .op values',
+38 silly audit report       severity: 'critical',
+38 silly audit report       vulnerable_versions: '>=1.1.0 <=1.8.3',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123944,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-395f-4hp3-45gv',
+38 silly audit report       title: 'shell-quote: Quadratic-complexity Denial of Service in `parse()` (CWE-407)',
+38 silly audit report       severity: 'high',
+38 silly audit report       vulnerable_versions: '<=1.8.4',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   tar: [
+38 silly audit report     {
+38 silly audit report       id: 1120782,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-vmf3-w455-68vh',
+38 silly audit report       title: 'node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '<=7.5.15',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123939,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-w8wr-v893-vjvp',
+38 silly audit report       title: 'node-tar: Process crash via PAX numeric path type confusion',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '<=7.5.17',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123940,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-23hp-3jrh-7fpw',
+38 silly audit report       title: 'node-tar: Decompression/parse DoS via unlimited input',
+38 silly audit report       severity: 'critical',
+38 silly audit report       vulnerable_versions: '<=7.5.18',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123941,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-8x88-c5mf-7j5w',
+38 silly audit report       title: 'node-tar: Negative tar entry size causes infinite loop in archive replace',
+38 silly audit report       severity: 'high',
+38 silly audit report       vulnerable_versions: '<=7.5.17',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123942,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-gvwx-54wh-qm9j',
+38 silly audit report       title: 'node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '<=7.5.16',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1124287,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-r292-9mhp-454m',
+38 silly audit report       title: 'node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '<=7.5.20',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ],
+38 silly audit report   ws: [
+38 silly audit report     {
+38 silly audit report       id: 1119108,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-58qx-3vcg-4xpx',
+38 silly audit report       title: 'ws: Uninitialized memory disclosure',
+38 silly audit report       severity: 'moderate',
+38 silly audit report       vulnerable_versions: '>=8.0.0 <8.20.1',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     },
+38 silly audit report     {
+38 silly audit report       id: 1123259,
+38 silly audit report       url: 'https://github.com/advisories/GHSA-96hv-2xvq-fx4p',
+38 silly audit report       title: 'ws: Memory exhaustion DoS from tiny fragments and data chunks',
+38 silly audit report       severity: 'high',
+38 silly audit report       vulnerable_versions: '>=8.0.0 <8.21.0',
+38 silly audit report       cwe: [Array],
+38 silly audit report       cvss: [Object]
+38 silly audit report     }
+38 silly audit report   ]
+38 silly audit report }
+39 silly packumentCache corgi:https://registry.npmjs.org/body-parser cache-miss
+40 silly packumentCache corgi:https://registry.npmjs.org/esbuild cache-miss
+41 silly packumentCache corgi:https://registry.npmjs.org/js-cookie cache-miss
+42 silly packumentCache corgi:https://registry.npmjs.org/multer cache-miss
+43 silly packumentCache corgi:https://registry.npmjs.org/qs cache-miss
+44 silly packumentCache corgi:https://registry.npmjs.org/shell-quote cache-miss
+45 silly packumentCache corgi:https://registry.npmjs.org/tar cache-miss
+46 silly packumentCache corgi:https://registry.npmjs.org/ws cache-miss
+47 http fetch GET 200 https://registry.npmjs.org/body-parser 161ms (cache miss)
+48 silly packumentCache corgi:https://registry.npmjs.org/body-parser set size:undefined disposed:false
+49 http fetch GET 200 https://registry.npmjs.org/multer 418ms (cache miss)
+50 silly packumentCache corgi:https://registry.npmjs.org/multer set size:undefined disposed:false
+51 http fetch GET 200 https://registry.npmjs.org/qs 442ms (cache miss)
+52 silly packumentCache corgi:https://registry.npmjs.org/qs set size:undefined disposed:false
+53 http fetch GET 200 https://registry.npmjs.org/tar 468ms (cache miss)
+54 silly packumentCache corgi:https://registry.npmjs.org/tar set size:undefined disposed:false
+55 http fetch GET 200 https://registry.npmjs.org/shell-quote 666ms (cache miss)
+56 silly packumentCache corgi:https://registry.npmjs.org/shell-quote set size:undefined disposed:false
+57 http fetch GET 200 https://registry.npmjs.org/js-cookie 674ms (cache miss)
+58 silly packumentCache corgi:https://registry.npmjs.org/js-cookie set size:undefined disposed:false
+59 http fetch GET 200 https://registry.npmjs.org/ws 705ms (cache miss)
+60 silly packumentCache corgi:https://registry.npmjs.org/ws set size:undefined disposed:false
+61 http fetch GET 200 https://registry.npmjs.org/esbuild 753ms (cache miss)
+62 silly packumentCache corgi:https://registry.npmjs.org/esbuild set size:undefined disposed:false
+63 silly packumentCache corgi:https://registry.npmjs.org/express cache-miss
+64 http fetch GET 200 https://registry.npmjs.org/express 87ms (cache miss)
+65 silly packumentCache corgi:https://registry.npmjs.org/express set size:undefined disposed:false
+66 silly packumentCache corgi:https://registry.npmjs.org/tsx cache-miss
+67 http fetch GET 200 https://registry.npmjs.org/tsx 93ms (cache miss)
+68 silly packumentCache corgi:https://registry.npmjs.org/tsx set size:undefined disposed:false
+69 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fshared cache-miss
+70 http fetch GET 200 https://registry.npmjs.org/playwright/-/playwright-1.62.0.tgz 1431ms (cache miss)
+71 http fetch GET 200 https://registry.npmjs.org/@clerk%2fshared 414ms (cache miss)
+72 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fshared set size:undefined disposed:false
+73 silly packumentCache corgi:https://registry.npmjs.org/concurrently cache-miss
+74 http fetch GET 200 https://registry.npmjs.org/concurrently 80ms (cache miss)
+75 silly packumentCache corgi:https://registry.npmjs.org/concurrently set size:undefined disposed:false
+76 silly packumentCache corgi:https://registry.npmjs.org/supabase cache-miss
+77 http fetch GET 200 https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.0.tgz 3045ms (cache miss)
+78 http fetch GET 200 https://registry.npmjs.org/supabase 400ms (cache miss)
+79 silly packumentCache corgi:https://registry.npmjs.org/supabase set size:undefined disposed:false
+80 silly packumentCache corgi:https://registry.npmjs.org/@mistralai%2fmistralai cache-miss
+81 http fetch GET 200 https://registry.npmjs.org/@mistralai%2fmistralai 71ms (cache miss)
+82 silly packumentCache corgi:https://registry.npmjs.org/@mistralai%2fmistralai set size:undefined disposed:false
+83 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fbackend cache-miss
+84 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fexpress cache-miss
+85 http fetch GET 200 https://registry.npmjs.org/@clerk%2fbackend 468ms (cache miss)
+86 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fbackend set size:undefined disposed:false
+87 http fetch GET 200 https://registry.npmjs.org/@clerk%2fexpress 68360ms (cache miss)
+88 silly packumentCache corgi:https://registry.npmjs.org/@clerk%2fexpress set size:undefined disposed:false
+89 silly ADD node_modules/playwright-core
+90 silly ADD node_modules/playwright
+91 verbose cwd C:\Users\merli\Desktop\repos\stringphone
+92 verbose os Windows_NT 10.0.26200
+93 verbose node v25.0.0
+94 verbose npm  v11.6.2
+95 notice
+95 notice New minor version of npm available! 11.6.2 -> 11.18.0
+95 notice Changelog: https://github.com/npm/cli/releases/tag/v11.18.0
+95 notice To update run: npm install -g npm@11.18.0
+95 notice  { force: true, Symbol(proc-log.meta): true }
+96 verbose exit 0
+97 info ok

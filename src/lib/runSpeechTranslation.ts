@@ -1,6 +1,9 @@
 import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import { generateSpeech } from "../services/generateSpeech.js";
-import { prepareVoiceReference } from "../services/prepareVoiceReference.js";
+import {
+  prepareVoiceReference,
+  type PreparedVoiceReference,
+} from "../services/prepareVoiceReference.js";
 import { transcribeAudio } from "../services/transcribeAudio.js";
 import { translateText } from "../services/translateText.js";
 
@@ -18,6 +21,7 @@ export type RunSpeechTranslationInput = {
     filename: string;
     mimeType?: string;
   };
+  preparedVoiceSample?: PreparedVoiceReference | null;
 };
 
 export type RunSpeechTranslationResult =
@@ -85,7 +89,7 @@ export async function runSpeechTranslation(
     };
   }
 
-  if (!input.voiceSampleFile) {
+  if (!input.voiceSampleFile && !input.preparedVoiceSample) {
     return {
       ok: false,
       status: 400,
@@ -116,11 +120,13 @@ export async function runSpeechTranslation(
     targetLanguage: supportedTargetLanguage.name,
   });
 
-  const voiceReferenceBuffer = await prepareVoiceReference({
-    audioBuffer: input.voiceSampleFile.buffer,
-    originalFilename: input.voiceSampleFile.filename,
-    mimeType: input.voiceSampleFile.mimeType,
-  });
+  const voiceReferenceBuffer =
+    input.preparedVoiceSample ??
+    await prepareVoiceReference({
+      audioBuffer: input.voiceSampleFile!.buffer,
+      originalFilename: input.voiceSampleFile!.filename,
+      mimeType: input.voiceSampleFile!.mimeType,
+    });
 
   const audioBuffer = await generateSpeech({
     text: translation,

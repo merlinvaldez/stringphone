@@ -206,10 +206,12 @@ async function processRoomVoiceMessage({
   room,
   participant,
   sourceAudioFile,
+  userId,
   existingMessageId,
 }: {
   room: RoomRecord;
   participant: ReturnType<typeof assertRoomAccess>["participant"];
+  userId?: number | null;
   sourceAudioFile: {
     buffer: Buffer;
     filename: string;
@@ -254,6 +256,7 @@ async function processRoomVoiceMessage({
     const result = await runVoiceChatMessage({
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
+      userId,
       sourceAudioFile,
       voiceSampleFile: sourceAudioFile,
     });
@@ -508,6 +511,8 @@ app.post(
         req.params.roomId,
         req.body?.participantSessionToken,
       );
+      const authenticatedRequest =
+        await getOptionalAuthenticatedAppRequest(req);
 
       if (!sourceAudioFile) {
         throw new RealtimeRoomError(400, "sourceAudio is required");
@@ -516,6 +521,7 @@ app.post(
       const result = await processRoomVoiceMessage({
         room: access.room,
         participant: access.participant,
+        userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile,
       });
 
@@ -841,6 +847,7 @@ app.post(
       const result = await runVoiceChatMessage({
         sourceLanguage: req.body?.sourceLanguage,
         targetLanguage: req.body?.targetLanguage,
+        userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile: sourceAudioFile
           ? {
               buffer: sourceAudioFile.buffer,

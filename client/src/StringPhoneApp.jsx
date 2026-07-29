@@ -378,6 +378,14 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function isAbortError(error) {
+  return (
+    error instanceof DOMException
+      ? error.name === "AbortError"
+      : Boolean(error && typeof error === "object" && error.name === "AbortError")
+  );
+}
+
 function getSupportedMimeType() {
   const candidates = [
     "audio/webm;codecs=opus",
@@ -398,6 +406,42 @@ function base64ToBlob(base64, mimeType) {
   }
 
   return new Blob([bytes], { type: mimeType });
+}
+
+function createAudioUrlFromStoredValue(audioValue) {
+  if (typeof audioValue !== "string") {
+    return "";
+  }
+
+  const trimmedAudioValue = audioValue.trim();
+
+  if (!trimmedAudioValue) {
+    return "";
+  }
+
+  if (trimmedAudioValue.startsWith("data:")) {
+    const match = trimmedAudioValue.match(/^data:([^;]+);base64,(.+)$/i);
+
+    if (!match) {
+      return "";
+    }
+
+    return URL.createObjectURL(base64ToBlob(match[2], match[1]));
+  }
+
+  return URL.createObjectURL(base64ToBlob(trimmedAudioValue, "audio/mpeg"));
+}
+
+function revokeObjectUrl(audioUrl) {
+  if (typeof audioUrl === "string" && audioUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(audioUrl);
+  }
+}
+
+function revokeMessageAudioUrls(messageList) {
+  messageList.forEach((message) => {
+    revokeObjectUrl(message.audioUrl);
+  });
 }
 
 function getLanguageOption(code) {
@@ -849,13 +893,17 @@ function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
       setActiveMessageId(result.messageId);
 
       if (result.audioUrl) {
-        setStatus("playing");
-        autoplayAudioUrl(result.audioUrl, () => {
+        await autoplayAudioUrl(result.audioUrl, () => {
           if (mountedRef.current) {
             setStatus("idle");
             setCurrentRun(null);
           }
         });
+
+        if (mountedRef.current) {
+          setStatus("playing");
+        }
+
         return;
       }
 
@@ -865,6 +913,12 @@ function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
       recorder.cancel();
 
       if (!mountedRef.current) {
+        return;
+      }
+
+      if (isAbortError(recordingError)) {
+        setStatus("idle");
+        setCurrentRun(null);
         return;
       }
 
@@ -1976,7 +2030,9 @@ export default function StringPhoneApp() {
   const hasRestoredAuthReturnStateRef = useRef(false);
   const attemptedAutoJoinTokenRef = useRef("");
   const sharedRoomAudioUrlCacheRef = useRef(new Map());
-  const generatedSpeechUrlCacheRef = useRef(new Map());
+  const generatedSpeechPlaybackUrlRef = useRef(null);
+  const generatedSpeechAbortControllerRef = useRef(null);
+  const generatedSpeechRequestIdRef = useRef(0);
   const [pendingInviteToken, setPendingInviteToken] = useState(
     initialJoinTokenRef.current,
   );
@@ -2129,28 +2185,21 @@ export default function StringPhoneApp() {
   useEffect(
     () => () => {
       messagesRef.current.forEach((message) => {
-        if (message.audioUrl) {
-          URL.revokeObjectURL(message.audioUrl);
-        }
+        revokeObjectUrl(message.audioUrl);
       });
 
       autoplayAudioRef.current?.pause();
       domAudioRef.current?.pause();
       revokeSharedRoomAudioUrls(sharedRoomAudioUrlCacheRef);
-      generatedSpeechUrlCacheRef.current.forEach((audioUrl) => {
-        URL.revokeObjectURL(audioUrl);
-      });
-      generatedSpeechUrlCacheRef.current.clear();
+      generatedSpeechAbortControllerRef.current?.abort();
+      generatedSpeechAbortControllerRef.current = null;
+      if (generatedSpeechPlaybackUrlRef.current) {
+        URL.revokeObjectURL(generatedSpeechPlaybackUrlRef.current);
+        generatedSpeechPlaybackUrlRef.current = null;
+      }
     },
     [],
   );
-
-  const clearGeneratedSpeechCache = () => {
-    generatedSpeechUrlCacheRef.current.forEach((audioUrl) => {
-      URL.revokeObjectURL(audioUrl);
-    });
-    generatedSpeechUrlCacheRef.current.clear();
-  };
 
   const voiceHistory = useMemo(
     () =>
@@ -2291,31 +2340,63 @@ export default function StringPhoneApp() {
     const player = new Audio(audioUrl);
 
     autoplayAudioRef.current = player;
-    player.onended = () => {
-      if (autoplayAudioRef.current === player) {
-        autoplayAudioRef.current = null;
-      }
 
-      onEnded?.();
-    };
-    player.onpause = () => {
-      if (autoplayAudioRef.current === player && player.currentTime === 0) {
-        autoplayAudioRef.current = null;
-      }
-    };
-    player.onerror = () => {
-      if (autoplayAudioRef.current === player) {
-        autoplayAudioRef.current = null;
-      }
+    return new Promise((resolve, reject) => {
+      let settled = false;
 
-      onEnded?.();
-    };
-    player.play().catch(() => {
-      if (autoplayAudioRef.current === player) {
-        autoplayAudioRef.current = null;
-      }
+      const resolveOnce = () => {
+        if (settled) {
+          return;
+        }
 
-      onEnded?.();
+        settled = true;
+        resolve(player);
+      };
+
+      const rejectOnce = (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        reject(error);
+      };
+
+      player.onplaying = () => {
+        resolveOnce();
+      };
+      player.onended = () => {
+        if (autoplayAudioRef.current === player) {
+          autoplayAudioRef.current = null;
+        }
+
+        onEnded?.();
+      };
+      player.onpause = () => {
+        if (autoplayAudioRef.current === player && player.currentTime === 0) {
+          autoplayAudioRef.current = null;
+        }
+
+        if (!settled && player.currentTime === 0) {
+          rejectOnce(new DOMException("Playback interrupted.", "AbortError"));
+        }
+      };
+      player.onerror = () => {
+        if (autoplayAudioRef.current === player) {
+          autoplayAudioRef.current = null;
+        }
+
+        rejectOnce(new Error("Audio playback failed."));
+        onEnded?.();
+      };
+      player.play().catch((error) => {
+        if (autoplayAudioRef.current === player) {
+          autoplayAudioRef.current = null;
+        }
+
+        rejectOnce(error);
+        onEnded?.();
+      });
     });
   };
 
@@ -2330,22 +2411,84 @@ export default function StringPhoneApp() {
       throw new Error("Audio unavailable.");
     }
 
-    const cacheScope = isSignedIn ? "signed-in" : "guest";
-    const cacheKey = `${normalizedLanguageCode}:${cacheScope}:${trimmedText}`;
-    let audioUrl = generatedSpeechUrlCacheRef.current.get(cacheKey);
+    generatedSpeechAbortControllerRef.current?.abort();
 
-    if (!audioUrl) {
+    const requestId = generatedSpeechRequestIdRef.current + 1;
+    const abortController = new AbortController();
+
+    generatedSpeechRequestIdRef.current = requestId;
+    generatedSpeechAbortControllerRef.current = abortController;
+
+    let audioUrl = "";
+    const previousAudioUrl = generatedSpeechPlaybackUrlRef.current;
+ 
+    try {
       const audioBlob = await fetchOutputSpeech({
         text: trimmedText,
         language: normalizedLanguageCode,
         conversationId: preferredConversationId,
         authFetch: isSignedIn ? authFetch : undefined,
+        signal: abortController.signal,
       });
-      audioUrl = URL.createObjectURL(audioBlob);
-      generatedSpeechUrlCacheRef.current.set(cacheKey, audioUrl);
-    }
 
-    autoplayAudioUrl(audioUrl);
+      if (
+        abortController.signal.aborted ||
+        generatedSpeechRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+
+      audioUrl = URL.createObjectURL(audioBlob);
+      generatedSpeechPlaybackUrlRef.current = audioUrl;
+
+      const player = await autoplayAudioUrl(audioUrl, () => {
+        if (generatedSpeechPlaybackUrlRef.current === audioUrl) {
+          URL.revokeObjectURL(audioUrl);
+          generatedSpeechPlaybackUrlRef.current = null;
+        }
+      });
+
+      if (previousAudioUrl && previousAudioUrl !== audioUrl) {
+        URL.revokeObjectURL(previousAudioUrl);
+      }
+
+      return player;
+    } catch (error) {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+
+      if (
+        generatedSpeechPlaybackUrlRef.current === audioUrl &&
+        generatedSpeechPlaybackUrlRef.current
+      ) {
+        generatedSpeechPlaybackUrlRef.current = null;
+      }
+
+      if (isAbortError(error)) {
+        return;
+      }
+
+      throw error;
+    } finally {
+      if (generatedSpeechAbortControllerRef.current === abortController) {
+        generatedSpeechAbortControllerRef.current = null;
+      }
+    }
+  };
+
+  const stopAllPlayback = () => {
+    pauseActiveAudio();
+    domAudioRef.current = null;
+    autoplayAudioRef.current = null;
+
+    generatedSpeechAbortControllerRef.current?.abort();
+    generatedSpeechAbortControllerRef.current = null;
+
+    if (generatedSpeechPlaybackUrlRef.current) {
+      URL.revokeObjectURL(generatedSpeechPlaybackUrlRef.current);
+      generatedSpeechPlaybackUrlRef.current = null;
+    }
   };
 
   const replayVoiceMessage = (message) => {
@@ -2365,16 +2508,40 @@ export default function StringPhoneApp() {
   };
 
   const updateMessage = (messageId, updater) => {
+    const currentMessage = messagesRef.current.find(
+      (message) => message.id === messageId,
+    );
+    const patch =
+      typeof updater === "function" && currentMessage
+        ? updater(currentMessage)
+        : updater;
+
+    if (
+      typeof patch?.audioUrl === "string" &&
+      patch.audioUrl !== currentMessage?.audioUrl
+    ) {
+      revokeObjectUrl(currentMessage?.audioUrl);
+    }
+
     setMessages((previous) =>
       previous.map((message) => {
         if (message.id !== messageId) {
           return message;
         }
 
-        const patch = typeof updater === "function" ? updater(message) : updater;
         return { ...message, ...patch };
       }),
     );
+  };
+
+  const replaceMessages = (nextMessages) => {
+    stopAllPlayback();
+    revokeMessageAudioUrls(messagesRef.current);
+    setMessages(nextMessages);
+  };
+
+  const clearMessages = () => {
+    replaceMessages([]);
   };
 
   const ensurePersistedConversationId = async ({
@@ -2660,10 +2827,6 @@ export default function StringPhoneApp() {
         }).catch(e => console.error("Failed to save voice message", e));
       }
 
-      if (isSignedIn && sender === "self") {
-        clearGeneratedSpeechCache();
-      }
-
       return { messageId, audioUrl };
     } catch (translationError) {
       updateMessage(messageId, {
@@ -2753,8 +2916,6 @@ export default function StringPhoneApp() {
         saveVoiceSample(authFetch, {
           recording,
           conversationId: null,
-        }).then(() => {
-          clearGeneratedSpeechCache();
         }).catch((error) => {
           console.error("Failed to save shared-room voice sample", error);
         });
@@ -2815,9 +2976,7 @@ export default function StringPhoneApp() {
       translatedPronunciation: "",
       transcript: message.transcript || "",
       audioUrl: message.audio_url
-        ? (message.audio_url.startsWith("data:")
-          ? message.audio_url
-          : `data:audio/mpeg;base64,${message.audio_url}`)
+        ? createAudioUrlFromStoredValue(message.audio_url)
         : "",
       errorMessage: "",
       sourceLanguageCode: sourceSnapshot.code,
@@ -2839,7 +2998,7 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
-    setMessages(mapConversationMessages(dbMessages, conversation));
+    replaceMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
     setLessonBuilderConfig(null);
@@ -2853,7 +3012,7 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
-    setMessages([]);
+    clearMessages();
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
     setLessonBuilderConfig(null);
@@ -2864,7 +3023,7 @@ export default function StringPhoneApp() {
       return;
     }
 
-    setMessages([]);
+    clearMessages();
     setCurrentConversationId(null);
     setActiveLesson(null);
   };

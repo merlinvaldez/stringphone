@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Loader2, Pause, Play } from "lucide-react";
 
 import { formatDuration } from "../../utils.js";
 
@@ -8,6 +8,7 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoadingPlayback, setIsLoadingPlayback] = useState(false);
 
   const accentClass = isSelf ? "text-emerald-200" : "text-zinc-200";
   const trackClass = isSelf ? "stroke-emerald-300/25" : "stroke-white/15";
@@ -39,9 +40,11 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
 
     if (audioElement.paused) {
       try {
+        setIsLoadingPlayback(true);
         await audioElement.play();
       } catch {
         setIsPlaying(false);
+        setIsLoadingPlayback(false);
       }
       return;
     }
@@ -90,7 +93,9 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
             className={progressClass}
           />
         </svg>
-        {isPlaying ? (
+        {isLoadingPlayback ? (
+          <Loader2 size={16} className="relative z-10 animate-spin" />
+        ) : isPlaying ? (
           <Pause size={16} className="relative z-10" fill="currentColor" />
         ) : (
           <Play size={16} className="relative z-10 translate-x-[1px]" fill="currentColor" />
@@ -106,16 +111,26 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
         onTimeUpdate={(event) => {
           setCurrentTime(event.currentTarget.currentTime);
         }}
-        onPlay={(event) => {
+        onPlaying={(event) => {
+          setIsLoadingPlayback(false);
           setIsPlaying(true);
           onAudioPlay(event.currentTarget);
         }}
+        onWaiting={() => {
+          setIsLoadingPlayback(true);
+        }}
         onPause={() => {
+          setIsLoadingPlayback(false);
           setIsPlaying(false);
         }}
         onEnded={(event) => {
           event.currentTarget.currentTime = 0;
           setCurrentTime(0);
+          setIsLoadingPlayback(false);
+          setIsPlaying(false);
+        }}
+        onError={() => {
+          setIsLoadingPlayback(false);
           setIsPlaying(false);
         }}
         className="hidden"

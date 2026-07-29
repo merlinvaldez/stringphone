@@ -5,6 +5,7 @@ import {
 } from "./languages.js";
 import { runSpeechTranslation } from "./runSpeechTranslation.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
+import { resolveSavedUserVoiceReference } from "../services/resolveSavedUserVoiceReference.js";
 import { transcribeAudio } from "../services/transcribeAudio.js";
 import { translateText } from "../services/translateText.js";
 
@@ -16,6 +17,7 @@ type ChatLanguagePayload = {
 export type RunVoiceChatMessageInput = {
   sourceLanguage: unknown;
   targetLanguage: unknown;
+  userId?: number | null;
   sourceAudioFile?: {
     buffer: Buffer;
     filename: string;
@@ -143,12 +145,19 @@ export async function runVoiceChatMessage(
     };
   }
 
+  const savedVoiceReference = await resolveSavedUserVoiceReference({
+    userId: input.userId,
+    targetLanguage,
+  });
   const result = await runSpeechTranslation({
     responseMode: "json",
     sourceLanguage: sourceLanguage.code,
     targetLanguage: targetLanguage.code,
     sourceAudioFile: input.sourceAudioFile,
-    voiceSampleFile: input.voiceSampleFile ?? input.sourceAudioFile,
+    voiceSampleFile: savedVoiceReference
+      ? undefined
+      : (input.voiceSampleFile ?? input.sourceAudioFile),
+    preparedVoiceSample: savedVoiceReference,
   });
 
   if (!result.ok) {

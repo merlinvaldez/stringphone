@@ -1,5 +1,6 @@
 import { getConversation } from "../db/queries/conversations.js";
 import { createVoiceSample } from "../db/queries/voiceSamples.js";
+import { prepareVoiceReference } from "../services/prepareVoiceReference.js";
 
 type VoiceSampleFile = {
   buffer: Buffer;
@@ -73,10 +74,11 @@ export async function runSaveUserVoiceSample(
     sourceConversationId = conversation.id;
   }
 
+  const preparedVoiceSample = await prepareVoiceReference(input.voiceSampleFile);
   const voiceSample = await createVoiceSample({
     userId: input.userId,
     sourceConversationId,
-    audioUrl: toStoredAudioBase64(input.voiceSampleFile),
+    audioUrl: toStoredAudioBase64(preparedVoiceSample),
   });
 
   if (!voiceSample?.id) {

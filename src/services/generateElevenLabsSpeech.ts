@@ -61,7 +61,7 @@ async function cloneElevenLabsVoice(
     `Ephemeral StringPhone voice clone for ${input.targetLanguage.name}`,
   );
   formData.append(
-    "files[]",
+    "files",
     new Blob([input.voiceSample.buffer], { type: input.voiceSample.mimeType }),
     input.voiceSample.filename,
   );

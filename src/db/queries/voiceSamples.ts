@@ -104,7 +104,20 @@ export async function createVoiceSample(params: {
 export async function getLatestUserVoiceSample(params: {
   userId: number;
 }) {
+  const samples = await getRecentUserVoiceSamples({
+    userId: params.userId,
+    limit: 1,
+  });
+
+  return samples[0] ?? null;
+}
+
+export async function getRecentUserVoiceSamples(params: {
+  userId: number;
+  limit?: number;
+}) {
   await ensureVoiceSamplesSchema();
+  const limit = Math.max(1, Math.min(params.limit ?? 5, 20));
 
   const result = await db.query<VoiceSampleLookupRow>(
     `
@@ -115,10 +128,10 @@ export async function getLatestUserVoiceSample(params: {
     WHERE vs.user_id = $1
       AND btrim(vs.audio_url) <> ''
     ORDER BY vs.created_at DESC
-    LIMIT 1
+    LIMIT $2
     `,
-    [params.userId],
+    [params.userId, limit],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows;
 }

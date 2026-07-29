@@ -187,6 +187,7 @@ export async function fetchOutputSpeech({
   language,
   conversationId = null,
   authFetch,
+  signal,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
   const response = await request(`${API_BASE_URL}/speech/output`, {
@@ -194,6 +195,7 @@ export async function fetchOutputSpeech({
     headers: {
       "Content-Type": "application/json",
     },
+    signal,
     body: JSON.stringify({
       text,
       language,
