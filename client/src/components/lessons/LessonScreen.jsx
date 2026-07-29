@@ -72,8 +72,8 @@ function LessonBuilder({
   ).length;
 
   const handleCreate = async () => {
-    if (!isSignedIn) {
-      setError("Sign in to create and save a lesson.");
+    if (!isSignedIn && source === "chat") {
+      setError("Sign in to create a lesson from this chat.");
       return;
     }
 

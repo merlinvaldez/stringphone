@@ -6,6 +6,7 @@ import {
   ArrowRight,
   GraduationCap,
   MessageSquare,
+  Mic,
   MoreVertical,
   Trash2,
 } from "lucide-react";
@@ -23,6 +24,8 @@ export function ChatHistorySidebar({
   isOpen,
   onClose,
   preferredHistoryType = "chats",
+  signedOutContext = "standard",
+  onRequireSignIn,
   currentConversationId,
   onSelectConversation,
   onNewConversation,
@@ -44,6 +47,21 @@ export function ChatHistorySidebar({
   const [lessons, setLessons] = useState([]);
   const [historyType, setHistoryType] = useState(preferredHistoryType);
   const [error, setError] = useState("");
+  const signedOutCallout =
+    signedOutContext === "voice"
+      ? {
+          Icon: Mic,
+          detail: "to save your voice",
+        }
+      : historyType === "lessons"
+        ? {
+            Icon: GraduationCap,
+            detail: "to save your lessons",
+          }
+        : {
+            Icon: MessageSquare,
+            detail: "to create new conversations",
+          };
 
   useEffect(() => {
     if (isOpen && isSignedIn) {
@@ -321,29 +339,44 @@ export function ChatHistorySidebar({
         </div>
 
         <div className="border-b border-white/10 p-4">
-          {historyType === "chats" ? (
-            <button
-              onClick={handleNewConversation}
-              disabled={!isSignedIn || isBusy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-              New Conversation
-            </button>
+          {isSignedIn ? (
+            historyType === "chats" ? (
+              <button
+                onClick={handleNewConversation}
+                disabled={isBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+                New Conversation
+              </button>
+            ) : (
+              <button
+                onClick={handleCreateLesson}
+                disabled={isBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <GraduationCap size={18} />
+                New lesson
+              </button>
+            )
           ) : (
             <button
-              onClick={handleCreateLesson}
-              disabled={!isSignedIn || isBusy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={onRequireSignIn}
+              className="flex w-full items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5 transition hover:border-emerald-300/24 hover:bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(24,24,27,0.92))] focus:outline-none focus:ring-2 focus:ring-emerald-300/25"
             >
-              <GraduationCap size={18} />
-              New lesson
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
+                <signedOutCallout.Icon size={20} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
+                  Sign in
+                </span>
+                <span className="mt-1 block text-sm font-medium text-zinc-200">
+                  {signedOutCallout.detail}
+                </span>
+              </span>
             </button>
-          )}
-          {!isSignedIn && (
-            <p className="mt-2 text-center text-xs text-zinc-500">
-              Sign in to save and continue.
-            </p>
           )}
         </div>
 

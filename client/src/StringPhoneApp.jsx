@@ -1954,6 +1954,7 @@ export function SharedRoomControls({
 
 export default function StringPhoneApp() {
   const { isLoaded: isAuthLoaded, isSignedIn, authFetch } = useAppAuth();
+  const navigate = useNavigate();
   const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
   const [myLang, setMyLang] = useState(() =>
@@ -2877,7 +2878,7 @@ export default function StringPhoneApp() {
         translatedText: message.translatedText ?? "",
       }));
 
-    const lesson = await createLanguageLesson(authFetch, {
+    const lesson = await createLanguageLesson(isSignedIn ? authFetch : fetch, {
       source,
       topic,
       sourceLanguage,
@@ -3204,6 +3205,17 @@ export default function StringPhoneApp() {
     });
   };
 
+  const handleRequireSignIn = () => {
+    saveAuthReturnState({
+      appMode,
+      myLanguageCode: myLang.code,
+      theirLanguageCode: theirLang.code,
+      joinQueryToken: pendingInviteToken,
+    });
+    setIsSidebarOpen(false);
+    navigate("/login");
+  };
+
   return (
     <main
       className="relative flex min-h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
@@ -3229,6 +3241,10 @@ export default function StringPhoneApp() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         preferredHistoryType={appMode === "lesson" || activeLesson ? "lessons" : "chats"}
+        signedOutContext={
+          appMode === "single" || appMode === "conversation" ? "voice" : "standard"
+        }
+        onRequireSignIn={handleRequireSignIn}
         currentConversationId={currentConversationId}
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}

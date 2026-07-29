@@ -221,7 +221,7 @@ export async function fetchOutputSpeech({
 }
 
 export async function createLanguageLesson(
-  authFetch,
+  requestImpl,
   {
     source,
     topic,
@@ -231,7 +231,7 @@ export async function createLanguageLesson(
     messages,
   },
 ) {
-  const response = await authFetch(`${API_BASE_URL}/lessons`, {
+  const response = await requestImpl(`${API_BASE_URL}/lessons`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

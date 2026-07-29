@@ -162,6 +162,7 @@ export function ChatScreen({
         setMyLang={setMyLang}
         theirLang={theirLang}
         setTheirLang={setTheirLang}
+        onInvertLanguages={onInvertLanguages}
         disabled={status !== "idle" || liveRoomBusy || waitingForSharedRoomAutoJoin}
         uiStrings={screenUiStrings}
         sharedRoomSession={sharedRoomSession}

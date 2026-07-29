@@ -1,5 +1,6 @@
 import {
   authRouteOptionsResponse,
+  getOptionalAuthenticatedVercelAppRequest,
   jsonResponse,
   requireAuthenticatedVercelAppRequest,
 } from "../../src/auth/vercel.js";
@@ -8,6 +9,7 @@ import {
   LessonGenerationError,
 } from "../../src/services/generateLanguageLesson.js";
 import {
+  createGuestLanguageLesson,
   createLanguageLessonForUser,
   LessonRequestError,
 } from "../../src/services/createLanguageLessonForUser.js";
@@ -22,17 +24,17 @@ export default {
       return authRouteOptionsResponse();
     }
 
-    const authenticatedRequest = await requireAuthenticatedVercelAppRequest(request);
-
-    if ("errorResponse" in authenticatedRequest) {
-      return authenticatedRequest.errorResponse;
-    }
-
-    if (!authenticatedRequest.appUser) {
-      return jsonResponse({ error: "User not found" }, 404);
-    }
-
     if (request.method === "GET") {
+      const authenticatedRequest = await requireAuthenticatedVercelAppRequest(request);
+
+      if ("errorResponse" in authenticatedRequest) {
+        return authenticatedRequest.errorResponse;
+      }
+
+      if (!authenticatedRequest.appUser) {
+        return jsonResponse({ error: "User not found" }, 404);
+      }
+
       try {
         return jsonResponse(await getLessons(authenticatedRequest.appUser.id));
       } catch (error) {
@@ -48,10 +50,14 @@ export default {
     const body = await request.json().catch(() => null);
 
     try {
-      const lesson = await createLanguageLessonForUser({
-        userId: authenticatedRequest.appUser.id,
-        body,
-      });
+      const authenticatedRequest =
+        await getOptionalAuthenticatedVercelAppRequest(request);
+      const lesson = authenticatedRequest?.appUser
+        ? await createLanguageLessonForUser({
+            userId: authenticatedRequest.appUser.id,
+            body,
+          })
+        : await createGuestLanguageLesson({ body });
 
       return jsonResponse(lesson, 201);
     } catch (error) {

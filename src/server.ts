@@ -22,6 +22,7 @@ import { archiveLesson, getLessons } from "./db/queries/lessons.js";
 import { runSaveUserVoiceSample } from "./lib/runSaveUserVoiceSample.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
+  createGuestLanguageLesson,
   createLanguageLessonForUser,
   LessonRequestError,
 } from "./services/createLanguageLessonForUser.js";
@@ -600,18 +601,17 @@ app.get("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
   }
 });
 
-app.post("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
+app.post("/lessons", async (req, res) => {
   try {
-    const user = (req as any).appUser;
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    const lesson = await createLanguageLessonForUser({
-      userId: user.id,
-      body: req.body,
-    });
+    const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+    const lesson = authenticatedRequest?.appUser
+      ? await createLanguageLessonForUser({
+          userId: authenticatedRequest.appUser.id,
+          body: req.body,
+        })
+      : await createGuestLanguageLesson({
+          body: req.body,
+        });
 
     return res.status(201).json(lesson);
   } catch (error) {

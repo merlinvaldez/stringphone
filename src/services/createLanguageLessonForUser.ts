@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { getConversation } from "../db/queries/conversations.js";
 import { createLesson } from "../db/queries/lessons.js";
 import {
   generateLanguageLesson,
+  type GeneratedLesson,
   type LessonSourceMessage,
 } from "./generateLanguageLesson.js";
 
@@ -22,6 +24,17 @@ export type ParsedLessonRequest = {
   targetLanguage: string;
   messages: LessonSourceMessage[];
   conversationId: string | null;
+};
+
+export type GeneratedLessonRecord = {
+  id: string;
+  source: "chat" | "topic";
+  source_conversation_id: string | null;
+  topic: string;
+  source_language: string;
+  target_language: string;
+  content: GeneratedLesson;
+  created_at: string;
 };
 
 function isLanguageCode(value: unknown): value is string {
@@ -111,13 +124,27 @@ export function parseLessonRequestBody(body: unknown): ParsedLessonRequest {
   };
 }
 
-export async function createLanguageLessonForUser(params: {
-  userId: number;
+async function buildGeneratedLessonRecord(params: {
   body: unknown;
-}) {
+  userId: number | null;
+}): Promise<GeneratedLessonRecord> {
   const parsedBody = parseLessonRequestBody(params.body);
 
+  if (!params.userId && parsedBody.source !== "topic") {
+    throw new LessonRequestError(
+      "Sign in to create a lesson from this chat",
+      401,
+    );
+  }
+
   if (parsedBody.conversationId) {
+    if (!params.userId) {
+      throw new LessonRequestError(
+        "Sign in to create a lesson from this chat",
+        401,
+      );
+    }
+
     const conversation = await getConversation(
       parsedBody.conversationId,
       params.userId,
@@ -139,13 +166,43 @@ export async function createLanguageLessonForUser(params: {
     messages: parsedBody.messages,
   });
 
+  return {
+    id: randomUUID(),
+    source: parsedBody.source,
+    source_conversation_id: parsedBody.conversationId,
+    topic: content.topic,
+    source_language: parsedBody.sourceLanguage,
+    target_language: parsedBody.targetLanguage,
+    content,
+    created_at: new Date().toISOString(),
+  };
+}
+
+export async function createLanguageLessonForUser(params: {
+  userId: number;
+  body: unknown;
+}) {
+  const generatedLesson = await buildGeneratedLessonRecord({
+    body: params.body,
+    userId: params.userId,
+  });
+
   return createLesson({
     userId: params.userId,
-    source: parsedBody.source,
-    sourceConversationId: parsedBody.conversationId,
-    topic: content.topic,
-    sourceLanguage: parsedBody.sourceLanguage,
-    targetLanguage: parsedBody.targetLanguage,
-    content,
+    source: generatedLesson.source,
+    sourceConversationId: generatedLesson.source_conversation_id,
+    topic: generatedLesson.topic,
+    sourceLanguage: generatedLesson.source_language,
+    targetLanguage: generatedLesson.target_language,
+    content: generatedLesson.content,
+  });
+}
+
+export async function createGuestLanguageLesson(params: {
+  body: unknown;
+}) {
+  return buildGeneratedLessonRecord({
+    body: params.body,
+    userId: null,
   });
 }
