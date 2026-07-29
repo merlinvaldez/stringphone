@@ -109,21 +109,13 @@ function LessonBuilder({
         <LessonHistoryButton onOpenSidebar={onOpenSidebar} />
       </div>
       <div className="mx-auto w-full max-w-2xl rounded-[2rem] border border-white/10 bg-zinc-900/70 p-5 shadow-2xl backdrop-blur-xl sm:p-8">
-        <div className="mb-7 flex items-start gap-4">
-          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/10 text-emerald-200 shadow-[0_0_30px_rgba(16,185,129,0.12)]">
-            <GraduationCap size={23} />
-          </span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/80">
-              Little lesson
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-              Practice {lessonTargetLanguage.name} for a real moment.
-            </h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-              {allowChatSource
-                ? "Choose the lesson languages, then build a short lesson from what you have been chatting about or from a situation you want to handle."
-                : "Choose the lesson languages first, then build a completely new lesson around a situation you want to handle."}
+        <div className="mb-7">
+          <div className="inline-flex items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5">
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
+              <GraduationCap size={20} />
+            </span>
+            <p className="pr-1 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
+              Lesson builder
             </p>
           </div>
         </div>
@@ -149,9 +141,6 @@ function LessonBuilder({
               buttonClassName="justify-between"
             />
           </div>
-          <p className="mt-3 text-xs text-zinc-500">
-            Starts with your latest languages so you can adjust them before the lesson is generated.
-          </p>
         </div>
 
         {allowChatSource ? (
@@ -211,13 +200,9 @@ function LessonBuilder({
             />
           </label>
         ) : (
-          <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3.5">
             <p className="text-sm font-medium text-zinc-200">
               Use the latest {chatTurnCount} {chatTurnCount === 1 ? "message" : "messages"}
-            </p>
-            <p className="mt-1 text-sm leading-5 text-zinc-500">
-              We will extract practical words and phrases from this conversation
-              without adding the raw transcript to your lesson history.
             </p>
           </div>
         )}
@@ -228,10 +213,7 @@ function LessonBuilder({
           </p>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-between gap-4 border-t border-white/10 pt-5">
-          <p className="text-xs text-zinc-500">
-            {lessonSourceLanguage.name} {"->"} {lessonTargetLanguage.name}
-          </p>
+        <div className="mt-6 flex items-center justify-end gap-4 border-t border-white/10 pt-5">
           <button
             type="button"
             onClick={() => void handleCreate()}

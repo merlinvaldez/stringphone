@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftRight,
@@ -242,10 +243,51 @@ function FloatingAuthControls({
   theirLanguageCode,
   joinQueryToken,
 }) {
-  const { account, isLoaded, isSignedIn, signOut, authFetch } = useAppAuth();
+  const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
+  const { user } = useUser();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
-  const accountLabel = account?.display_name ?? account?.email ?? "Signed in";
+  const menuRef = useRef(null);
+  const accountLabel =
+    user?.fullName ??
+    user?.primaryEmailAddress?.emailAddress ??
+    account?.display_name ??
+    account?.email ??
+    "Account";
+  const avatarUrl = user?.imageUrl ?? "";
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (
+        event.target instanceof Element &&
+        menuRef.current instanceof Element &&
+        menuRef.current.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsMenuOpen(false);
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isMenuOpen]);
 
   const handleSignOut = async () => {
     if (isSigningOut) {
@@ -254,6 +296,7 @@ function FloatingAuthControls({
 
     try {
       setIsSigningOut(true);
+      setIsMenuOpen(false);
       await signOut();
     } finally {
       setIsSigningOut(false);
@@ -278,45 +321,50 @@ function FloatingAuthControls({
       {!isLoaded ? (
         <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-3 py-2 text-[0.72rem] font-medium text-zinc-300 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>Loading account</span>
         </div>
       ) : isSignedIn ? (
-        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-2 py-2 text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
-          <div className="hidden items-center gap-2 rounded-[0.8rem] bg-white/[0.04] px-3 py-2 text-[0.72rem] font-medium text-zinc-300 sm:inline-flex">
-            <User className="h-3.5 w-3.5" />
-            <span>{accountLabel}</span>
-          </div>
+        <div ref={menuRef} className="relative">
           <button
             type="button"
-            onClick={handleSignOut}
-            disabled={isSigningOut}
-            className="inline-flex items-center gap-2 rounded-[0.8rem] border border-white/12 px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setIsMenuOpen((currentOpen) => !currentOpen)}
+            className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-black/35 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06]"
+            aria-label="Open account menu"
+            title={accountLabel}
           >
-            {isSigningOut ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={accountLabel}
+                className="h-full w-full object-cover"
+              />
             ) : (
-              <User className="h-3.5 w-3.5" />
+              <span className="text-sm font-semibold text-zinc-100">
+                {accountLabel.charAt(0).toUpperCase()}
+              </span>
             )}
-            <span>{isSigningOut ? "Logging out" : "Log out"}</span>
           </button>
+
+          {isMenuOpen ? (
+            <div className="absolute right-0 mt-2 min-w-[9rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={isSigningOut}
+                className="flex w-full items-center justify-center rounded-[0.8rem] px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSigningOut ? "Logging out" : "Sign out"}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : (
-        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-2 py-2 text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
-          <button
-            type="button"
-            onClick={() => handleAuthNavigation("/login")}
-            className="inline-flex items-center gap-2 rounded-[0.8rem] border border-white/12 px-3 py-2 text-[0.72rem] font-semibold text-zinc-200 transition hover:border-white/20 hover:bg-white/[0.06]"
-          >
-            <span>Log In</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleAuthNavigation("/signup")}
-            className="inline-flex items-center gap-2 rounded-[0.8rem] bg-white px-3 py-2 text-[0.72rem] font-semibold text-zinc-950 transition hover:bg-zinc-100"
-          >
-            <span>Sign Up</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => handleAuthNavigation("/login")}
+          className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-4 py-2.5 text-[0.72rem] font-semibold text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <span>Sign in</span>
+        </button>
       )}
     </div>
   );
@@ -2802,6 +2850,15 @@ export default function StringPhoneApp() {
     setActiveLesson(null);
   };
 
+  const handleArchivedLesson = (lessonId) => {
+    if (lessonId !== activeLesson?.id) {
+      return;
+    }
+
+    setActiveLesson(null);
+    setLessonBuilderConfig(null);
+  };
+
   const createLessonFromCurrentContext = async ({
     source,
     topic,
@@ -3171,6 +3228,7 @@ export default function StringPhoneApp() {
       <ChatHistorySidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        preferredHistoryType={appMode === "lesson" || activeLesson ? "lessons" : "chats"}
         currentConversationId={currentConversationId}
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}
@@ -3197,6 +3255,7 @@ export default function StringPhoneApp() {
           setAppMode("lesson");
         }}
         onCreateLesson={openFreshLessonFromHistory}
+        onArchiveLesson={handleArchivedLesson}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />

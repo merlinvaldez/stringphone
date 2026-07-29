@@ -18,7 +18,7 @@ import {
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
-import { getLessons } from "./db/queries/lessons.js";
+import { archiveLesson, getLessons } from "./db/queries/lessons.js";
 import { runSaveUserVoiceSample } from "./lib/runSaveUserVoiceSample.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
@@ -623,6 +623,30 @@ app.post("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
     ).json({
       error: error instanceof Error ? error.message : "Failed to create lesson",
     });
+  }
+});
+
+app.delete("/lessons/:id", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const user = (req as any).appUser;
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const lesson = await archiveLesson({
+      lessonId: req.params.id,
+      userId: user.id,
+    });
+
+    if (!lesson) {
+      return res.status(404).json({ error: "Lesson not found or unauthorized" });
+    }
+
+    return res.status(200).json(lesson);
+  } catch (error) {
+    console.error("Failed to archive lesson", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

@@ -178,6 +178,18 @@ export async function fetchLessons(authFetch) {
   return response.json();
 }
 
+export async function archiveLesson(authFetch, lessonId) {
+  const response = await authFetch(`${API_BASE_URL}/lessons/${lessonId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, "Failed to archive lesson"));
+  }
+
+  return response.json();
+}
+
 export async function fetchOutputSpeech({
   text,
   language,
