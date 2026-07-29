@@ -19,7 +19,6 @@ export type StoredVoiceSample = {
 type VoiceSampleLookupRow = {
   conversation_id: string | null;
   created_at: string;
-  target_language: string | null;
   audio_url: string;
 };
 
@@ -60,8 +59,7 @@ async function runEnsureVoiceSamplesSchema() {
 
   await db.query(
     `
-    CREATE INDEX IF NOT EXISTS voice_samples_by_user_target_language_created_at_idx
-    ON public.voice_samples (user_id, target_language, created_at DESC)
+    DROP INDEX IF EXISTS public.voice_samples_by_user_target_language_created_at_idx
     `,
   );
 }
@@ -80,8 +78,6 @@ async function ensureVoiceSamplesSchema() {
 export async function createVoiceSample(params: {
   userId: number;
   sourceConversationId: string | null;
-  sourceLanguage: string | null;
-  targetLanguage: string | null;
   audioUrl: string;
 }) {
   await ensureVoiceSamplesSchema();
@@ -91,18 +87,14 @@ export async function createVoiceSample(params: {
     INSERT INTO public.voice_samples (
       user_id,
       source_conversation_id,
-      source_language,
-      target_language,
       audio_url
     )
-    VALUES ($1, $2, $3, $4, $5)
+    VALUES ($1, $2, $3)
     RETURNING *
     `,
     [
       params.userId,
       params.sourceConversationId,
-      params.sourceLanguage,
-      params.targetLanguage,
       params.audioUrl,
     ],
   );
@@ -113,7 +105,6 @@ export async function createVoiceSample(params: {
 export async function getLatestUserVoiceSample(params: {
   userId: number;
   preferredConversationId?: string | null;
-  targetLanguage?: string | null;
 }) {
   await ensureVoiceSamplesSchema();
 
@@ -122,17 +113,12 @@ export async function getLatestUserVoiceSample(params: {
     params.preferredConversationId.trim()
       ? params.preferredConversationId.trim()
       : null;
-  const targetLanguage =
-    typeof params.targetLanguage === "string" && params.targetLanguage.trim()
-      ? params.targetLanguage.trim().toLowerCase()
-      : null;
 
   const result = await db.query<VoiceSampleLookupRow>(
     `
     SELECT
       vs.source_conversation_id AS conversation_id,
       vs.created_at,
-      vs.target_language,
       vs.audio_url
     FROM public.voice_samples vs
     WHERE vs.user_id = $1
@@ -144,16 +130,10 @@ export async function getLatestUserVoiceSample(params: {
           THEN 0
         ELSE 1
       END,
-      CASE
-        WHEN $3::text IS NOT NULL
-         AND lower(COALESCE(vs.target_language, '')) = $3
-          THEN 0
-        ELSE 1
-      END,
       vs.created_at DESC
     LIMIT 1
     `,
-    [params.userId, preferredConversationId, targetLanguage],
+    [params.userId, preferredConversationId],
   );
 
   return result.rows[0] ?? null;

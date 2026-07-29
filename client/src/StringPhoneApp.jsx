@@ -7,6 +7,7 @@ import {
   Ear,
   GraduationCap,
   Loader2,
+  Menu,
   MessageSquare,
   Mic,
   Pause,
@@ -30,6 +31,7 @@ import {
 import { useAppAuth } from "./AuthContext.jsx";
 import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
+  createConversation,
   createLanguageLesson,
   fetchOutputSpeech,
   fetchLessons,
@@ -67,6 +69,7 @@ const API_BASE_URL =
 const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
+const DEFAULT_CONVERSATION_TITLE = "New chat";
 
 const RAW_LANGUAGES = [
   { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
@@ -212,6 +215,24 @@ function FloatingBrand() {
     >
       <StringPhoneBrand compact />
     </div>
+  );
+}
+
+function HistoryShortcutButton({ onClick, className = "" }) {
+  if (!onClick) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${className}`.trim()}
+      title="History"
+      aria-label="Open history"
+    >
+      <Menu size={18} />
+    </button>
   );
 }
 
@@ -502,6 +523,24 @@ function getLessonConversationId(lesson) {
   return (
     lesson?.source_conversation_id ??
     lesson?.sourceConversationId ??
+    null
+  );
+}
+
+function getLessonSourceLanguageCode(lesson) {
+  return (
+    lesson?.source_language ??
+    lesson?.sourceLanguage ??
+    lesson?.sourceLanguageCode ??
+    null
+  );
+}
+
+function getLessonTargetLanguageCode(lesson) {
+  return (
+    lesson?.target_language ??
+    lesson?.targetLanguage ??
+    lesson?.targetLanguageCode ??
     null
   );
 }
@@ -1408,6 +1447,7 @@ function ConversationScreen({
   autoplayAudioUrl,
   submitVoiceMessage,
   replayVoiceMessage,
+  onOpenSidebar,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useVoiceModeFlow({
@@ -1425,12 +1465,19 @@ function ConversationScreen({
 
   return (
     <div
-      className="flex h-full w-full flex-col overflow-hidden landscape:flex-row"
+      className="relative flex h-full w-full flex-col overflow-hidden landscape:flex-row"
       style={{
         paddingTop: "calc(env(safe-area-inset-top, 16px) + 3.5rem)",
         paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 0.5rem)",
       }}
     >
+      <div
+        className="absolute left-4 z-20 sm:left-6"
+        style={{ top: "calc(env(safe-area-inset-top, 16px) + 4.75rem)" }}
+      >
+        <HistoryShortcutButton onClick={onOpenSidebar} />
+      </div>
+
       <UserSection
         position="top"
         userState={flow.status}
@@ -1601,6 +1648,7 @@ function SingleModeScreen({
   autoplayAudioUrl,
   submitVoiceMessage,
   replayVoiceMessage,
+  onOpenSidebar,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useVoiceModeFlow({
@@ -1631,6 +1679,13 @@ function SingleModeScreen({
         paddingBottom: "calc(env(safe-area-inset-bottom, 16px) + 1.5rem)",
       }}
     >
+      <div
+        className="absolute left-4 z-20 sm:left-6"
+        style={{ top: "calc(env(safe-area-inset-top, 16px) + 4.75rem)" }}
+      >
+        <HistoryShortcutButton onClick={onOpenSidebar} />
+      </div>
+
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
         <div className="relative flex min-h-[160px] w-full max-w-lg flex-1 flex-col items-center justify-center">
           <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
@@ -1862,8 +1917,10 @@ export default function StringPhoneApp() {
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [activeLesson, setActiveLesson] = useState(null);
+  const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesRef = useRef(messages);
+  const pendingConversationIdRef = useRef(null);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
   const initialJoinTokenRef = useRef(getInitialJoinToken());
@@ -2257,6 +2314,56 @@ export default function StringPhoneApp() {
     );
   };
 
+  const ensurePersistedConversationId = async ({
+    sourceLanguage,
+    targetLanguage,
+  }) => {
+    if (!isSignedIn) {
+      return null;
+    }
+
+    if (currentConversationId) {
+      return currentConversationId;
+    }
+
+    if (!pendingConversationIdRef.current) {
+      pendingConversationIdRef.current = createConversation(authFetch, {
+        title: DEFAULT_CONVERSATION_TITLE,
+        sourceLanguage,
+        targetLanguage,
+      })
+        .then((conversation) => {
+          setCurrentConversationId(conversation.id);
+          setActiveLesson(null);
+          return conversation.id;
+        })
+        .finally(() => {
+          pendingConversationIdRef.current = null;
+        });
+    }
+
+    return pendingConversationIdRef.current;
+  };
+
+  const persistConversationLanguages = async (
+    conversationId,
+    sourceLanguage,
+    targetLanguage,
+  ) => {
+    if (!conversationId) {
+      return;
+    }
+
+    try {
+      await updateConversationLanguages(authFetch, conversationId, {
+        sourceLanguage,
+        targetLanguage,
+      });
+    } catch (error) {
+      console.error("Failed to persist conversation languages", error);
+    }
+  };
+
   const sendTextMessage = async ({
     originMode,
     sender,
@@ -2321,6 +2428,18 @@ export default function StringPhoneApp() {
       });
     }
 
+    const conversationId =
+      (await ensurePersistedConversationId({
+        sourceLanguage,
+        targetLanguage,
+      }).catch((error) => {
+        console.error(
+          "Failed to create a conversation before saving the text message",
+          error,
+        );
+        return null;
+      })) ?? currentConversationId;
+
     try {
       const data = await translateTextMessage({
         text: trimmedText,
@@ -2337,9 +2456,13 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
-      if (currentConversationId) {
-        void persistActiveConversationLanguages(sourceLanguage, targetLanguage);
-        saveMessage(authFetch, currentConversationId, {
+      if (conversationId) {
+        void persistConversationLanguages(
+          conversationId,
+          sourceLanguage,
+          targetLanguage,
+        );
+        saveMessage(authFetch, conversationId, {
           sender,
           originalText: data.originalText,
           translatedText: data.translatedText,
@@ -2423,13 +2546,25 @@ export default function StringPhoneApp() {
       });
     }
 
+    const conversationId =
+      (await ensurePersistedConversationId({
+        sourceLanguage,
+        targetLanguage,
+      }).catch((error) => {
+        console.error(
+          "Failed to create a conversation before saving the voice message",
+          error,
+        );
+        return null;
+      })) ?? currentConversationId;
+
     try {
       const data = await translateVoiceMessage({
         recording,
         sourceLanguage,
         targetLanguage,
         authFetch: isSignedIn ? authFetch : undefined,
-        conversationId: currentConversationId,
+        conversationId,
       });
       const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -2445,9 +2580,13 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
-      if (currentConversationId) {
-        void persistActiveConversationLanguages(sourceLanguage, targetLanguage);
-        saveMessage(authFetch, currentConversationId, {
+      if (conversationId) {
+        void persistConversationLanguages(
+          conversationId,
+          sourceLanguage,
+          targetLanguage,
+        );
+        saveMessage(authFetch, conversationId, {
           sender,
           originalText: data.transcript,
           translatedText: data.translatedText,
@@ -2636,6 +2775,7 @@ export default function StringPhoneApp() {
     setMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
+    setLessonBuilderConfig(null);
   };
 
   const startNewConversation = async (conversation) => {
@@ -2649,6 +2789,7 @@ export default function StringPhoneApp() {
     setMessages([]);
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
+    setLessonBuilderConfig(null);
   };
 
   const handleArchivedConversation = (conversationId) => {
@@ -2661,7 +2802,12 @@ export default function StringPhoneApp() {
     setActiveLesson(null);
   };
 
-  const createLessonFromCurrentContext = async ({ source, topic }) => {
+  const createLessonFromCurrentContext = async ({
+    source,
+    topic,
+    sourceLanguage = myLang,
+    targetLanguage = theirLang,
+  }) => {
     const lessonMessages = chatMessages
       .filter(
         (message) =>
@@ -2677,30 +2823,60 @@ export default function StringPhoneApp() {
     const lesson = await createLanguageLesson(authFetch, {
       source,
       topic,
-      sourceLanguage: myLang,
-      targetLanguage: theirLang,
+      sourceLanguage,
+      targetLanguage,
       conversationId:
         source === "chat" && !sharedRoomSession ? currentConversationId : null,
       messages: source === "chat" ? lessonMessages : [],
     });
 
+    setMyLang(sourceLanguage);
+    setTheirLang(targetLanguage);
     setActiveLesson(lesson);
+    setLessonBuilderConfig(null);
     return lesson;
   };
 
-  const openNewLesson = () => {
+  const openNewLesson = ({
+    sourceLanguage = myLang,
+    targetLanguage = theirLang,
+    initialSource = "topic",
+    allowChatSource = true,
+  } = {}) => {
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+    }
+
     setActiveLesson(null);
+    setLessonBuilderConfig({
+      key: createId(),
+      sourceLanguage,
+      targetLanguage,
+      initialSource,
+      allowChatSource,
+    });
     setAppMode("lesson");
+  };
+
+  const openFreshLessonFromHistory = () => {
+    openNewLesson({
+      sourceLanguage: myLang,
+      targetLanguage: theirLang,
+      initialSource: "topic",
+      allowChatSource: false,
+    });
   };
 
   const openLessonForCurrentChat = async () => {
     if (!currentConversationId || !isSignedIn) {
       setActiveLesson(null);
+      setLessonBuilderConfig(null);
       setAppMode("lesson");
       return;
     }
 
     if (getLessonConversationId(activeLesson) === currentConversationId) {
+      setLessonBuilderConfig(null);
       setAppMode("lesson");
       return;
     }
@@ -2712,9 +2888,24 @@ export default function StringPhoneApp() {
           (lesson) => getLessonConversationId(lesson) === currentConversationId,
         ) ?? null;
       setActiveLesson(matchingLesson);
+      setLessonBuilderConfig(null);
+
+      if (matchingLesson) {
+        const sourceLanguageCode = getLessonSourceLanguageCode(matchingLesson);
+        const targetLanguageCode = getLessonTargetLanguageCode(matchingLesson);
+
+        if (sourceLanguageCode) {
+          setMyLang(getLanguageOption(sourceLanguageCode));
+        }
+
+        if (targetLanguageCode) {
+          setTheirLang(getLanguageOption(targetLanguageCode));
+        }
+      }
     } catch (error) {
       console.error("Failed to resolve lesson for current chat", error);
       setActiveLesson(null);
+      setLessonBuilderConfig(null);
     }
 
     setAppMode("lesson");
@@ -2733,18 +2924,11 @@ export default function StringPhoneApp() {
     sourceLanguage,
     targetLanguage,
   ) => {
-    if (!currentConversationId) {
-      return;
-    }
-
-    try {
-      await updateConversationLanguages(authFetch, currentConversationId, {
-        sourceLanguage,
-        targetLanguage,
-      });
-    } catch (error) {
-      console.error("Failed to persist conversation languages", error);
-    }
+    await persistConversationLanguages(
+      currentConversationId,
+      sourceLanguage,
+      targetLanguage,
+    );
   };
 
   const handleToggleSharedRoom = async () => {
@@ -2993,10 +3177,26 @@ export default function StringPhoneApp() {
         onArchiveConversation={handleArchivedConversation}
         currentLessonId={activeLesson?.id ?? null}
         onSelectLesson={(lesson) => {
+          if (sharedRoomSession) {
+            leaveSharedRoom();
+          }
+
+          const sourceLanguageCode = getLessonSourceLanguageCode(lesson);
+          const targetLanguageCode = getLessonTargetLanguageCode(lesson);
+
+          if (sourceLanguageCode) {
+            setMyLang(getLanguageOption(sourceLanguageCode));
+          }
+
+          if (targetLanguageCode) {
+            setTheirLang(getLanguageOption(targetLanguageCode));
+          }
+
           setActiveLesson(lesson);
+          setLessonBuilderConfig(null);
           setAppMode("lesson");
         }}
-        onCreateLesson={openNewLesson}
+        onCreateLesson={openFreshLessonFromHistory}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />
@@ -3038,6 +3238,7 @@ export default function StringPhoneApp() {
           autoplayAudioUrl={autoplayAudioUrl}
           submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
         />
       ) : null}
 
@@ -3052,6 +3253,7 @@ export default function StringPhoneApp() {
           onStartNewLesson={openNewLesson}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           onPlayGeneratedSpeech={playGeneratedSpeech}
+          lessonBuilderConfig={lessonBuilderConfig}
         />
       ) : null}
 
@@ -3065,6 +3267,7 @@ export default function StringPhoneApp() {
           autoplayAudioUrl={autoplayAudioUrl}
           submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
         />
       ) : null}
     </main>

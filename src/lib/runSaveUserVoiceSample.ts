@@ -35,9 +35,8 @@ function normalizeOptionalText(value: unknown) {
   return trimmedValue.length > 0 ? trimmedValue : null;
 }
 
-function toDataUrl(file: VoiceSampleFile) {
-  const mimeType = normalizeOptionalText(file.mimeType) ?? "audio/webm";
-  return `data:${mimeType};base64,${file.buffer.toString("base64")}`;
+function toStoredAudioBase64(file: VoiceSampleFile) {
+  return file.buffer.toString("base64");
 }
 
 export async function runSaveUserVoiceSample(
@@ -60,8 +59,6 @@ export async function runSaveUserVoiceSample(
   }
 
   const conversationId = normalizeOptionalText(input.conversationId);
-  const sourceLanguage = normalizeOptionalText(input.sourceLanguage);
-  const targetLanguage = normalizeOptionalText(input.targetLanguage);
   let sourceConversationId: string | null = null;
 
   if (conversationId) {
@@ -81,9 +78,7 @@ export async function runSaveUserVoiceSample(
   const voiceSample = await createVoiceSample({
     userId: input.userId,
     sourceConversationId,
-    sourceLanguage,
-    targetLanguage,
-    audioUrl: toDataUrl(input.voiceSampleFile),
+    audioUrl: toStoredAudioBase64(input.voiceSampleFile),
   });
 
   if (!voiceSample?.id) {

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  ArrowRight,
   BookOpen,
   ChevronRight,
   GraduationCap,
@@ -10,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
+import { LanguageSelector } from "../../StringPhoneApp.jsx";
 import { useUiStrings } from "../../uiStrings.js";
 import { formatPronunciationGuide } from "../../utils.js";
 
@@ -42,17 +44,27 @@ function LessonHistoryButton({ onOpenSidebar }) {
 }
 
 function LessonBuilder({
-  myLang,
-  theirLang,
   currentMessages,
   isSignedIn,
   onCreateLesson,
   onOpenSidebar,
+  initialSourceLanguage,
+  initialTargetLanguage,
+  initialSource = "topic",
+  allowChatSource = true,
 }) {
-  const [source, setSource] = useState("topic");
+  const [source, setSource] = useState(
+    allowChatSource && initialSource === "chat" ? "chat" : "topic",
+  );
   const [topic, setTopic] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
+  const [lessonSourceLanguage, setLessonSourceLanguage] = useState(
+    initialSourceLanguage,
+  );
+  const [lessonTargetLanguage, setLessonTargetLanguage] = useState(
+    initialTargetLanguage,
+  );
   const chatTurnCount = currentMessages.filter(
     (message) =>
       message.status === "ready" &&
@@ -78,7 +90,12 @@ function LessonBuilder({
     try {
       setError("");
       setIsCreating(true);
-      await onCreateLesson({ source, topic: topic.trim() });
+      await onCreateLesson({
+        source,
+        topic: topic.trim(),
+        sourceLanguage: lessonSourceLanguage,
+        targetLanguage: lessonTargetLanguage,
+      });
     } catch (creationError) {
       setError(creationError.message || "Could not create a lesson.");
     } finally {
@@ -101,49 +118,78 @@ function LessonBuilder({
               Little lesson
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-              Practice {theirLang.name} for a real moment.
+              Practice {lessonTargetLanguage.name} for a real moment.
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-              Build a short lesson from what you have been chatting about or from a
-              situation you want to handle.
+              {allowChatSource
+                ? "Choose the lesson languages, then build a short lesson from what you have been chatting about or from a situation you want to handle."
+                : "Choose the lesson languages first, then build a completely new lesson around a situation you want to handle."}
             </p>
           </div>
         </div>
 
-        <div
-          role="tablist"
-          aria-label="Lesson source"
-          className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/20 p-1.5"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === "topic"}
-            onClick={() => setSource("topic")}
-            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition ${
-              source === "topic"
-                ? "bg-white/10 text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            <Sparkles size={16} />
-            New topic
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === "chat"}
-            onClick={() => setSource("chat")}
-            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition ${
-              source === "chat"
-                ? "bg-white/10 text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            <MessageSquareText size={16} />
-            This chat
-          </button>
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+            Lesson languages
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+            <LanguageSelector
+              selected={lessonSourceLanguage}
+              onSelect={setLessonSourceLanguage}
+              searchPlaceholder="Search source language"
+              buttonClassName="justify-between"
+            />
+            <div className="hidden justify-center text-zinc-500 sm:flex">
+              <ArrowRight size={16} strokeWidth={2.2} />
+            </div>
+            <LanguageSelector
+              selected={lessonTargetLanguage}
+              onSelect={setLessonTargetLanguage}
+              searchPlaceholder="Search target language"
+              buttonClassName="justify-between"
+            />
+          </div>
+          <p className="mt-3 text-xs text-zinc-500">
+            Starts with your latest languages so you can adjust them before the lesson is generated.
+          </p>
         </div>
+
+        {allowChatSource ? (
+          <div
+            role="tablist"
+            aria-label="Lesson source"
+            className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/20 p-1.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === "topic"}
+              onClick={() => setSource("topic")}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition ${
+                source === "topic"
+                  ? "bg-white/10 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <Sparkles size={16} />
+              New topic
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === "chat"}
+              onClick={() => setSource("chat")}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition ${
+                source === "chat"
+                  ? "bg-white/10 text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <MessageSquareText size={16} />
+              This chat
+            </button>
+          </div>
+        ) : null}
 
         {source === "topic" ? (
           <label className="mt-5 block">
@@ -184,7 +230,7 @@ function LessonBuilder({
 
         <div className="mt-6 flex items-center justify-between gap-4 border-t border-white/10 pt-5">
           <p className="text-xs text-zinc-500">
-            {myLang.name} {"→"} {theirLang.name}
+            {lessonSourceLanguage.name} {"->"} {lessonTargetLanguage.name}
           </p>
           <button
             type="button"
@@ -429,6 +475,7 @@ export function LessonScreen({
   onStartNewLesson,
   onOpenSidebar,
   onPlayGeneratedSpeech,
+  lessonBuilderConfig,
 }) {
   const lessonUiStrings = useUiStrings(myLang);
   const content = activeLesson?.content ?? activeLesson?.lesson_content;
@@ -449,12 +496,15 @@ export function LessonScreen({
 
   return (
     <LessonBuilder
-      myLang={myLang}
-      theirLang={theirLang}
+      key={lessonBuilderConfig?.key ?? "lesson-builder"}
       currentMessages={currentMessages}
       isSignedIn={isSignedIn}
       onCreateLesson={onCreateLesson}
       onOpenSidebar={onOpenSidebar}
+      initialSourceLanguage={lessonBuilderConfig?.sourceLanguage ?? myLang}
+      initialTargetLanguage={lessonBuilderConfig?.targetLanguage ?? theirLang}
+      initialSource={lessonBuilderConfig?.initialSource ?? "topic"}
+      allowChatSource={lessonBuilderConfig?.allowChatSource ?? true}
     />
   );
 }

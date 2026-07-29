@@ -70,7 +70,6 @@ export async function runOutputTextToSpeech(
   const voiceSample = await resolveSavedUserVoiceReference({
     userId: input.userId,
     conversationId: input.conversationId,
-    targetLanguageCode: supportedLanguage.code,
   });
   const voiceIdOverride = voiceSample
     ? null
@@ -91,6 +90,10 @@ export async function runOutputTextToSpeech(
 }
 
 function getFilenameExtension(mimeType: string) {
+  if (mimeType.includes("webm")) {
+    return "webm";
+  }
+
   if (mimeType.includes("wav")) {
     return "wav";
   }
@@ -104,6 +107,61 @@ function getFilenameExtension(mimeType: string) {
   }
 
   return "bin";
+}
+
+function inferStoredVoiceSampleFormat(audioBuffer: Buffer) {
+  if (audioBuffer.length >= 12) {
+    const header = audioBuffer.subarray(0, 12);
+    const asciiHeader = header.toString("ascii");
+
+    if (
+      header[0] === 0x1a &&
+      header[1] === 0x45 &&
+      header[2] === 0xdf &&
+      header[3] === 0xa3
+    ) {
+      return {
+        filename: "saved-voice-reference.webm",
+        mimeType: "audio/webm",
+      };
+    }
+
+    if (asciiHeader.startsWith("OggS")) {
+      return {
+        filename: "saved-voice-reference.ogg",
+        mimeType: "audio/ogg",
+      };
+    }
+
+    if (asciiHeader.startsWith("RIFF") && asciiHeader.slice(8, 12) === "WAVE") {
+      return {
+        filename: "saved-voice-reference.wav",
+        mimeType: "audio/wav",
+      };
+    }
+
+    if (asciiHeader.slice(4, 8) === "ftyp") {
+      return {
+        filename: "saved-voice-reference.m4a",
+        mimeType: "audio/mp4",
+      };
+    }
+
+    if (
+      asciiHeader.startsWith("ID3") ||
+      (header[0] === 0xff && (header[1] & 0xe0) === 0xe0)
+    ) {
+      return {
+        filename: "saved-voice-reference.mp3",
+        mimeType: "audio/mpeg",
+      };
+    }
+  }
+
+  return {
+    filename: "saved-voice-reference.mp3",
+    mimeType: "audio/mpeg",
+  };
 }
 
 function decodeStoredVoiceSample(audioValue: string) {
@@ -129,17 +187,19 @@ function decodeStoredVoiceSample(audioValue: string) {
     };
   }
 
+  const audioBuffer = Buffer.from(trimmedAudioValue, "base64");
+  const inferredFormat = inferStoredVoiceSampleFormat(audioBuffer);
+
   return {
-    audioBuffer: Buffer.from(trimmedAudioValue, "base64"),
-    originalFilename: "saved-voice-reference.mp3",
-    mimeType: "audio/mpeg",
+    audioBuffer,
+    originalFilename: inferredFormat.filename,
+    mimeType: inferredFormat.mimeType,
   };
 }
 
 async function resolveSavedUserVoiceReference(input: {
   userId?: number | null;
   conversationId?: unknown;
-  targetLanguageCode: string;
 }) {
   if (!Number.isInteger(input.userId) || !input.userId || input.userId < 1) {
     return null;
@@ -154,7 +214,6 @@ async function resolveSavedUserVoiceReference(input: {
     const savedVoiceSample = await getLatestUserVoiceSample({
       userId: input.userId,
       preferredConversationId,
-      targetLanguage: input.targetLanguageCode,
     });
 
     if (!savedVoiceSample?.audio_url) {
