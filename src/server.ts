@@ -355,8 +355,6 @@ app.post(
       const result = await runSaveUserVoiceSample({
         userId: authenticatedRequest.appUser.id,
         conversationId: req.body?.conversationId,
-        sourceLanguage: req.body?.sourceLanguage,
-        targetLanguage: req.body?.targetLanguage,
         voiceSampleFile: coerceUploadedFile(req.file),
       });
 
@@ -867,8 +865,6 @@ app.post(
         const voiceSampleSaveResult = await runSaveUserVoiceSample({
           userId: authenticatedRequest.appUser.id,
           conversationId: req.body?.conversationId,
-          sourceLanguage: req.body?.sourceLanguage,
-          targetLanguage: req.body?.targetLanguage,
           voiceSampleFile: {
             buffer: voiceSampleFile.buffer,
             filename: voiceSampleFile.originalname,

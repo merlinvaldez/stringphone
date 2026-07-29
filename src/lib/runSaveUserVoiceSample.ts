@@ -10,8 +10,6 @@ type VoiceSampleFile = {
 export type RunSaveUserVoiceSampleInput = {
   userId: number;
   conversationId?: unknown;
-  sourceLanguage?: unknown;
-  targetLanguage?: unknown;
   voiceSampleFile?: VoiceSampleFile;
 };
 

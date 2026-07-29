@@ -2145,6 +2145,13 @@ export default function StringPhoneApp() {
     [],
   );
 
+  const clearGeneratedSpeechCache = () => {
+    generatedSpeechUrlCacheRef.current.forEach((audioUrl) => {
+      URL.revokeObjectURL(audioUrl);
+    });
+    generatedSpeechUrlCacheRef.current.clear();
+  };
+
   const voiceHistory = useMemo(
     () =>
       messages.filter(
@@ -2296,6 +2303,13 @@ export default function StringPhoneApp() {
         autoplayAudioRef.current = null;
       }
     };
+    player.onerror = () => {
+      if (autoplayAudioRef.current === player) {
+        autoplayAudioRef.current = null;
+      }
+
+      onEnded?.();
+    };
     player.play().catch(() => {
       if (autoplayAudioRef.current === player) {
         autoplayAudioRef.current = null;
@@ -2316,7 +2330,7 @@ export default function StringPhoneApp() {
       throw new Error("Audio unavailable.");
     }
 
-    const cacheScope = preferredConversationId ?? (isSignedIn ? "signed-in" : "guest");
+    const cacheScope = isSignedIn ? "signed-in" : "guest";
     const cacheKey = `${normalizedLanguageCode}:${cacheScope}:${trimmedText}`;
     let audioUrl = generatedSpeechUrlCacheRef.current.get(cacheKey);
 
@@ -2646,6 +2660,10 @@ export default function StringPhoneApp() {
         }).catch(e => console.error("Failed to save voice message", e));
       }
 
+      if (isSignedIn && sender === "self") {
+        clearGeneratedSpeechCache();
+      }
+
       return { messageId, audioUrl };
     } catch (translationError) {
       updateMessage(messageId, {
@@ -2735,8 +2753,8 @@ export default function StringPhoneApp() {
         saveVoiceSample(authFetch, {
           recording,
           conversationId: null,
-          sourceLanguage,
-          targetLanguage,
+        }).then(() => {
+          clearGeneratedSpeechCache();
         }).catch((error) => {
           console.error("Failed to save shared-room voice sample", error);
         });

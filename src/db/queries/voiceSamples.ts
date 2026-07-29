@@ -17,7 +17,6 @@ export type StoredVoiceSample = {
 };
 
 type VoiceSampleLookupRow = {
-  conversation_id: string | null;
   created_at: string;
   audio_url: string;
 };
@@ -104,36 +103,21 @@ export async function createVoiceSample(params: {
 
 export async function getLatestUserVoiceSample(params: {
   userId: number;
-  preferredConversationId?: string | null;
 }) {
   await ensureVoiceSamplesSchema();
-
-  const preferredConversationId =
-    typeof params.preferredConversationId === "string" &&
-    params.preferredConversationId.trim()
-      ? params.preferredConversationId.trim()
-      : null;
 
   const result = await db.query<VoiceSampleLookupRow>(
     `
     SELECT
-      vs.source_conversation_id AS conversation_id,
       vs.created_at,
       vs.audio_url
     FROM public.voice_samples vs
     WHERE vs.user_id = $1
       AND btrim(vs.audio_url) <> ''
-    ORDER BY
-      CASE
-        WHEN $2::text IS NOT NULL
-         AND vs.source_conversation_id::text = $2
-          THEN 0
-        ELSE 1
-      END,
-      vs.created_at DESC
+    ORDER BY vs.created_at DESC
     LIMIT 1
     `,
-    [params.userId, preferredConversationId],
+    [params.userId],
   );
 
   return result.rows[0] ?? null;

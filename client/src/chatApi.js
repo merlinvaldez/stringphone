@@ -134,7 +134,7 @@ export async function saveMessage(authFetch, conversationId, messagePayload) {
 
 export async function saveVoiceSample(
   authFetch,
-  { recording, conversationId = null, sourceLanguage, targetLanguage },
+  { recording, conversationId = null },
 ) {
   const formData = new FormData();
   const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
@@ -144,14 +144,6 @@ export async function saveVoiceSample(
 
   if (conversationId) {
     formData.append("conversationId", conversationId);
-  }
-
-  if (sourceLanguage?.code) {
-    formData.append("sourceLanguage", sourceLanguage.code);
-  }
-
-  if (targetLanguage?.code) {
-    formData.append("targetLanguage", targetLanguage.code);
   }
 
   const response = await authFetch(`${API_BASE_URL}/users/me/voice-samples`, {

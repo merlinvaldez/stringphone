@@ -69,7 +69,6 @@ export async function runOutputTextToSpeech(
 
   const voiceSample = await resolveSavedUserVoiceReference({
     userId: input.userId,
-    conversationId: input.conversationId,
   });
   const voiceIdOverride = voiceSample
     ? null
@@ -199,21 +198,14 @@ function decodeStoredVoiceSample(audioValue: string) {
 
 async function resolveSavedUserVoiceReference(input: {
   userId?: number | null;
-  conversationId?: unknown;
 }) {
   if (!Number.isInteger(input.userId) || !input.userId || input.userId < 1) {
     return null;
   }
 
-  const preferredConversationId =
-    typeof input.conversationId === "string" && input.conversationId.trim()
-      ? input.conversationId.trim()
-      : null;
-
   try {
     const savedVoiceSample = await getLatestUserVoiceSample({
       userId: input.userId,
-      preferredConversationId,
     });
 
     if (!savedVoiceSample?.audio_url) {

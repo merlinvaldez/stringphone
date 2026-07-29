@@ -36,8 +36,6 @@ export default {
       const result = await runSaveUserVoiceSample({
         userId: authenticatedRequest.appUser.id,
         conversationId: formData.get("conversationId"),
-        sourceLanguage: formData.get("sourceLanguage"),
-        targetLanguage: formData.get("targetLanguage"),
         voiceSampleFile:
           voiceSample instanceof File
             ? {

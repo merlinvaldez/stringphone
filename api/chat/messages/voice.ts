@@ -67,8 +67,6 @@ export default {
       const voiceSampleSaveResult = await runSaveUserVoiceSample({
         userId: authenticatedRequest.appUser.id,
         conversationId: formData.get("conversationId"),
-        sourceLanguage: formData.get("sourceLanguage"),
-        targetLanguage: formData.get("targetLanguage"),
         voiceSampleFile: {
           buffer: Buffer.from(await voiceSample.arrayBuffer()),
           filename: voiceSample.name || "voice-sample.webm",
