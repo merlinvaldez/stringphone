@@ -119,7 +119,7 @@ async function processRoomTextMessage({
       targetLanguage: targetLanguage.code,
     });
 
-    if (!result.ok) {
+    if (result.ok === false) {
       updateRoomMessage(room, messageId, {
         status: "error",
         errorMessage: getErrorMessage(result.body, "Text translation failed"),
@@ -211,7 +211,7 @@ async function processRoomVoiceMessage({
       voiceSampleFile: sourceAudioFile,
     });
 
-    if (!result.ok) {
+    if (result.ok === false) {
       updateRoomMessage(room, messageId, {
         status: "error",
         errorMessage: getErrorMessage(result.body, "Voice translation failed"),
