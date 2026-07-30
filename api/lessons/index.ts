@@ -47,11 +47,10 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
-    const body = await request.json().catch(() => null);
-
     try {
       const authenticatedRequest =
         await getOptionalAuthenticatedVercelAppRequest(request);
+      const body = await request.json().catch(() => null);
       const lesson = authenticatedRequest?.appUser
         ? await createLanguageLessonForUser({
             userId: authenticatedRequest.appUser.id,
