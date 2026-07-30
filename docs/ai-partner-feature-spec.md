@@ -478,7 +478,7 @@ This service should own structured conversational generation, not translation.
 
 Recommended model:
 
-- default: `mistral-medium-3-5`
+- default: `mistral-large-latest`
 - override: `MISTRAL_AI_PARTNER_MODEL`
 
 Recommended output contract:

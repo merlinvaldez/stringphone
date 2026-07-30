@@ -15,7 +15,7 @@ export type GeneratedAiPartnerReply = {
   replyText: string;
 };
 
-const DEFAULT_AI_PARTNER_MODEL = "mistral-medium-3-5";
+const DEFAULT_AI_PARTNER_MODEL = "mistral-large-latest";
 const MAX_CONTEXT_CHARACTERS = 6000;
 
 export class AiPartnerGenerationError extends Error {

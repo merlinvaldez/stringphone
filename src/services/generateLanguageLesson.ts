@@ -41,7 +41,7 @@ export type GeneratedLesson = {
 };
 
 const MAX_CONTEXT_CHARACTERS = 6000;
-const DEFAULT_LESSON_MODEL = "mistral-medium-3-5";
+const DEFAULT_LESSON_MODEL = "mistral-large-latest";
 
 export class LessonGenerationError extends Error {
   status: number;
