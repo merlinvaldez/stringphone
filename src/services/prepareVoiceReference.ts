@@ -113,12 +113,19 @@ function runFfmpeg(
   maxDurationSeconds?: number,
 ) {
   return new Promise<void>((resolve, reject) => {
-    if (!ffmpegPath) {
+    const executablePath =
+      typeof ffmpegPath === "string"
+        ? ffmpegPath
+        : typeof ffmpegPath?.default === "string"
+          ? ffmpegPath.default
+          : null;
+
+    if (!executablePath) {
       reject(new Error("ffmpeg binary is not available."));
       return;
     }
 
-    const ffmpeg = spawn(ffmpegPath, [
+    const ffmpeg = spawn(executablePath, [
       "-y",
       "-i",
       inputPath,
@@ -136,7 +143,7 @@ function runFfmpeg(
 
     let stderr = "";
 
-    ffmpeg.stderr.on("data", (chunk) => {
+    ffmpeg.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
 
