@@ -121,7 +121,6 @@ export async function generateAiPartnerReply(input: {
       responseFormat: { type: "json_object" },
       maxTokens: 650,
       temperature: 0.5,
-      reasoningEffort: "none",
       messages: [
         {
           role: "system",

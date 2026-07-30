@@ -203,7 +203,6 @@ export async function generateLanguageLesson(input: {
       responseFormat: { type: "json_object" },
       maxTokens: 1100,
       temperature: 0.2,
-      reasoningEffort: "none",
       messages: [
         {
           role: "system",
