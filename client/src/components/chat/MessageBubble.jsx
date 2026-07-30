@@ -65,26 +65,27 @@ export function MessageBubble({
 
               {message.translatedText ? (
                 <div className="border-t border-white/10 pt-3">
-                  <p className="text-sm leading-6 text-zinc-200">
-                    {message.translatedText}
-                  </p>
-                  {isSelf ? (
-                    <PronunciationGuide
-                      value={message.translatedPronunciation}
-                      className="mt-2 text-xs leading-5 text-zinc-400"
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-
-              {showEmbeddedVoicePlayer ? (
-                <div className="border-t border-white/10 pt-3">
-                  <VoiceMessagePlayer
-                    audioUrl={message.audioUrl}
-                    onAudioPlay={onAudioPlay}
-                    isSelf={isSelf}
-                    uiStrings={uiStrings}
-                  />
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-6 text-zinc-200">
+                        {message.translatedText}
+                      </p>
+                      {isSelf ? (
+                        <PronunciationGuide
+                          value={message.translatedPronunciation}
+                          className="mt-2 text-xs leading-5 text-zinc-400"
+                        />
+                      ) : null}
+                    </div>
+                    {showEmbeddedVoicePlayer ? (
+                      <VoiceMessagePlayer
+                        audioUrl={message.audioUrl}
+                        onAudioPlay={onAudioPlay}
+                        isSelf={isSelf}
+                        uiStrings={uiStrings}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </div>
