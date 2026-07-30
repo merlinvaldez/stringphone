@@ -2695,7 +2695,9 @@ export default function StringPhoneApp() {
         saveMessage(authFetch, conversationId, {
           sender,
           originalText: data.originalText,
+          originalPronunciation: data.originalPronunciation ?? "",
           translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
           transcript: null,
           audioUrl: null,
           sourceLanguage: sourceLanguage.code,
@@ -2819,7 +2821,9 @@ export default function StringPhoneApp() {
         saveMessage(authFetch, conversationId, {
           sender,
           originalText: data.transcript,
+          originalPronunciation: data.originalPronunciation ?? "",
           translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
           transcript: data.transcript,
           audioUrl: data.audio.base64, // We might not want to save full base64 in real app, but this fits the schema for now
           sourceLanguage: sourceLanguage.code,
@@ -2971,9 +2975,9 @@ export default function StringPhoneApp() {
       status: "ready",
       sender: message.sender,
       originalText: message.original_text,
-      originalPronunciation: "",
+      originalPronunciation: message.original_pronunciation ?? "",
       translatedText: message.translated_text,
-      translatedPronunciation: "",
+      translatedPronunciation: message.translated_pronunciation ?? "",
       transcript: message.transcript || "",
       audioUrl: message.audio_url
         ? createAudioUrlFromStoredValue(message.audio_url)

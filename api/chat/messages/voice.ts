@@ -32,68 +32,78 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
-    const authenticatedRequest =
-      await getOptionalAuthenticatedVercelAppRequest(request);
-    const formData = await request.formData();
-    const sourceAudio = formData.get("sourceAudio");
-    const voiceSample = formData.get("voiceSample");
-
-    const result = await runVoiceChatMessage({
-      sourceLanguage: formData.get("sourceLanguage"),
-      targetLanguage: formData.get("targetLanguage"),
-      userId: authenticatedRequest?.appUser?.id ?? null,
-      sourceAudioFile:
+    try {
+      const authenticatedRequest =
+        await getOptionalAuthenticatedVercelAppRequest(request);
+      const formData = await request.formData();
+      const sourceAudio = formData.get("sourceAudio");
+      const voiceSample = formData.get("voiceSample");
+      const sourceAudioFile =
         sourceAudio instanceof File
           ? {
               buffer: Buffer.from(await sourceAudio.arrayBuffer()),
               filename: sourceAudio.name || "source-audio.webm",
               mimeType: sourceAudio.type || undefined,
             }
-          : undefined,
-      voiceSampleFile:
+          : undefined;
+      const voiceSampleFile =
         voiceSample instanceof File
           ? {
               buffer: Buffer.from(await voiceSample.arrayBuffer()),
               filename: voiceSample.name || "voice-sample.webm",
               mimeType: voiceSample.type || undefined,
             }
-          : undefined,
-    });
+          : undefined;
 
-    if (!result.ok) {
-      return jsonResponse(result.body, result.status);
-    }
-
-    if (authenticatedRequest?.appUser && voiceSample instanceof File) {
-      const voiceSampleSaveResult = await runSaveUserVoiceSample({
-        userId: authenticatedRequest.appUser.id,
-        conversationId: formData.get("conversationId"),
-        voiceSampleFile: {
-          buffer: Buffer.from(await voiceSample.arrayBuffer()),
-          filename: voiceSample.name || "voice-sample.webm",
-          mimeType: voiceSample.type || undefined,
-        },
+      const result = await runVoiceChatMessage({
+        sourceLanguage: formData.get("sourceLanguage"),
+        targetLanguage: formData.get("targetLanguage"),
+        userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile,
+        voiceSampleFile,
       });
 
-      if (!voiceSampleSaveResult.ok) {
-        console.warn(
-          "Failed to persist authenticated Vercel voice sample during chat translation",
-          voiceSampleSaveResult,
-        );
+      if (!result.ok) {
+        return jsonResponse(result.body, result.status);
       }
-    }
 
-    return jsonResponse({
-      transcript: result.transcript,
-      translatedText: result.translatedText,
-      originalPronunciation: result.originalPronunciation,
-      translatedPronunciation: result.translatedPronunciation,
-      sourceLanguage: result.sourceLanguage,
-      targetLanguage: result.targetLanguage,
-      audio: {
-        mimeType: result.audioMimeType,
-        base64: result.audioBuffer.toString("base64"),
-      },
-    });
+      if (authenticatedRequest?.appUser && voiceSampleFile) {
+        try {
+          const voiceSampleSaveResult = await runSaveUserVoiceSample({
+            userId: authenticatedRequest.appUser.id,
+            conversationId: formData.get("conversationId"),
+            voiceSampleFile,
+          });
+
+          if (!voiceSampleSaveResult.ok) {
+            console.warn(
+              "Failed to persist authenticated Vercel voice sample during chat translation",
+              voiceSampleSaveResult,
+            );
+          }
+        } catch (error) {
+          console.warn(
+            "Voice sample persistence crashed during deployed chat translation; returning translation anyway",
+            error,
+          );
+        }
+      }
+
+      return jsonResponse({
+        transcript: result.transcript,
+        translatedText: result.translatedText,
+        originalPronunciation: result.originalPronunciation,
+        translatedPronunciation: result.translatedPronunciation,
+        sourceLanguage: result.sourceLanguage,
+        targetLanguage: result.targetLanguage,
+        audio: {
+          mimeType: result.audioMimeType,
+          base64: result.audioBuffer.toString("base64"),
+        },
+      });
+    } catch (error) {
+      console.error("Voice chat translation failed", error);
+      return jsonResponse({ error: "Voice chat translation failed" }, 502);
+    }
   },
 };

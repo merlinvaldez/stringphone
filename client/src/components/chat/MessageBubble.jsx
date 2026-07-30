@@ -23,6 +23,7 @@ export function MessageBubble({
 }) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
+  const showEmbeddedVoicePlayer = isVoice && Boolean(message.audioUrl);
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
@@ -37,16 +38,9 @@ export function MessageBubble({
             <span className="pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
               {formatTimestamp(message.createdAt)}
             </span>
-            {isVoice && message.audioUrl ? (
-              <VoiceMessagePlayer
-                audioUrl={message.audioUrl}
-                onAudioPlay={onAudioPlay}
-                isSelf={isSelf}
-                uiStrings={uiStrings}
-              />
-            ) : (
+            {!showEmbeddedVoicePlayer ? (
               <MessageStatusPill status={message.status} uiStrings={uiStrings} />
-            )}
+            ) : null}
           </div>
 
           {isVoice ? (
@@ -80,6 +74,17 @@ export function MessageBubble({
                       className="mt-2 text-xs leading-5 text-zinc-400"
                     />
                   ) : null}
+                </div>
+              ) : null}
+
+              {showEmbeddedVoicePlayer ? (
+                <div className="border-t border-white/10 pt-3">
+                  <VoiceMessagePlayer
+                    audioUrl={message.audioUrl}
+                    onAudioPlay={onAudioPlay}
+                    isSelf={isSelf}
+                    uiStrings={uiStrings}
+                  />
                 </div>
               ) : null}
             </div>

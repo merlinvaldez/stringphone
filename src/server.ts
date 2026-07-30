@@ -787,7 +787,9 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
       conversationId,
       sender: req.body.sender,
       originalText: req.body.originalText,
+      originalPronunciation: req.body.originalPronunciation ?? null,
       translatedText: req.body.translatedText,
+      translatedPronunciation: req.body.translatedPronunciation ?? null,
       transcript: req.body.transcript ?? null,
       audioUrl: req.body.audioUrl ?? null,
     });
@@ -869,20 +871,27 @@ app.post(
       }
 
       if (authenticatedRequest?.appUser && voiceSampleFile) {
-        const voiceSampleSaveResult = await runSaveUserVoiceSample({
-          userId: authenticatedRequest.appUser.id,
-          conversationId: req.body?.conversationId,
-          voiceSampleFile: {
-            buffer: voiceSampleFile.buffer,
-            filename: voiceSampleFile.originalname,
-            mimeType: voiceSampleFile.mimetype,
-          },
-        });
+        try {
+          const voiceSampleSaveResult = await runSaveUserVoiceSample({
+            userId: authenticatedRequest.appUser.id,
+            conversationId: req.body?.conversationId,
+            voiceSampleFile: {
+              buffer: voiceSampleFile.buffer,
+              filename: voiceSampleFile.originalname,
+              mimeType: voiceSampleFile.mimetype,
+            },
+          });
 
-        if (!voiceSampleSaveResult.ok) {
+          if (!voiceSampleSaveResult.ok) {
+            console.warn(
+              "Failed to persist authenticated voice sample during chat translation",
+              voiceSampleSaveResult,
+            );
+          }
+        } catch (error) {
           console.warn(
-            "Failed to persist authenticated voice sample during chat translation",
-            voiceSampleSaveResult,
+            "Voice sample persistence crashed during chat translation; returning translation anyway",
+            error,
           );
         }
       }

@@ -74,7 +74,11 @@ export async function runSaveUserVoiceSample(
     sourceConversationId = conversation.id;
   }
 
-  const preparedVoiceSample = await prepareVoiceReference(input.voiceSampleFile);
+  const preparedVoiceSample = await prepareVoiceReference({
+    audioBuffer: input.voiceSampleFile.buffer,
+    originalFilename: input.voiceSampleFile.filename,
+    mimeType: input.voiceSampleFile.mimeType,
+  });
   const voiceSample = await createVoiceSample({
     userId: input.userId,
     sourceConversationId,

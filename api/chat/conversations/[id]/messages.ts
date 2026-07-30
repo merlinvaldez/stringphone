@@ -86,7 +86,9 @@ export default {
           conversationId,
           sender: body.sender,
           originalText: body.originalText,
+          originalPronunciation: body.originalPronunciation ?? null,
           translatedText: body.translatedText,
+          translatedPronunciation: body.translatedPronunciation ?? null,
           transcript: body.transcript ?? null,
           audioUrl: body.audioUrl ?? null,
         });

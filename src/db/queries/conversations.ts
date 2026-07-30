@@ -1,6 +1,7 @@
 import { db } from "../client.js";
 
 let ensureConversationArchivingSchemaPromise: Promise<void> | null = null;
+let ensureMessagePronunciationSchemaPromise: Promise<void> | null = null;
 
 async function runEnsureConversationArchivingSchema() {
   const columnResult = await db.query<{
@@ -51,6 +52,61 @@ async function ensureConversationArchivingSchema() {
   }
 
   await ensureConversationArchivingSchemaPromise;
+}
+
+async function runEnsureMessagePronunciationSchema() {
+  const columnResult = await db.query<{
+    original_pronunciation_exists: boolean;
+    translated_pronunciation_exists: boolean;
+  }>(
+    `
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'messages'
+          AND column_name = 'original_pronunciation'
+      ) AS original_pronunciation_exists,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'messages'
+          AND column_name = 'translated_pronunciation'
+      ) AS translated_pronunciation_exists
+    `,
+  );
+
+  if (!columnResult.rows[0]?.original_pronunciation_exists) {
+    await db.query(
+      `
+      ALTER TABLE public.messages
+      ADD COLUMN IF NOT EXISTS original_pronunciation text
+      `,
+    );
+  }
+
+  if (!columnResult.rows[0]?.translated_pronunciation_exists) {
+    await db.query(
+      `
+      ALTER TABLE public.messages
+      ADD COLUMN IF NOT EXISTS translated_pronunciation text
+      `,
+    );
+  }
+}
+
+async function ensureMessagePronunciationSchema() {
+  if (!ensureMessagePronunciationSchemaPromise) {
+    ensureMessagePronunciationSchemaPromise =
+      runEnsureMessagePronunciationSchema().catch((error) => {
+        ensureMessagePronunciationSchemaPromise = null;
+        throw error;
+      });
+  }
+
+  await ensureMessagePronunciationSchemaPromise;
 }
 
 export async function createConversation(params: {
@@ -176,21 +232,36 @@ export async function createMessage(params: {
   conversationId: string;
   sender: string;
   originalText: string;
+  originalPronunciation: string | null;
   translatedText: string;
+  translatedPronunciation: string | null;
   transcript: string | null;
   audioUrl: string | null;
 }) {
+  await ensureMessagePronunciationSchema();
+
   const result = await db.query(
     `
-    INSERT INTO public.messages (conversation_id, sender, original_text, translated_text, transcript, audio_url)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO public.messages (
+      conversation_id,
+      sender,
+      original_text,
+      original_pronunciation,
+      translated_text,
+      translated_pronunciation,
+      transcript,
+      audio_url
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
     `,
     [
       params.conversationId,
       params.sender,
       params.originalText,
+      params.originalPronunciation,
       params.translatedText,
+      params.translatedPronunciation,
       params.transcript,
       params.audioUrl,
     ]
@@ -199,6 +270,8 @@ export async function createMessage(params: {
 }
 
 export async function getMessages(conversationId: string) {
+  await ensureMessagePronunciationSchema();
+
   const result = await db.query(
     `
     SELECT * FROM public.messages

@@ -7,6 +7,9 @@ const FALLBACK_UI_STRINGS = {
   audioUnavailable: "Audio unavailable.",
 };
 
+export const BASE_AUDIO_ICON_BUTTON_CLASSNAME =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white";
+
 export function TextToSpeechButton({
   text,
   languageCode,
@@ -125,10 +128,10 @@ export function TextToSpeechButton({
       disabled={isDisabled}
       title={label}
       aria-label={label}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white/5 transition ${
+      className={`${BASE_AUDIO_ICON_BUTTON_CLASSNAME} ${
         error
           ? "border-rose-400/30 text-rose-200 hover:bg-rose-500/10 hover:text-rose-100"
-          : "border-white/10 text-zinc-300 hover:bg-white/10 hover:text-white"
+          : ""
       } ${
         !canPlay
           ? "cursor-not-allowed opacity-60"

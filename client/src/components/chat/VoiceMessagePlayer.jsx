@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
-import { Loader2, Pause, Play } from "lucide-react";
+import { Loader2, Pause, Volume2 } from "lucide-react";
 
+import { BASE_AUDIO_ICON_BUTTON_CLASSNAME } from "../audio/TextToSpeechButton.jsx";
 import { formatDuration } from "../../utils.js";
 
 export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings }) {
@@ -10,16 +11,14 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoadingPlayback, setIsLoadingPlayback] = useState(false);
 
-  const accentClass = isSelf ? "text-emerald-200" : "text-zinc-200";
-  const trackClass = isSelf ? "stroke-emerald-300/25" : "stroke-white/15";
-  const progressClass = isSelf ? "stroke-emerald-300" : "stroke-indigo-300";
-  const radius = 18;
-  const circumference = 2 * Math.PI * radius;
+  const accentClass = isSelf ? "text-emerald-100" : "text-zinc-300";
   const remainingSeconds =
     duration > 0 ? Math.max(duration - currentTime, 0) : 0;
-  const progress =
-    duration > 0 ? Math.max(remainingSeconds / duration, 0) : 0;
-  const dashOffset = circumference * (1 - progress);
+  const label = isLoadingPlayback
+    ? uiStrings.preparingAudio || uiStrings.playAudio
+    : isPlaying
+      ? uiStrings.pauseAudio
+      : uiStrings.playAudio;
 
   const syncDuration = (audioElement) => {
     if (!audioElement) {
@@ -53,9 +52,9 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${isSelf ? "justify-end" : "justify-start"}`}>
       <span
-        className={`min-w-[2.8rem] text-right text-[11px] font-semibold tabular-nums tracking-[0.12em] ${accentClass}`}
+        className={`min-w-[2.8rem] text-[11px] font-semibold tabular-nums tracking-[0.12em] ${accentClass}`}
       >
         {formatDuration(isPlaying ? remainingSeconds : duration)}
       </span>
@@ -65,40 +64,16 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
         onClick={() => {
           void togglePlayback();
         }}
-        className={`relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/20 transition hover:bg-black/30 ${accentClass}`}
-        title={isPlaying ? uiStrings.pauseAudio : uiStrings.playAudio}
+        className={BASE_AUDIO_ICON_BUTTON_CLASSNAME}
+        title={label}
+        aria-label={label}
       >
-        <svg
-          viewBox="0 0 44 44"
-          className="absolute inset-0 h-full w-full -rotate-90"
-          aria-hidden="true"
-        >
-          <circle
-            cx="22"
-            cy="22"
-            r={radius}
-            fill="none"
-            strokeWidth="2.5"
-            className={trackClass}
-          />
-          <circle
-            cx="22"
-            cy="22"
-            r={radius}
-            fill="none"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={dashOffset}
-            className={progressClass}
-          />
-        </svg>
         {isLoadingPlayback ? (
-          <Loader2 size={16} className="relative z-10 animate-spin" />
+          <Loader2 size={14} className="animate-spin" />
         ) : isPlaying ? (
-          <Pause size={16} className="relative z-10" fill="currentColor" />
+          <Pause size={14} fill="currentColor" />
         ) : (
-          <Play size={16} className="relative z-10 translate-x-[1px]" fill="currentColor" />
+          <Volume2 size={14} />
         )}
       </button>
 
