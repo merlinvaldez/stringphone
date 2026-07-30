@@ -46,7 +46,7 @@ export default {
             : undefined,
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         return jsonResponse(result.body, result.status);
       }
 
