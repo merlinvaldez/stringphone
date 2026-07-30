@@ -4,6 +4,7 @@ import {
   ELEVENLABS_STT_MODEL_ID,
   getElevenLabsHeaders,
 } from "../lib/elevenlabs.js";
+import { bufferToUint8Array } from "../lib/binary.js";
 import type { SupportedTtsLanguage } from "../lib/languages.js";
 
 export type TranscribeAudioInput = {
@@ -101,7 +102,9 @@ async function transcribeWithElevenLabs(input: TranscribeAudioInput) {
 
   formData.append(
     "file",
-    new Blob([input.audioBuffer], { type: getTranscriptionMimeType(input) }),
+    new Blob([bufferToUint8Array(input.audioBuffer)], {
+      type: getTranscriptionMimeType(input),
+    }),
     input.filename,
   );
   formData.append("model_id", ELEVENLABS_STT_MODEL_ID);
