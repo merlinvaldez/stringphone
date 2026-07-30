@@ -4,6 +4,7 @@ import {
   CARTESIA_TTS_MODEL_ID,
   getCartesiaHeaders,
 } from "../lib/cartesia.js";
+import { bufferToUint8Array } from "../lib/binary.js";
 import type { SupportedTtsLanguage } from "../lib/languages.js";
 import type { PreparedVoiceReference } from "./prepareVoiceReference.js";
 
@@ -44,7 +45,9 @@ async function cloneCartesiaVoice(
 
   formData.append(
     "clip",
-    new Blob([input.voiceSample.buffer], { type: input.voiceSample.mimeType }),
+    new Blob([bufferToUint8Array(input.voiceSample.buffer)], {
+      type: input.voiceSample.mimeType,
+    }),
     input.voiceSample.filename,
   );
   formData.append("name", `stringphone-${input.targetLanguage.code}-${randomUUID()}`);
