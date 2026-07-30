@@ -38,7 +38,7 @@ export default {
       targetLanguage: body?.targetLanguage,
     });
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return jsonResponse(result.body, result.status);
     }
 
