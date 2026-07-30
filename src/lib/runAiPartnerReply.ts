@@ -233,20 +233,22 @@ export async function runAiPartnerReply(input: {
 
     const savedMessages = await getMessages(conversationId);
     const savedContextMessages = mapSavedConversationMessages(savedMessages);
-    contextMessages =
-      requestedContextMessages.length > 0
-        ? requestedContextMessages
-        : savedContextMessages;
-    const latestUserMessage =
-      [...contextMessages]
+    const latestPersistedUserMessage =
+      [...savedContextMessages]
         .reverse()
         .find(
           (message) =>
             message.sender === "self" && message.messageOrigin === "human",
         ) ?? null;
+    contextMessages =
+      requestedContextMessages.length > 0
+        ? requestedContextMessages
+        : savedContextMessages;
 
     seedMessageId =
-      typeof latestUserMessage?.id === "string" ? latestUserMessage.id : null;
+      typeof latestPersistedUserMessage?.id === "string"
+        ? latestPersistedUserMessage.id
+        : null;
   } else {
     contextMessages = requestedContextMessages;
   }
