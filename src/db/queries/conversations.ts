@@ -58,6 +58,7 @@ async function runEnsureMessagePronunciationSchema() {
   const columnResult = await db.query<{
     original_pronunciation_exists: boolean;
     translated_pronunciation_exists: boolean;
+    message_origin_exists: boolean;
   }>(
     `
     SELECT
@@ -74,7 +75,14 @@ async function runEnsureMessagePronunciationSchema() {
         WHERE table_schema = 'public'
           AND table_name = 'messages'
           AND column_name = 'translated_pronunciation'
-      ) AS translated_pronunciation_exists
+      ) AS translated_pronunciation_exists,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'messages'
+          AND column_name = 'message_origin'
+      ) AS message_origin_exists
     `,
   );
 
@@ -92,6 +100,15 @@ async function runEnsureMessagePronunciationSchema() {
       `
       ALTER TABLE public.messages
       ADD COLUMN IF NOT EXISTS translated_pronunciation text
+      `,
+    );
+  }
+
+  if (!columnResult.rows[0]?.message_origin_exists) {
+    await db.query(
+      `
+      ALTER TABLE public.messages
+      ADD COLUMN IF NOT EXISTS message_origin text NOT NULL DEFAULT 'human'
       `,
     );
   }
@@ -231,6 +248,7 @@ export async function updateConversationTitle(params: {
 export async function createMessage(params: {
   conversationId: string;
   sender: string;
+  messageOrigin?: string | null;
   originalText: string;
   originalPronunciation: string | null;
   translatedText: string;
@@ -245,6 +263,7 @@ export async function createMessage(params: {
     INSERT INTO public.messages (
       conversation_id,
       sender,
+      message_origin,
       original_text,
       original_pronunciation,
       translated_text,
@@ -252,12 +271,13 @@ export async function createMessage(params: {
       transcript,
       audio_url
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING *
     `,
     [
       params.conversationId,
       params.sender,
+      params.messageOrigin ?? "human",
       params.originalText,
       params.originalPronunciation,
       params.translatedText,

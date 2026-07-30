@@ -2,6 +2,7 @@ import React from "react";
 import { Square, Send, Mic, ArrowLeftRight, Loader2 } from "lucide-react";
 import { interpolateTemplate } from "../../uiStrings.js";
 import { AudioWave } from "../../StringPhoneApp.jsx";
+import { ChatCommandMenu } from "./ChatCommandMenu.jsx";
 
 export function ChatComposer({
   text,
@@ -18,6 +19,9 @@ export function ChatComposer({
   showInvertLanguages = false,
   disabled = false,
   disabledPlaceholder = "",
+  commandMenu = null,
+  commandNotice = "",
+  onInputKeyDown,
 }) {
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
@@ -54,6 +58,23 @@ export function ChatComposer({
 
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
+      {commandNotice ? (
+        <div className="mb-3 rounded-[1.1rem] border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+          {commandNotice}
+        </div>
+      ) : null}
+
+      {commandMenu?.visible ? (
+        <div className="mb-3">
+          <ChatCommandMenu
+            commands={commandMenu.commands}
+            activeIndex={commandMenu.activeIndex}
+            onHoverCommand={commandMenu.onHoverCommand}
+            onSelectCommand={commandMenu.onSelectCommand}
+          />
+        </div>
+      ) : null}
+
       {recordingStatus !== "idle" ? (
         <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <div className="text-sm text-zinc-200">
@@ -77,6 +98,12 @@ export function ChatComposer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
+            onInputKeyDown?.(event);
+
+            if (event.defaultPrevented) {
+              return;
+            }
+
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               if (canSendText) {

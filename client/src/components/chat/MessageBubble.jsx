@@ -20,10 +20,16 @@ export function MessageBubble({
   onAudioPlay,
   onPlayGeneratedSpeech,
   uiStrings,
+  aiPartnerDisplayName = "",
 }) {
   const isSelf = message.sender === "self";
   const isVoice = message.kind === "voice";
   const showEmbeddedVoicePlayer = isVoice && Boolean(message.audioUrl);
+  const isAiPartnerMessage = message.messageOrigin === "ai_partner";
+  const aiPartnerTranslationFallback =
+    isAiPartnerMessage && message.status === "ready"
+      ? "Translation unavailable."
+      : uiStrings.translatingShort;
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
@@ -35,9 +41,16 @@ export function MessageBubble({
           className={`rounded-[1.75rem] border px-4 py-3 shadow-xl backdrop-blur-md ${bubbleClasses}`}
         >
           <div className="mb-3 flex items-start justify-between gap-3">
-            <span className="pt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              {formatTimestamp(message.createdAt)}
-            </span>
+            <div className="pt-1">
+              {isAiPartnerMessage && !isSelf ? (
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
+                  {aiPartnerDisplayName || "AI partner"}
+                </p>
+              ) : null}
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                {formatTimestamp(message.createdAt)}
+              </span>
+            </div>
             {!showEmbeddedVoicePlayer ? (
               <MessageStatusPill status={message.status} uiStrings={uiStrings} />
             ) : null}
@@ -48,7 +61,10 @@ export function MessageBubble({
               {message.transcript ? (
                 <div>
                   <p className="text-sm leading-6 text-white">
-                    {message.transcript}
+                    {message.transcript ||
+                      (isAiPartnerMessage && message.status !== "ready"
+                        ? "AI partner is replying..."
+                        : "")}
                   </p>
                   {!isSelf ? (
                     <PronunciationGuide
@@ -63,12 +79,12 @@ export function MessageBubble({
                 </p>
               ) : null}
 
-              {message.translatedText ? (
+              {message.translatedText || (isAiPartnerMessage && message.status === "ready") ? (
                 <div className="border-t border-white/10 pt-3">
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-6 text-zinc-200">
-                        {message.translatedText}
+                        {message.translatedText || aiPartnerTranslationFallback}
                       </p>
                       {isSelf ? (
                         <PronunciationGuide
@@ -95,7 +111,10 @@ export function MessageBubble({
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-white">
-                      {message.originalText}
+                      {message.originalText ||
+                        (isAiPartnerMessage && message.status !== "ready"
+                          ? "AI partner is replying..."
+                          : "")}
                     </p>
                     {!isSelf ? (
                       <PronunciationGuide
@@ -104,7 +123,7 @@ export function MessageBubble({
                       />
                     ) : null}
                   </div>
-                  {!isSelf && message.originalText ? (
+                  {!isSelf && message.originalText && !isAiPartnerMessage ? (
                     <TextToSpeechButton
                       text={message.originalText}
                       languageCode={message.sourceLanguageCode}
@@ -123,7 +142,7 @@ export function MessageBubble({
                       {message.translatedText ||
                         (message.status === "error"
                           ? uiStrings.translationFailed
-                          : uiStrings.translatingShort)}
+                          : aiPartnerTranslationFallback)}
                     </p>
                     {isSelf ? (
                       <PronunciationGuide

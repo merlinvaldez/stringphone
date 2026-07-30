@@ -18,7 +18,13 @@ import {
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
+import {
+  buildAiPartnerSessionSnapshot,
+  getAiPartnerSession,
+  upsertAiPartnerSession,
+} from "./db/queries/aiPartnerSessions.js";
 import { archiveLesson, getLessons } from "./db/queries/lessons.js";
+import { runAiPartnerReply } from "./lib/runAiPartnerReply.js";
 import { runSaveUserVoiceSample } from "./lib/runSaveUserVoiceSample.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
@@ -65,7 +71,7 @@ app.use((req, res, next) => {
   }
 
   res.header("Vary", "Origin");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type,Authorization");
 
   if (req.method === "OPTIONS") {
@@ -786,6 +792,7 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
     const message = await createMessage({
       conversationId,
       sender: req.body.sender,
+      messageOrigin: req.body.messageOrigin ?? "human",
       originalText: req.body.originalText,
       originalPronunciation: req.body.originalPronunciation ?? null,
       translatedText: req.body.translatedText,
@@ -808,6 +815,80 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
   }
 });
 
+app.get(
+  "/chat/conversations/:id/ai-partner",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const user = (req as any).appUser;
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const conversation = await getConversation(req.params.id, user.id);
+
+      if (!conversation) {
+        return res
+          .status(404)
+          .json({ error: "Conversation not found or unauthorized" });
+      }
+
+      const session = await getAiPartnerSession({
+        conversationId: conversation.id,
+        userId: user.id,
+      });
+
+      return res.status(200).json(
+        buildAiPartnerSessionSnapshot(session, conversation.target_language),
+      );
+    } catch (error) {
+      console.error("Failed to fetch AI partner session", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  },
+);
+
+app.put(
+  "/chat/conversations/:id/ai-partner",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    if (typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled must be a boolean" });
+    }
+
+    try {
+      const user = (req as any).appUser;
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const conversation = await getConversation(req.params.id, user.id);
+
+      if (!conversation) {
+        return res
+          .status(404)
+          .json({ error: "Conversation not found or unauthorized" });
+      }
+
+      const session = await upsertAiPartnerSession({
+        conversationId: conversation.id,
+        userId: user.id,
+        partnerLanguage: conversation.target_language,
+        enabled: req.body.enabled,
+      });
+
+      return res.status(200).json(
+        buildAiPartnerSessionSnapshot(session, conversation.target_language),
+      );
+    } catch (error) {
+      console.error("Failed to update AI partner session", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  },
+);
+
 app.post("/chat/messages/text", async (req, res) => {
   try {
     const result = await runTextChatMessage({
@@ -824,6 +905,30 @@ app.post("/chat/messages/text", async (req, res) => {
   } catch (error) {
     console.error("Text chat translation failed", error);
     return res.status(502).json({ error: "Text chat translation failed" });
+  }
+});
+
+app.post("/chat/ai-partner/reply", async (req, res) => {
+  try {
+    const authenticatedRequest =
+      await getOptionalAuthenticatedAppRequest(req);
+    const result = await runAiPartnerReply({
+      conversationId: req.body?.conversationId,
+      userId: authenticatedRequest?.appUser?.id ?? null,
+      userLanguage: req.body?.userLanguage,
+      partnerLanguage: req.body?.partnerLanguage,
+      recentMessages: req.body?.recentMessages,
+      sessionDraft: req.body?.sessionDraft,
+    });
+
+    if (result.ok === false) {
+      return res.status(result.status).json(result.body);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("AI partner reply failed", error);
+    return res.status(502).json({ error: "AI partner reply failed" });
   }
 });
 
