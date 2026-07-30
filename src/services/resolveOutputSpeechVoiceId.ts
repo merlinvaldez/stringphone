@@ -127,8 +127,8 @@ async function listCartesiaVoices() {
 async function fetchMistralVoiceCatalog() {
   const firstPage = await mistral.audio.voices.list({
     type: "preset",
-    page: 1,
-    pageSize: 100,
+    offset: 0,
+    limit: 100,
   });
   const totalPages =
     typeof firstPage.totalPages === "number" && firstPage.totalPages > 1
@@ -139,8 +139,8 @@ async function fetchMistralVoiceCatalog() {
   for (let page = 2; page <= totalPages; page += 1) {
     const nextPage = await mistral.audio.voices.list({
       type: "preset",
-      page,
-      pageSize: 100,
+      offset: (page - 1) * 100,
+      limit: 100,
     });
 
     items.push(...(nextPage.items ?? []));
