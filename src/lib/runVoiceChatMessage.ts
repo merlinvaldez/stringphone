@@ -160,8 +160,12 @@ export async function runVoiceChatMessage(
     preparedVoiceSample: savedVoiceReference,
   });
 
-  if (!result.ok) {
-    return result;
+  if (result.ok === false) {
+    return {
+      ok: false,
+      status: result.status,
+      body: result.body,
+    };
   }
 
   let originalPronunciation = "";
