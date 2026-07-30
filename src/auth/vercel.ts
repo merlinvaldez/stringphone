@@ -16,7 +16,7 @@ const authRouteHeaders = {
 };
 
 export function jsonResponse(
-  body: Record<string, unknown>,
+  body: unknown,
   status = 200,
   headers: Record<string, string> = {},
 ) {
@@ -40,7 +40,7 @@ export async function getOptionalAuthenticatedVercelAppRequest(
   request: Request,
 ): Promise<{ clerkUserId: string; appUser: AppUser | null } | null> {
   try {
-    const requestState = await clerkClient.authenticateRequest(request);
+    const requestState = await clerkClient.authenticateRequest(request.clone());
     const auth = requestState.toAuth();
 
     if (!auth?.userId) {
@@ -63,7 +63,7 @@ export async function requireAuthenticatedVercelAppRequest(
   request: Request,
 ): Promise<AuthenticatedVercelAppRequest> {
   try {
-    const requestState = await clerkClient.authenticateRequest(request);
+    const requestState = await clerkClient.authenticateRequest(request.clone());
     const auth = requestState.toAuth();
 
     if (!auth?.userId) {
