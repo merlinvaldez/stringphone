@@ -5,6 +5,7 @@ import {
   ELEVENLABS_TTS_OUTPUT_FORMAT,
   getElevenLabsHeaders,
 } from "../lib/elevenlabs.js";
+import { bufferToUint8Array } from "../lib/binary.js";
 import type { SupportedTtsLanguage } from "../lib/languages.js";
 import type { PreparedVoiceReference } from "./prepareVoiceReference.js";
 
@@ -62,7 +63,9 @@ async function cloneElevenLabsVoice(
   );
   formData.append(
     "files",
-    new Blob([input.voiceSample.buffer], { type: input.voiceSample.mimeType }),
+    new Blob([bufferToUint8Array(input.voiceSample.buffer)], {
+      type: input.voiceSample.mimeType,
+    }),
     input.voiceSample.filename,
   );
 
