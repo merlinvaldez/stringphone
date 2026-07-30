@@ -1,5 +1,6 @@
 import "../../src/lib/mistral.js";
 import { getOptionalAuthenticatedVercelAppRequest } from "../../src/auth/vercel.js";
+import { bufferToUint8Array } from "../../src/lib/binary.js";
 import { runOutputTextToSpeech } from "../../src/lib/runOutputTextToSpeech.js";
 
 export const config = {
@@ -31,28 +32,33 @@ export default {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
-    const body = await request.json().catch(() => null);
-    const authenticatedRequest = await getOptionalAuthenticatedVercelAppRequest(
-      request,
-    );
-    const result = await runOutputTextToSpeech({
-      text: body?.text,
-      language: body?.language,
-      conversationId: body?.conversationId,
-      userId: authenticatedRequest?.appUser?.id ?? null,
-    });
+    try {
+      const authenticatedRequest = await getOptionalAuthenticatedVercelAppRequest(
+        request,
+      );
+      const body = await request.json().catch(() => null);
+      const result = await runOutputTextToSpeech({
+        text: body?.text,
+        language: body?.language,
+        conversationId: body?.conversationId,
+        userId: authenticatedRequest?.appUser?.id ?? null,
+      });
 
-    if (!result.ok) {
-      return jsonResponse(result.body, result.status);
+      if (result.ok === false) {
+        return jsonResponse(result.body, result.status);
+      }
+
+      return new Response(bufferToUint8Array(result.audioBuffer), {
+        status: 200,
+        headers: {
+          "Content-Type": result.contentType,
+          "Content-Disposition":
+            'inline; filename="stringphone-output-speech.mp3"',
+        },
+      });
+    } catch (error) {
+      console.error("Output speech generation failed", error);
+      return jsonResponse({ error: "Output speech generation failed" }, 502);
     }
-
-    return new Response(result.audioBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": result.contentType,
-        "Content-Disposition":
-          'inline; filename="stringphone-output-speech.mp3"',
-      },
-    });
   },
 };
