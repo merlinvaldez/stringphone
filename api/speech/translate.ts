@@ -1,4 +1,5 @@
 import "../../src/lib/mistral.js";
+import { bufferToUint8Array } from "../../src/lib/binary.js";
 import { runSpeechTranslation } from "../../src/lib/runSpeechTranslation.js";
 
 export const config = {
@@ -56,7 +57,7 @@ export default {
           : undefined,
     });
 
-    if (!result.ok) {
+    if (result.ok === false) {
       return jsonResponse(result.body, result.status);
     }
 
@@ -72,7 +73,7 @@ export default {
       });
     }
 
-    return new Response(result.audioBuffer, {
+    return new Response(bufferToUint8Array(result.audioBuffer), {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",
