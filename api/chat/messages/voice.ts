@@ -63,7 +63,7 @@ export default {
         voiceSampleFile,
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         return jsonResponse(result.body, result.status);
       }
 
@@ -75,7 +75,7 @@ export default {
             voiceSampleFile,
           });
 
-          if (!voiceSampleSaveResult.ok) {
+          if (voiceSampleSaveResult.ok === false) {
             console.warn(
               "Failed to persist authenticated Vercel voice sample during chat translation",
               voiceSampleSaveResult,
