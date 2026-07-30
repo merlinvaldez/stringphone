@@ -35,7 +35,7 @@ function coerceContextMessages(
   }
 
   return value
-    .map((item) => {
+    .map((item): PersistedContextMessage | null => {
       if (!item || typeof item !== "object") {
         return null;
       }
@@ -72,7 +72,7 @@ function mapSavedConversationMessages(
   messages: Array<Record<string, unknown>>,
 ): PersistedContextMessage[] {
   return messages
-    .map((message) => ({
+    .map((message): PersistedContextMessage => ({
       id: typeof message.id === "string" ? message.id : undefined,
       sender: message.sender === "partner" ? "partner" : "self",
       messageOrigin:
@@ -133,11 +133,11 @@ function buildGeneratedSessionSnapshot(input: {
   };
   resolvedVoice: {
     provider: string;
-    voiceId: string;
+    voiceId: string | null;
     voiceLabel: string;
   };
   metadata: Record<string, unknown>;
-}) {
+}): ReturnType<typeof buildAiPartnerSessionSnapshot> {
   return {
     enabled: true,
     seeded: true,
@@ -148,7 +148,7 @@ function buildGeneratedSessionSnapshot(input: {
     styleSummary: input.generatedReply.styleSummary,
     voice: {
       provider: input.resolvedVoice.provider,
-      voiceId: input.resolvedVoice.voiceId,
+      voiceId: input.resolvedVoice.voiceId ?? "",
       label: input.resolvedVoice.voiceLabel,
     },
     metadata: input.metadata,
@@ -365,10 +365,10 @@ export async function runAiPartnerReply(input: {
 
   const shouldReuseVoice =
     persistedSession?.voice_provider === partnerLanguage.provider;
-  let resolvedVoice = {
+  let resolvedVoice: Awaited<ReturnType<typeof resolveAiPartnerVoiceId>> = {
     language: partnerLanguage,
     provider: partnerLanguage.provider,
-    voiceId: "",
+    voiceId: null,
     voiceLabel: `${partnerLanguage.name} AI partner voice`,
   };
 
