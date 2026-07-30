@@ -8,6 +8,7 @@ export function ChatThread({
   onAudioPlay,
   onPlayGeneratedSpeech,
   uiStrings,
+  aiPartnerDisplayName,
 }) {
   const threadRef = useRef(null);
 
@@ -40,6 +41,7 @@ export function ChatThread({
             onAudioPlay={onAudioPlay}
             onPlayGeneratedSpeech={onPlayGeneratedSpeech}
             uiStrings={uiStrings}
+            aiPartnerDisplayName={aiPartnerDisplayName}
           />
         ))}
       </div>

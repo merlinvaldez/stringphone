@@ -170,6 +170,74 @@ export async function fetchLessons(authFetch) {
   return response.json();
 }
 
+export async function fetchAiPartnerSession(authFetch, conversationId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/chat/conversations/${conversationId}/ai-partner`,
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to fetch AI partner session"),
+    );
+  }
+
+  return response.json();
+}
+
+export async function updateAiPartnerSession(
+  authFetch,
+  conversationId,
+  { enabled },
+) {
+  const response = await authFetch(
+    `${API_BASE_URL}/chat/conversations/${conversationId}/ai-partner`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to update AI partner session"),
+    );
+  }
+
+  return response.json();
+}
+
+export async function requestAiPartnerReply(
+  requestImpl,
+  {
+    conversationId = null,
+    userLanguage,
+    partnerLanguage,
+    recentMessages,
+    sessionDraft,
+  },
+) {
+  const response = await requestImpl(`${API_BASE_URL}/chat/ai-partner/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      conversationId,
+      userLanguage,
+      partnerLanguage,
+      recentMessages,
+      sessionDraft,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "AI partner reply failed."),
+    );
+  }
+
+  return response.json();
+}
+
 export async function archiveLesson(authFetch, lessonId) {
   const response = await authFetch(`${API_BASE_URL}/lessons/${lessonId}`, {
     method: "DELETE",

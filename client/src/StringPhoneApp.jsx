@@ -34,11 +34,14 @@ import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
   createConversation,
   createLanguageLesson,
+  fetchAiPartnerSession,
   fetchOutputSpeech,
   fetchLessons,
   fetchMessages,
+  requestAiPartnerReply,
   saveMessage,
   saveVoiceSample,
+  updateAiPartnerSession,
   updateConversationLanguages,
 } from "./chatApi.js";
 import {
@@ -71,6 +74,19 @@ const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 const DEFAULT_CONVERSATION_TITLE = "New chat";
+const DEFAULT_AI_PARTNER_STATE = {
+  enabled: false,
+  seeded: false,
+  partnerLanguage: "",
+  displayName: "",
+  personaSummary: "",
+  scenarioSummary: "",
+  styleSummary: "",
+  voice: null,
+  status: "idle",
+  lastError: "",
+  metadata: {},
+};
 
 const RAW_LANGUAGES = [
   { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
@@ -637,6 +653,81 @@ function getLessonTargetLanguageCode(lesson) {
   );
 }
 
+function buildDefaultAiPartnerState() {
+  return { ...DEFAULT_AI_PARTNER_STATE };
+}
+
+function normalizeAiPartnerState(session) {
+  if (!session || typeof session !== "object") {
+    return buildDefaultAiPartnerState();
+  }
+
+  return {
+    ...DEFAULT_AI_PARTNER_STATE,
+    enabled: session.enabled === true,
+    seeded: session.seeded === true,
+    partnerLanguage:
+      typeof session.partnerLanguage === "string" ? session.partnerLanguage : "",
+    displayName:
+      typeof session.displayName === "string" ? session.displayName : "",
+    personaSummary:
+      typeof session.personaSummary === "string" ? session.personaSummary : "",
+    scenarioSummary:
+      typeof session.scenarioSummary === "string" ? session.scenarioSummary : "",
+    styleSummary:
+      typeof session.styleSummary === "string" ? session.styleSummary : "",
+    voice:
+      session.voice && typeof session.voice === "object"
+        ? {
+            provider:
+              typeof session.voice.provider === "string"
+                ? session.voice.provider
+                : "",
+            voiceId:
+              typeof session.voice.voiceId === "string"
+                ? session.voice.voiceId
+                : "",
+            label:
+              typeof session.voice.label === "string" ? session.voice.label : "",
+          }
+        : null,
+    metadata:
+      session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {},
+  };
+}
+
+function buildAiPartnerDraft(state) {
+  return {
+    enabled: state.enabled,
+    seeded: state.seeded,
+    displayName: state.displayName,
+    personaSummary: state.personaSummary,
+    scenarioSummary: state.scenarioSummary,
+    styleSummary: state.styleSummary,
+    voice: state.voice,
+    metadata: state.metadata,
+  };
+}
+
+function buildAiPartnerContextMessages(messageList) {
+  return messageList
+    .filter(
+      (message) =>
+        message.status === "ready" &&
+        (message.originalText || message.translatedText),
+    )
+    .slice(-10)
+    .map((message) => ({
+      id: message.id,
+      sender: message.sender,
+      messageOrigin: message.messageOrigin === "ai_partner" ? "ai_partner" : "human",
+      originalText: message.originalText ?? "",
+      translatedText: message.translatedText ?? "",
+    }));
+}
+
 function mapSharedRoomMessages({
   rawMessages,
   participantId,
@@ -686,6 +777,7 @@ function mapSharedRoomMessages({
       roomId: message.roomId,
       kind: message.kind,
       originMode: message.originMode,
+      messageOrigin: "human",
       sender: message.authorParticipantId === participantId ? "self" : "partner",
       status: message.status,
       originalText: message.originalText,
@@ -2019,10 +2111,14 @@ export default function StringPhoneApp() {
   );
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [aiPartnerState, setAiPartnerState] = useState(buildDefaultAiPartnerState);
   const [activeLesson, setActiveLesson] = useState(null);
   const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const messagesRef = useRef(messages);
+  const aiPartnerStateRef = useRef(aiPartnerState);
+  const aiPartnerReplyQueueRef = useRef(Promise.resolve());
+  const aiPartnerContextVersionRef = useRef(0);
   const pendingConversationIdRef = useRef(null);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
@@ -2070,6 +2166,10 @@ export default function StringPhoneApp() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    aiPartnerStateRef.current = aiPartnerState;
+  }, [aiPartnerState]);
 
   useEffect(() => {
     if (!isAuthLoaded || hasRestoredAuthReturnStateRef.current) {
@@ -2496,6 +2596,12 @@ export default function StringPhoneApp() {
     autoplayAudioUrl(message.audioUrl);
   };
 
+  const bumpAiPartnerContextVersion = () => {
+    aiPartnerContextVersionRef.current += 1;
+    aiPartnerReplyQueueRef.current = Promise.resolve();
+    return aiPartnerContextVersionRef.current;
+  };
+
   const appendMessage = (message) => {
     const nextMessage = {
       ...message,
@@ -2503,7 +2609,9 @@ export default function StringPhoneApp() {
       createdAt: new Date().toISOString(),
     };
 
-    setMessages((previous) => [...previous, nextMessage]);
+    const nextMessages = [...messagesRef.current, nextMessage];
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
     return nextMessage.id;
   };
 
@@ -2523,25 +2631,41 @@ export default function StringPhoneApp() {
       revokeObjectUrl(currentMessage?.audioUrl);
     }
 
-    setMessages((previous) =>
-      previous.map((message) => {
+    const nextMessages = messagesRef.current.map((message) => {
         if (message.id !== messageId) {
           return message;
         }
 
         return { ...message, ...patch };
-      }),
-    );
+      });
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
   };
 
   const replaceMessages = (nextMessages) => {
     stopAllPlayback();
     revokeMessageAudioUrls(messagesRef.current);
+    messagesRef.current = nextMessages;
     setMessages(nextMessages);
   };
 
   const clearMessages = () => {
     replaceMessages([]);
+  };
+
+  const setAiPartnerStateWithPatch = (patch) => {
+    setAiPartnerState((previousState) => {
+      const nextState =
+        typeof patch === "function" ? patch(previousState) : { ...previousState, ...patch };
+      aiPartnerStateRef.current = nextState;
+      return nextState;
+    });
+  };
+
+  const resetAiPartnerState = () => {
+    const nextState = buildDefaultAiPartnerState();
+    aiPartnerStateRef.current = nextState;
+    setAiPartnerState(nextState);
   };
 
   const ensurePersistedConversationId = async ({
@@ -2594,6 +2718,296 @@ export default function StringPhoneApp() {
     }
   };
 
+  useEffect(() => {
+    if (!isSignedIn || !currentConversationId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    fetchAiPartnerSession(authFetch, currentConversationId)
+      .then((session) => {
+        if (cancelled) {
+          return;
+        }
+
+        setAiPartnerStateWithPatch({
+          ...normalizeAiPartnerState(session),
+          status: "idle",
+          lastError: "",
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Failed to fetch AI partner session", error);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, currentConversationId, isSignedIn]);
+
+  const runAiPartnerReplyForContext = async ({
+    conversationId,
+    userLanguage,
+    partnerLanguage,
+    existingMessageId,
+    contextVersion,
+  }) => {
+    if (contextVersion !== aiPartnerContextVersionRef.current) {
+      return;
+    }
+
+    const userSnapshot = buildLanguageSnapshot(userLanguage);
+    const partnerSnapshot = buildLanguageSnapshot(partnerLanguage);
+    const retryPayload = {
+      kind: "ai_partner",
+      sourceLanguageCode: userLanguage.code,
+      targetLanguageCode: partnerLanguage.code,
+    };
+    const pendingMessageId =
+      existingMessageId ??
+      appendMessage({
+        kind: "text",
+        originMode: "chat",
+        sender: "partner",
+        messageOrigin: "ai_partner",
+        status: "translating",
+        originalText: "",
+        originalPronunciation: "",
+        translatedText: "",
+        translatedPronunciation: "",
+        transcript: "",
+        audioUrl: "",
+        errorMessage: "",
+        sourceLanguageCode: partnerSnapshot.code,
+        sourceLanguageLabel: partnerSnapshot.label,
+        sourceLanguageFlag: partnerSnapshot.flag,
+        targetLanguageCode: userSnapshot.code,
+        targetLanguageLabel: userSnapshot.label,
+        targetLanguageFlag: userSnapshot.flag,
+        retryPayload,
+      });
+
+    if (existingMessageId) {
+      updateMessage(existingMessageId, {
+        kind: "text",
+        originMode: "chat",
+        sender: "partner",
+        messageOrigin: "ai_partner",
+        status: "translating",
+        originalText: "",
+        originalPronunciation: "",
+        translatedText: "",
+        translatedPronunciation: "",
+        transcript: "",
+        audioUrl: "",
+        errorMessage: "",
+        sourceLanguageCode: partnerSnapshot.code,
+        sourceLanguageLabel: partnerSnapshot.label,
+        sourceLanguageFlag: partnerSnapshot.flag,
+        targetLanguageCode: userSnapshot.code,
+        targetLanguageLabel: userSnapshot.label,
+        targetLanguageFlag: userSnapshot.flag,
+        retryPayload,
+      });
+    }
+
+    try {
+      const data = await requestAiPartnerReply(
+        isSignedIn ? authFetch : fetch,
+        {
+          conversationId: conversationId ?? null,
+          userLanguage: userLanguage.code,
+          partnerLanguage: partnerLanguage.code,
+          recentMessages: buildAiPartnerContextMessages(messagesRef.current),
+          sessionDraft: buildAiPartnerDraft(aiPartnerStateRef.current),
+        },
+      );
+
+      if (contextVersion !== aiPartnerContextVersionRef.current) {
+        return;
+      }
+
+      let audioUrl = "";
+
+      if (data.message?.audio?.base64 && data.message?.audio?.mimeType) {
+        audioUrl = URL.createObjectURL(
+          base64ToBlob(data.message.audio.base64, data.message.audio.mimeType),
+        );
+      }
+
+      updateMessage(pendingMessageId, {
+        kind: data.message?.kind === "voice" ? "voice" : "text",
+        status: "ready",
+        sender: "partner",
+        messageOrigin: "ai_partner",
+        originalText: data.message?.originalText ?? "",
+        originalPronunciation: data.message?.originalPronunciation ?? "",
+        translatedText: data.message?.translatedText ?? "",
+        translatedPronunciation: data.message?.translatedPronunciation ?? "",
+        transcript:
+          data.message?.transcript ?? data.message?.originalText ?? "",
+        audioUrl,
+        errorMessage: "",
+        retryPayload,
+        sourceLanguageCode: partnerSnapshot.code,
+        sourceLanguageLabel: partnerSnapshot.label,
+        sourceLanguageFlag: partnerSnapshot.flag,
+        targetLanguageCode: userSnapshot.code,
+        targetLanguageLabel: userSnapshot.label,
+        targetLanguageFlag: userSnapshot.flag,
+      });
+
+      setAiPartnerStateWithPatch({
+        ...normalizeAiPartnerState(data.session),
+        status: "replying",
+        lastError: "",
+      });
+    } catch (error) {
+      if (contextVersion !== aiPartnerContextVersionRef.current) {
+        return;
+      }
+
+      updateMessage(pendingMessageId, {
+        status: "error",
+        errorMessage: error.message,
+        retryPayload,
+        messageOrigin: "ai_partner",
+      });
+      setAiPartnerStateWithPatch((previousState) => ({
+        ...previousState,
+        lastError: error.message,
+      }));
+    }
+  };
+
+  const queueAiPartnerReply = ({
+    conversationId,
+    userLanguage,
+    partnerLanguage,
+    existingMessageId,
+  }) => {
+    const contextVersion = aiPartnerContextVersionRef.current;
+
+    aiPartnerReplyQueueRef.current = aiPartnerReplyQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          contextVersion !== aiPartnerContextVersionRef.current ||
+          !aiPartnerStateRef.current.enabled
+        ) {
+          return;
+        }
+
+        setAiPartnerStateWithPatch((previousState) => ({
+          ...previousState,
+          status: "replying",
+          lastError: "",
+          partnerLanguage: partnerLanguage.code,
+        }));
+
+        await runAiPartnerReplyForContext({
+          conversationId,
+          userLanguage,
+          partnerLanguage,
+          existingMessageId,
+          contextVersion,
+        });
+
+        if (contextVersion === aiPartnerContextVersionRef.current) {
+          setAiPartnerStateWithPatch((previousState) => ({
+            ...previousState,
+            status: "idle",
+          }));
+        }
+      });
+
+    return aiPartnerReplyQueueRef.current;
+  };
+
+  const executeChatSlashCommand = async ({
+    rawText,
+    command,
+    sourceLanguage,
+    targetLanguage,
+  }) => {
+    const normalizedCommand = (command || rawText || "").trim().toLowerCase();
+
+    if (normalizedCommand !== "/aipartner") {
+      return {
+        handled: true,
+        notice: "Unknown command.",
+      };
+    }
+
+    if (sharedRoomSession) {
+      return {
+        handled: true,
+        notice: "AI partner is unavailable while shared chat is active.",
+      };
+    }
+
+    const previousState = aiPartnerStateRef.current;
+    const nextEnabled = !previousState.enabled;
+
+    if (isSignedIn) {
+      const conversationId =
+        (await ensurePersistedConversationId({
+          sourceLanguage,
+          targetLanguage,
+        }).catch((error) => {
+          console.error("Failed to prepare conversation for AI partner", error);
+          return null;
+        })) ?? currentConversationId;
+
+      if (!conversationId) {
+        return {
+          handled: true,
+          notice: "Could not prepare this chat for AI partner.",
+        };
+      }
+
+      setAiPartnerStateWithPatch((currentState) => ({
+        ...currentState,
+        enabled: nextEnabled,
+        partnerLanguage: targetLanguage.code,
+        lastError: "",
+      }));
+
+      try {
+        const session = await updateAiPartnerSession(authFetch, conversationId, {
+          enabled: nextEnabled,
+        });
+        setAiPartnerStateWithPatch({
+          ...normalizeAiPartnerState(session),
+          status: "idle",
+          lastError: "",
+        });
+      } catch (error) {
+        aiPartnerStateRef.current = previousState;
+        setAiPartnerState(previousState);
+        return {
+          handled: true,
+          notice: error.message,
+        };
+      }
+    } else {
+      setAiPartnerStateWithPatch((currentState) => ({
+        ...currentState,
+        enabled: nextEnabled,
+        partnerLanguage: targetLanguage.code,
+        lastError: "",
+      }));
+    }
+
+    return {
+      handled: true,
+      notice: nextEnabled ? "AI partner on." : "AI partner off.",
+    };
+  };
+
   const sendTextMessage = async ({
     originMode,
     sender,
@@ -2609,6 +3023,7 @@ export default function StringPhoneApp() {
       kind: "text",
       originMode,
       sender,
+      messageOrigin: "human",
       sourceLanguageCode: sourceLanguage.code,
       targetLanguageCode: targetLanguage.code,
       text: trimmedText,
@@ -2620,6 +3035,7 @@ export default function StringPhoneApp() {
         kind: "text",
         originMode,
         sender,
+        messageOrigin: "human",
         status: "translating",
         originalText: trimmedText,
         originalPronunciation: "",
@@ -2641,6 +3057,7 @@ export default function StringPhoneApp() {
       updateMessage(existingMessageId, {
         sender,
         originMode,
+        messageOrigin: "human",
         status: "translating",
         originalText: trimmedText,
         originalPronunciation: "",
@@ -2679,6 +3096,7 @@ export default function StringPhoneApp() {
 
       updateMessage(messageId, {
         status: "ready",
+        messageOrigin: "human",
         originalText: data.originalText,
         originalPronunciation: data.originalPronunciation,
         translatedText: data.translatedText,
@@ -2686,14 +3104,17 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
+      let persistedUserMessagePromise = Promise.resolve(null);
+
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
           sourceLanguage,
           targetLanguage,
         );
-        saveMessage(authFetch, conversationId, {
+        persistedUserMessagePromise = saveMessage(authFetch, conversationId, {
           sender,
+          messageOrigin: "human",
           originalText: data.originalText,
           originalPronunciation: data.originalPronunciation ?? "",
           translatedText: data.translatedText,
@@ -2702,7 +3123,24 @@ export default function StringPhoneApp() {
           audioUrl: null,
           sourceLanguage: sourceLanguage.code,
           targetLanguage: targetLanguage.code,
-        }).catch(e => console.error("Failed to save text message", e));
+        }).catch((error) => {
+          console.error("Failed to save text message", error);
+          return null;
+        });
+      }
+
+      if (
+        sender === "self" &&
+        originMode === "chat" &&
+        aiPartnerStateRef.current.enabled &&
+        !sharedRoomSession
+      ) {
+        await persistedUserMessagePromise;
+        void queueAiPartnerReply({
+          conversationId,
+          userLanguage: sourceLanguage,
+          partnerLanguage: targetLanguage,
+        });
       }
     } catch (translationError) {
       updateMessage(messageId, {
@@ -2728,6 +3166,7 @@ export default function StringPhoneApp() {
       kind: "voice",
       originMode,
       sender,
+      messageOrigin: "human",
       sourceLanguageCode: sourceLanguage.code,
       targetLanguageCode: targetLanguage.code,
       recordingBlob: recording.blob,
@@ -2739,6 +3178,7 @@ export default function StringPhoneApp() {
         kind: "voice",
         originMode,
         sender,
+        messageOrigin: "human",
         status: "transcribing",
         originalText: "",
         originalPronunciation: "",
@@ -2760,6 +3200,7 @@ export default function StringPhoneApp() {
       updateMessage(existingMessageId, {
         sender,
         originMode,
+        messageOrigin: "human",
         status: "transcribing",
         originalText: "",
         originalPronunciation: "",
@@ -2803,6 +3244,7 @@ export default function StringPhoneApp() {
 
       updateMessage(messageId, {
         status: "ready",
+        messageOrigin: "human",
         originalText: data.transcript,
         originalPronunciation: data.originalPronunciation ?? "",
         transcript: data.transcript,
@@ -2812,14 +3254,17 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
+      let persistedUserMessagePromise = Promise.resolve(null);
+
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
           sourceLanguage,
           targetLanguage,
         );
-        saveMessage(authFetch, conversationId, {
+        persistedUserMessagePromise = saveMessage(authFetch, conversationId, {
           sender,
+          messageOrigin: "human",
           originalText: data.transcript,
           originalPronunciation: data.originalPronunciation ?? "",
           translatedText: data.translatedText,
@@ -2828,7 +3273,24 @@ export default function StringPhoneApp() {
           audioUrl: data.audio.base64, // We might not want to save full base64 in real app, but this fits the schema for now
           sourceLanguage: sourceLanguage.code,
           targetLanguage: targetLanguage.code,
-        }).catch(e => console.error("Failed to save voice message", e));
+        }).catch((error) => {
+          console.error("Failed to save voice message", error);
+          return null;
+        });
+      }
+
+      if (
+        sender === "self" &&
+        originMode === "chat" &&
+        aiPartnerStateRef.current.enabled &&
+        !sharedRoomSession
+      ) {
+        await persistedUserMessagePromise;
+        void queueAiPartnerReply({
+          conversationId,
+          userLanguage: sourceLanguage,
+          partnerLanguage: targetLanguage,
+        });
       }
 
       return { messageId, audioUrl };
@@ -2873,6 +3335,16 @@ export default function StringPhoneApp() {
           blob: retryPayload.recordingBlob,
           mimeType: retryPayload.recordingBlob.type,
         },
+        existingMessageId: message.id,
+      });
+      return;
+    }
+
+    if (retryPayload.kind === "ai_partner") {
+      await queueAiPartnerReply({
+        conversationId: currentConversationId,
+        userLanguage: getLanguageOption(retryPayload.sourceLanguageCode),
+        partnerLanguage: getLanguageOption(retryPayload.targetLanguageCode),
         existingMessageId: message.id,
       });
     }
@@ -2968,28 +3440,37 @@ export default function StringPhoneApp() {
       getLanguageOption(conversation.target_language),
     );
 
-    return dbMessages.map((message) => ({
-      id: message.id,
-      createdAt: message.created_at,
-      kind: message.audio_url ? "voice" : "text",
-      status: "ready",
-      sender: message.sender,
-      originalText: message.original_text,
-      originalPronunciation: message.original_pronunciation ?? "",
-      translatedText: message.translated_text,
-      translatedPronunciation: message.translated_pronunciation ?? "",
-      transcript: message.transcript || "",
-      audioUrl: message.audio_url
-        ? createAudioUrlFromStoredValue(message.audio_url)
-        : "",
-      errorMessage: "",
-      sourceLanguageCode: sourceSnapshot.code,
-      sourceLanguageLabel: sourceSnapshot.label,
-      sourceLanguageFlag: sourceSnapshot.flag,
-      targetLanguageCode: targetSnapshot.code,
-      targetLanguageLabel: targetSnapshot.label,
-      targetLanguageFlag: targetSnapshot.flag,
-    }));
+    return dbMessages.map((message) => {
+      const originalLanguageSnapshot =
+        message.sender === "partner" ? targetSnapshot : sourceSnapshot;
+      const translatedLanguageSnapshot =
+        message.sender === "partner" ? sourceSnapshot : targetSnapshot;
+
+      return {
+        id: message.id,
+        createdAt: message.created_at,
+        kind: message.audio_url ? "voice" : "text",
+        status: "ready",
+        sender: message.sender,
+        messageOrigin:
+          message.message_origin === "ai_partner" ? "ai_partner" : "human",
+        originalText: message.original_text,
+        originalPronunciation: message.original_pronunciation ?? "",
+        translatedText: message.translated_text,
+        translatedPronunciation: message.translated_pronunciation ?? "",
+        transcript: message.transcript || "",
+        audioUrl: message.audio_url
+          ? createAudioUrlFromStoredValue(message.audio_url)
+          : "",
+        errorMessage: "",
+        sourceLanguageCode: originalLanguageSnapshot.code,
+        sourceLanguageLabel: originalLanguageSnapshot.label,
+        sourceLanguageFlag: originalLanguageSnapshot.flag,
+        targetLanguageCode: translatedLanguageSnapshot.code,
+        targetLanguageLabel: translatedLanguageSnapshot.label,
+        targetLanguageFlag: translatedLanguageSnapshot.flag,
+      };
+    });
   };
 
   const openSavedConversation = async (conversation) => {
@@ -3002,6 +3483,8 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
+    bumpAiPartnerContextVersion();
+    resetAiPartnerState();
     replaceMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
@@ -3016,6 +3499,8 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
+    bumpAiPartnerContextVersion();
+    resetAiPartnerState();
     clearMessages();
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
@@ -3030,6 +3515,8 @@ export default function StringPhoneApp() {
     clearMessages();
     setCurrentConversationId(null);
     setActiveLesson(null);
+    bumpAiPartnerContextVersion();
+    resetAiPartnerState();
   };
 
   const handleArchivedLesson = (lessonId) => {
@@ -3481,6 +3968,8 @@ export default function StringPhoneApp() {
           onToggleSharedRoom={handleToggleSharedRoom}
           onCopySharedRoomInvite={handleCopySharedRoomInvite}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          aiPartnerState={aiPartnerState}
+          onExecuteSlashCommand={executeChatSlashCommand}
         />
       ) : null}
 

@@ -8,6 +8,7 @@
     "dev:server": "tsx watch src/server.ts",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
+    "verify:ai-partner-commands": "node scripts/verify-ai-partner-command-menu.mjs",
     "verify:tts-audio": "tsx scripts/verify-tts-audio.mjs",
     "verify:saved-message-playback": "tsx scripts/verify-saved-message-playback.mjs",
     "postinstall": "npm --prefix client install",
