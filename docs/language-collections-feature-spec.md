@@ -1,0 +1,330 @@
+# StringPhone language collections
+
+**Status:** Proposed on `feat/10-language-collections` for issue [#10](https://github.com/merlinvaldez/stringphone/issues/10) on August 2, 2026.  
+**Product:** StringPhone  
+**Audience:** people using StringPhone to save useful words and phrases from real conversations, then revisit them by language without leaving the product's existing learning flow.
+
+## Outcome
+
+StringPhone adds **Language collections** as a second learning surface beside Lessons. The feature keeps the current graduation-cap entry point, but reframes it as **Learning** and lets the user switch between lesson generation and saved collection browsing.
+
+The feature is deliberately lightweight. It is not a flashcard engine, spaced-repetition system, public phrasebook, or notes product. Its job is to let the user quickly keep language they want to reuse.
+
+## Product decisions
+
+| Requirement | StringPhone decision | Why |
+| --- | --- | --- |
+| Collections live under learning | Keep the current fourth mode slot, but rename the surface from **Lessons** to **Learning** | The app keeps one learning destination instead of adding a fifth primary mode |
+| Collections are stored by language | Persist one user-owned collection per target language, with entries nested inside it | The organization model stays obvious and matches how people review saved phrases |
+| Save from any message | A ready chat message can be saved directly into the correct language collection from the bubble itself | The collection feature should start from the actual StringPhone conversation, not a separate workspace |
+| Add from the collection itself | The collection browser includes a lightweight add-entry flow | Users should be able to start or extend a collection even when they are not in chat |
+| Searchable collection | Search works at both the language-group level and inside a single language collection | Users need retrieval, not just storage |
+| Alphabetical language ordering | Collection groups are ordered by visible language name using the stable English display name already present in the app's language registry | Cross-script sorting stays predictable |
+| Symbol/icon-first UI | Reuse icon toggles, compact action rails, flag markers, and minimal labels instead of adding text-heavy controls | The feature should feel native to StringPhone rather than bolted on |
+
+## User experience
+
+### Learning entry point
+
+1. The current top-level graduation-cap mode remains in place, but its visible label becomes **Learning**.
+2. Opening Learning lands on the last-used learning subview:
+   - `GraduationCap`: Lessons
+   - `BookMarked`: Collections
+3. The Learning screen shows an icon-first segmented control near the top of the content surface for switching between those two subviews.
+4. The control is visually icon-first and still exposes `aria-label`, `title`, `aria-selected`, and tab semantics.
+
+### History drawer
+
+1. The History drawer expands from two saved-content tabs to three:
+   - `MessageSquare`: chats
+   - `GraduationCap`: lessons
+   - `BookMarked`: collections
+2. When the user opens History from the Learning surface, the drawer defaults to the active learning subview.
+3. Collection rows are grouped by language rather than by individual entry.
+4. Language rows are sorted alphabetically from A to Z by the language's English display name while still showing the existing flag treatment.
+
+### Collection browser
+
+The root Collections view is a language-group browser, not a flat infinite list of saved phrases.
+
+Each language row contains:
+
+- the language flag
+- the visible language name
+- a compact entry count
+- a chevron/open affordance
+
+The root view includes:
+
+- a `Search` field for filtering languages and saved content
+- a `Plus` action for manually adding a collection entry
+- empty-state guidance that remains minimal and icon-led
+
+When the query is empty, the language rows remain strictly alphabetical. When the query is present, matching language groups remain alphabetical, and each group may show one or more matching previews.
+
+### Collection detail view
+
+Selecting a language row opens that language's collection detail view.
+
+The detail view includes:
+
+- back navigation to the language-group browser
+- the selected language flag and label
+- a local search field for entries in that language
+- a `Plus` action for adding a new entry directly into that language
+
+Each saved entry card contains:
+
+- the saved target-language phrase
+- optional pronunciation text when available
+- the paired meaning/translation line
+- an icon showing whether it came from chat or manual entry
+- saved date metadata in the existing compact secondary style
+
+If the saved phrase is target-language text, the card may reuse the existing speaker-button pattern for playback. That is an implementation reuse, not a separate requirement to generate new content.
+
+## Saving from messages
+
+### Save affordance
+
+StringPhone should not add a large text button to every message bubble.
+
+Instead:
+
+1. A ready message bubble reveals a compact icon action rail on tap, focus, or hover.
+2. The primary collection action is a bookmark-style icon with an accessible label such as **Save to collection**.
+3. Saving succeeds inline and confirms with a compact success state or toast, plus an **Open collection** shortcut.
+4. If the user is signed out, the same action routes through the existing sign-in requirement flow instead of silently failing.
+
+### What gets saved
+
+The collection entry stores the phrase the user is most likely trying to learn, plus its paired meaning.
+
+- For outgoing messages, save the translated/practice-language line as the collection phrase and the original/home-language line as the meaning.
+- For incoming messages, save the original foreign-language line as the collection phrase and the translated/home-language line as the meaning.
+- For voice messages, save the text content shown in the bubble rather than raw audio.
+- When pronunciation guidance already exists on the saved line, persist it with the collection entry.
+
+This rule keeps collections language-centered and avoids saving the wrong side of the bubble.
+
+### De-duplication
+
+Repeatedly saving the same phrase should not create noisy duplicates.
+
+For the initial release:
+
+- treat a normalized `(user, language_code, phrase_text, meaning_text)` match as the same active entry;
+- return the existing entry when the user saves a duplicate from chat; and
+- show the same saved confirmation state rather than an error.
+
+## Adding from the collection
+
+The collection feature must not depend entirely on chat capture.
+
+### Manual add flow
+
+1. The root Collections view exposes a `Plus` action.
+2. If launched from the root browser, the add flow starts with language selection.
+3. If launched from a language detail view, the selected language is prefilled and locked.
+4. The entry composer stays compact and includes:
+   - target-language phrase: required
+   - meaning/translation: required
+   - pronunciation: optional
+   - note: optional
+5. The primary save action remains compact and icon-first.
+
+Manual add creates the language collection on demand if that user does not already have one for the selected language.
+
+## Search behavior
+
+### Root collection search
+
+The top-level collection search should match against:
+
+- language name
+- saved phrase text
+- saved meaning/translation
+- pronunciation
+- note
+
+The root result stays grouped by language so search does not destroy the feature's organization model.
+
+### In-language search
+
+Inside a specific language collection, search filters only entries from that language and returns them in-place without navigating away.
+
+### Search implementation target
+
+Initial rollout can use case-insensitive substring matching over normalized text columns. Full-text ranking can wait unless collection volume proves that the simple query is insufficient.
+
+## Data model
+
+### `public.language_collections`
+
+One row per `(user_id, language_code)`.
+
+| Field | Purpose |
+| --- | --- |
+| `id`, `user_id`, `created_at`, `updated_at` | ownership and ordering metadata |
+| `language_code` | collection language |
+| `language_name` | stable visible display label used for response payloads |
+| `language_sort_name` | stable A-Z ordering key, initially the English display name |
+| `archived_at` | future-safe soft archive field |
+
+Unique constraint: `(user_id, language_code)` where `archived_at is null`.
+
+### `public.language_collection_entries`
+
+One row per saved phrase.
+
+| Field | Purpose |
+| --- | --- |
+| `id`, `collection_id`, `user_id`, `created_at`, `updated_at` | ownership and ordering metadata |
+| `source_type` | `message` or `manual` |
+| `phrase_text` | required target-language text shown in the collection |
+| `phrase_pronunciation` | optional pronunciation/transliteration |
+| `meaning_text` | required paired meaning/home-language line |
+| `meaning_pronunciation` | optional, future-safe companion field |
+| `note_text` | optional user note |
+| `source_language_code` | language of the meaning text |
+| `target_language_code` | language of the saved phrase |
+| `source_conversation_id` | optional saved-conversation link when one exists |
+| `source_message_kind` | `text` or `voice` when saved from chat |
+| `source_message_sender` | `self` or `partner` for future filtering |
+| `source_snapshot` | compact JSON snapshot of the saved message pair so unsaved chats do not break collection rendering |
+| `archived_at` | future-safe soft archive field |
+
+The feature should persist a snapshot of the saved content even when the message came from an unsaved or shared-chat context. The collection must not depend on a conversation row continuing to exist.
+
+## API shape
+
+### `GET /api/collections`
+
+Returns the authenticated user's collection groups in alphabetical order.
+
+Optional query params:
+
+```txt
+q=...
+```
+
+Response includes grouped summaries:
+
+```json
+[
+  {
+    "languageCode": "fr",
+    "languageName": "French",
+    "languageSortName": "French",
+    "entryCount": 12,
+    "previewEntries": [
+      {
+        "id": "entry-1",
+        "phraseText": "Bonjour",
+        "meaningText": "Hello"
+      }
+    ]
+  }
+]
+```
+
+### `GET /api/collections/:languageCode`
+
+Returns one language collection plus its entries.
+
+Optional query params:
+
+```txt
+q=...
+```
+
+Entries are returned newest-first within the selected language.
+
+### `POST /api/collections/entries`
+
+Accepts both message-derived and manual entries.
+
+Message-derived payload:
+
+```json
+{
+  "sourceType": "message",
+  "languageCode": "fr",
+  "phraseText": "Bonjour",
+  "phrasePronunciation": "",
+  "meaningText": "Hello",
+  "sourceConversationId": "optional-uuid",
+  "sourceMessageKind": "text",
+  "sourceMessageSender": "partner",
+  "sourceSnapshot": {
+    "originalText": "Bonjour",
+    "translatedText": "Hello"
+  }
+}
+```
+
+Manual payload:
+
+```json
+{
+  "sourceType": "manual",
+  "languageCode": "fr",
+  "phraseText": "Bonjour",
+  "phrasePronunciation": "",
+  "meaningText": "Hello",
+  "noteText": "Morning greeting"
+}
+```
+
+Rules:
+
+- authentication required
+- language code must be supported by StringPhone
+- phrase and meaning are required
+- duplicate saves return the existing active entry instead of failing
+
+## Proposed implementation map
+
+| Area | Files |
+| --- | --- |
+| Learning-mode rename and subview state | `client/src/StringPhoneApp.jsx` |
+| Learning wrapper and collection UI | `client/src/components/learning/LearningScreen.jsx`, `client/src/components/learning/CollectionScreen.jsx` |
+| Existing lesson UI integration | `client/src/components/lessons/LessonScreen.jsx` |
+| History drawer collections tab | `client/src/components/chat/ChatHistorySidebar.jsx` |
+| Message save affordance | `client/src/components/chat/MessageBubble.jsx` |
+| Client API | `client/src/chatApi.js` |
+| Collection routes | `api/collections/index.ts`, `api/collections/[languageCode].ts`, `api/collections/entries.ts` |
+| DB queries | `src/db/queries/languageCollections.ts` |
+| Database | `supabase/migrations/<timestamp>_create_language_collections.sql` |
+
+## Acceptance criteria
+
+- [ ] The current graduation-cap mode becomes Learning rather than a lessons-only destination.
+- [ ] Learning can toggle between Lessons and Collections without leaving the mode.
+- [ ] History exposes icon-first tabs for chats, lessons, and collections.
+- [ ] Collection groups are ordered alphabetically by language.
+- [ ] Tapping a ready chat message exposes a compact save-to-collection action.
+- [ ] Saving an outgoing message stores the translated/practice-language line as the collection phrase.
+- [ ] Saving an incoming message stores the original foreign-language line as the collection phrase.
+- [ ] Voice-message saves capture the displayed text pair rather than raw audio blobs.
+- [ ] A signed-out save attempt routes through sign-in rather than failing silently.
+- [ ] A user can add a manual entry from the root Collections view.
+- [ ] A user can add a manual entry from inside a specific language collection.
+- [ ] Root collection search can find a phrase by language name, phrase text, meaning, or note.
+- [ ] In-language search filters entries without leaving that collection.
+- [ ] Saving the same phrase twice reuses the existing entry instead of creating duplicates.
+
+## Out of scope for this release
+
+- spaced repetition or quizzes
+- bulk import/export
+- shared or public collections
+- collection folders beyond the language grouping
+- auto-saving every message without user intent
+- lesson-to-collection auto-sync without an explicit save action
+
+## Open questions
+
+- Should collection search live entirely on the server from the first release, or is client-side filtering acceptable until the collection size proves otherwise?
+- Should a saved collection entry support user editing and deletion in the initial rollout, or should the first release stay add/search-only?
+- Should lesson cards later gain their own save-to-collection affordance, or do we intentionally keep the first version scoped to chat messages plus manual add?
