@@ -3893,10 +3893,20 @@ export default function StringPhoneApp() {
     setAppMode("lesson");
   };
 
+  const handleSelectLearningView = (nextView) => {
+    if (nextView === "collections") {
+      setLearningView("collections");
+      setActiveCollectionLanguageCode(null);
+      return;
+    }
+
+    setLearningView("lessons");
+  };
+
   const handleSelectAppMode = async (nextMode) => {
     if (nextMode === "lesson") {
       if (learningView === "collections") {
-        setAppMode("lesson");
+        openCollectionsRoot();
         return;
       }
 
@@ -4378,7 +4388,7 @@ export default function StringPhoneApp() {
       {appMode === "lesson" ? (
         <LearningScreen
           learningView={learningView}
-          onSelectLearningView={setLearningView}
+          onSelectLearningView={handleSelectLearningView}
           activeLesson={activeLesson}
           myLang={myLang}
           theirLang={theirLang}
