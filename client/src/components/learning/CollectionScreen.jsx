@@ -596,11 +596,30 @@ function CollectionEntryViewer({
   uiStrings,
 }) {
   const touchStartXRef = useRef(null);
+  const touchStartYRef = useRef(null);
   const touchCurrentXRef = useRef(null);
-  const entry = entries[activeEntryIndex] ?? null;
-  const hasPrevious = activeEntryIndex > 0;
-  const hasNext = activeEntryIndex < entries.length - 1;
+  const touchCurrentYRef = useRef(null);
+  const [displayedIndex, setDisplayedIndex] = useState(activeEntryIndex);
+  const [dragOffsetX, setDragOffsetX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isTrackTransitioning, setIsTrackTransitioning] = useState(false);
+  const [trackOffsetPercent, setTrackOffsetPercent] = useState(-100);
+  const [pendingIndex, setPendingIndex] = useState(null);
+  const entry = entries[displayedIndex] ?? null;
+  const previousEntry = displayedIndex > 0 ? entries[displayedIndex - 1] : null;
+  const nextEntry =
+    displayedIndex < entries.length - 1 ? entries[displayedIndex + 1] : null;
+  const hasPrevious = displayedIndex > 0;
+  const hasNext = displayedIndex < entries.length - 1;
   const hasRandomAlternative = entries.length > 1;
+
+  useEffect(() => {
+    if (!isTrackTransitioning && activeEntryIndex !== displayedIndex) {
+      setDisplayedIndex(activeEntryIndex);
+      setTrackOffsetPercent(-100);
+      setDragOffsetX(0);
+    }
+  }, [activeEntryIndex, displayedIndex, isTrackTransitioning]);
 
   useEffect(() => {
     if (!entry) {
@@ -614,12 +633,12 @@ function CollectionEntryViewer({
       }
 
       if (event.key === "ArrowLeft" && hasPrevious) {
-        onSelectIndex(activeEntryIndex - 1);
+        triggerSlideNavigation(-1);
         return;
       }
 
       if (event.key === "ArrowRight" && hasNext) {
-        onSelectIndex(activeEntryIndex + 1);
+        triggerSlideNavigation(1);
       }
     };
 
@@ -628,19 +647,67 @@ function CollectionEntryViewer({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeEntryIndex, entry, hasNext, hasPrevious, onClose, onSelectIndex]);
+  }, [entry, hasNext, hasPrevious, onClose]);
 
   if (!entry) {
     return null;
   }
 
+  const triggerSlideNavigation = (direction) => {
+    if (isTrackTransitioning || isDragging) {
+      return;
+    }
+
+    const nextIndex = displayedIndex + direction;
+
+    if (nextIndex < 0 || nextIndex >= entries.length) {
+      return;
+    }
+
+    setPendingIndex(nextIndex);
+    setIsTrackTransitioning(true);
+    setTrackOffsetPercent(direction > 0 ? -200 : 0);
+    setDragOffsetX(0);
+  };
+
   const handleTouchStart = (event) => {
     touchStartXRef.current = event.touches[0]?.clientX ?? null;
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
     touchCurrentXRef.current = touchStartXRef.current;
+    touchCurrentYRef.current = touchStartYRef.current;
+    setIsDragging(false);
   };
 
   const handleTouchMove = (event) => {
-    touchCurrentXRef.current = event.touches[0]?.clientX ?? touchCurrentXRef.current;
+    if (isTrackTransitioning) {
+      return;
+    }
+
+    const nextX = event.touches[0]?.clientX ?? touchCurrentXRef.current;
+    const nextY = event.touches[0]?.clientY ?? touchCurrentYRef.current;
+
+    touchCurrentXRef.current = nextX;
+    touchCurrentYRef.current = nextY;
+
+    if (
+      touchStartXRef.current == null ||
+      touchStartYRef.current == null ||
+      nextX == null ||
+      nextY == null
+    ) {
+      return;
+    }
+
+    const deltaX = nextX - touchStartXRef.current;
+    const deltaY = nextY - touchStartYRef.current;
+
+    if (!isDragging && Math.abs(deltaX) <= Math.abs(deltaY)) {
+      return;
+    }
+
+    const clampedDeltaX = Math.max(Math.min(deltaX, 180), -180);
+    setIsDragging(true);
+    setDragOffsetX(clampedDeltaX);
   };
 
   const handleTouchEnd = () => {
@@ -652,31 +719,74 @@ function CollectionEntryViewer({
     }
 
     const deltaX = touchCurrentXRef.current - touchStartXRef.current;
-    const threshold = 48;
-
-    if (deltaX >= threshold && hasPrevious) {
-      onSelectIndex(activeEntryIndex - 1);
-    } else if (deltaX <= -threshold && hasNext) {
-      onSelectIndex(activeEntryIndex + 1);
-    }
+    const threshold = 56;
 
     touchStartXRef.current = null;
+    touchStartYRef.current = null;
     touchCurrentXRef.current = null;
-  };
+    touchCurrentYRef.current = null;
 
-  const handleSelectRandomEntry = () => {
-    if (!hasRandomAlternative) {
+    if (deltaX >= threshold && hasPrevious) {
+      setIsDragging(false);
+      triggerSlideNavigation(-1);
       return;
     }
 
-    let nextIndex = activeEntryIndex;
+    if (deltaX <= -threshold && hasNext) {
+      setIsDragging(false);
+      triggerSlideNavigation(1);
+      return;
+    }
+
+    if (isDragging) {
+      setIsDragging(false);
+      setIsTrackTransitioning(true);
+      setTrackOffsetPercent(-100);
+      setDragOffsetX(0);
+    }
+  };
+
+  const handleSelectRandomEntry = () => {
+    if (!hasRandomAlternative || isTrackTransitioning || isDragging) {
+      return;
+    }
+
+    let nextIndex = displayedIndex;
 
     while (nextIndex === activeEntryIndex) {
       nextIndex = Math.floor(Math.random() * entries.length);
     }
 
+    setDisplayedIndex(nextIndex);
+    setTrackOffsetPercent(-100);
+    setDragOffsetX(0);
     onSelectIndex(nextIndex);
   };
+
+  const handleTrackTransitionEnd = () => {
+    if (!isTrackTransitioning) {
+      return;
+    }
+
+    if (pendingIndex == null) {
+      setIsTrackTransitioning(false);
+      setTrackOffsetPercent(-100);
+      setDragOffsetX(0);
+      return;
+    }
+
+    setDisplayedIndex(pendingIndex);
+    setIsTrackTransitioning(false);
+    setTrackOffsetPercent(-100);
+    setDragOffsetX(0);
+    onSelectIndex(pendingIndex);
+    setPendingIndex(null);
+  };
+
+  const viewerTrackTransform =
+    isDragging || dragOffsetX !== 0
+      ? `translateX(calc(${trackOffsetPercent}% + ${dragOffsetX}px))`
+      : `translateX(${trackOffsetPercent}%)`;
 
   return (
     <div
@@ -687,17 +797,8 @@ function CollectionEntryViewer({
         <div
           className="w-full max-w-3xl rounded-[2.25rem] border border-white/10 bg-zinc-900/90 p-5 shadow-2xl backdrop-blur-xl sm:p-8"
           onClick={(event) => event.stopPropagation()}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
         >
-          <div className="flex items-center justify-end gap-2">
-            <TextToSpeechButton
-              text={entry.phraseText}
-              languageCode={entry.targetLanguageCode}
-              onPlay={onPlayGeneratedSpeech}
-              uiStrings={uiStrings}
-            />
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={onClose}
@@ -709,49 +810,110 @@ function CollectionEntryViewer({
             </button>
           </div>
 
-          <div className="flex min-h-[min(68vh,38rem)] flex-col justify-center">
-            <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-              {entry.phraseText}
-            </p>
-            <PronunciationGuide
-              value={entry.phrasePronunciation}
-              className="mt-4 text-base text-emerald-200/80 sm:text-lg"
-            />
-            <p className="mt-8 text-lg leading-8 text-zinc-200 sm:text-2xl sm:leading-10">
-              {entry.meaningText}
-            </p>
-            {entry.noteText ? (
-              <p className="mt-6 max-w-2xl text-sm leading-7 text-zinc-500 sm:text-base">
-                {entry.noteText}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="flex items-center justify-between">
+          <div className="relative mt-3 min-h-[min(70vh,40rem)]">
             <button
               type="button"
-              onClick={() => hasPrevious && onSelectIndex(activeEntryIndex - 1)}
-              disabled={!hasPrevious}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                !hasPrevious ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300" : ""
+              onClick={() => triggerSlideNavigation(-1)}
+              disabled={!hasPrevious || isTrackTransitioning}
+              className={`absolute left-0 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                !hasPrevious || isTrackTransitioning
+                  ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
+                  : ""
               }`}
               aria-label="Previous card"
               title="Previous card"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={20} />
             </button>
+
             <button
               type="button"
-              onClick={handleSelectRandomEntry}
-              disabled={!hasRandomAlternative}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                !hasRandomAlternative ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300" : ""
+              onClick={() => triggerSlideNavigation(1)}
+              disabled={!hasNext || isTrackTransitioning}
+              className={`absolute right-0 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                !hasNext || isTrackTransitioning
+                  ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
+                  : ""
               }`}
-              aria-label="Random card"
-              title="Random card"
+              aria-label="Next card"
+              title="Next card"
             >
-              <Dices size={18} />
+              <ChevronRight size={20} />
             </button>
+
+            <div
+              className="overflow-hidden px-12 sm:px-16"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div
+                className="flex"
+                style={{
+                  transform: viewerTrackTransform,
+                  transition:
+                    isTrackTransitioning && !isDragging
+                      ? "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)"
+                      : "none",
+                }}
+                onTransitionEnd={handleTrackTransitionEnd}
+              >
+                {[previousEntry, entry, nextEntry].map((slideEntry, slideIndex) => (
+                  <div
+                    key={slideEntry?.id ?? `slide-${slideIndex}`}
+                    className="flex w-full shrink-0 justify-center"
+                  >
+                    <div className="flex min-h-[min(62vh,34rem)] w-full max-w-2xl flex-col items-center justify-center text-center">
+                      {slideEntry ? (
+                        <>
+                          <div className="flex max-w-full items-center justify-center gap-3">
+                            <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+                              {slideEntry.phraseText}
+                            </p>
+                            <TextToSpeechButton
+                              text={slideEntry.phraseText}
+                              languageCode={slideEntry.targetLanguageCode}
+                              onPlay={onPlayGeneratedSpeech}
+                              uiStrings={uiStrings}
+                              className="shrink-0"
+                            />
+                          </div>
+                          <PronunciationGuide
+                            value={slideEntry.phrasePronunciation}
+                            className="mt-4 text-base text-emerald-200/80 sm:text-lg"
+                          />
+                          <p className="mt-8 text-lg leading-8 text-zinc-200 sm:text-2xl sm:leading-10">
+                            {slideEntry.meaningText}
+                          </p>
+                          {slideEntry.noteText ? (
+                            <p className="mt-6 max-w-2xl text-sm leading-7 text-zinc-500 sm:text-base">
+                              {slideEntry.noteText}
+                            </p>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2">
+              <button
+                type="button"
+                onClick={handleSelectRandomEntry}
+                disabled={!hasRandomAlternative || isTrackTransitioning}
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                  !hasRandomAlternative || isTrackTransitioning
+                    ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
+                    : ""
+                }`}
+                aria-label="Random card"
+                title="Random card"
+              >
+                <Dices size={18} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
