@@ -65,10 +65,10 @@ export function MessageBubble({
 
   const saveLabel =
     saveState === "saving"
-      ? "Saving to collection"
+      ? "Saving to phrasebook"
       : saveState === "saved"
-        ? "Saved to collection"
-        : "Save to collection";
+        ? "Saved to phrasebook"
+        : "Save to phrasebook";
 
   return (
     <article className={`flex w-full ${isSelf ? "justify-end" : "justify-start"}`}>

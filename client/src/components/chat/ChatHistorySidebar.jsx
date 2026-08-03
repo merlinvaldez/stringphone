@@ -67,7 +67,7 @@ export function ChatHistorySidebar({
         : historyType === "collections"
           ? {
               Icon: Bookmark,
-              detail: "to save your collections",
+              detail: "to save your phrasebook",
             }
         : {
             Icon: MessageSquare,
@@ -331,7 +331,7 @@ function renderConversationFlags(conversation) {
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Bookmark size={18} />
-        Open collections
+        Open phrasebook
       </button>
     ) : (
       <button
@@ -427,8 +427,8 @@ function renderConversationFlags(conversation) {
                   ? "bg-white/10 text-white"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
-              aria-label="Collection history"
-              title="Collection history"
+              aria-label="Phrasebook history"
+              title="Phrasebook history"
             >
               <Bookmark size={15} />
             </button>
@@ -466,7 +466,7 @@ function renderConversationFlags(conversation) {
 
           {!loading && historyType === "collections" && collections.length === 0 && !error && isSignedIn && (
             <div className="p-8 text-center text-sm text-zinc-500">
-              No saved collections yet.
+              No saved phrasebook entries yet.
             </div>
           )}
 

@@ -1,21 +1,24 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   ChevronLeft,
   ChevronRight,
+  Dices,
   GraduationCap,
   Loader2,
   Menu,
-  MessageSquare,
+  MoreVertical,
   Plus,
   Search,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   archiveCollectionEntry,
   fetchCollection,
   fetchCollections,
   saveCollectionEntry,
+  translateTextMessage,
 } from "../../chatApi.js";
 import { LanguageFlag, getFlagCountryCode } from "../../languageFlags.jsx";
 import { useUiStrings } from "../../uiStrings.js";
@@ -58,16 +61,16 @@ function SignInCallout({ onOpenSidebar, onRequireSignIn }) {
       </div>
       <div className="mx-auto w-full max-w-2xl rounded-[2rem] border border-white/10 bg-zinc-900/70 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
         <div className="inline-flex items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5">
-          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
-            <Bookmark size={20} />
-          </span>
-          <p className="pr-1 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
-            Collections
-          </p>
-        </div>
+                <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
+                  <Bookmark size={20} />
+                </span>
+                <p className="pr-1 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
+                  Phrasebook
+                </p>
+              </div>
 
         <p className="mt-6 text-sm leading-7 text-zinc-300">
-          Sign in to save phrases, search your collections, and reopen them by language.
+          Sign in to save phrases, search your phrasebook, and reopen it by language.
         </p>
 
         <button
@@ -110,14 +113,8 @@ function CollectionComposer({
   onLanguageSearchQueryChange,
   onSelectLanguageCode,
   allowLanguageSelection,
-  phraseText,
-  onPhraseTextChange,
-  phrasePronunciation,
-  onPhrasePronunciationChange,
-  meaningText,
-  onMeaningTextChange,
-  noteText,
-  onNoteTextChange,
+  sourceText,
+  onSourceTextChange,
   onCancel,
   onSave,
   isSaving,
@@ -153,9 +150,11 @@ function CollectionComposer({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+          aria-label="Close"
+          title="Close"
         >
-          Close
+          <X size={15} />
         </button>
       </div>
 
@@ -164,7 +163,7 @@ function CollectionComposer({
           <SearchField
             value={languageSearchQuery}
             onChange={onLanguageSearchQueryChange}
-            placeholder="Search collection language"
+            placeholder="Search phrasebook language"
           />
           <div className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {filteredLanguages.map((language) => (
@@ -192,29 +191,16 @@ function CollectionComposer({
 
       <div className="mt-4 grid gap-3">
         <input
-          value={phraseText}
-          onChange={(event) => onPhraseTextChange(event.target.value)}
-          placeholder="Target-language phrase"
+          value={sourceText}
+          onChange={(event) => onSourceTextChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void onSave();
+            }
+          }}
+          placeholder="Word or phrase"
           className="h-12 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40"
-        />
-        <input
-          value={phrasePronunciation}
-          onChange={(event) => onPhrasePronunciationChange(event.target.value)}
-          placeholder="Pronunciation"
-          className="h-12 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40"
-        />
-        <input
-          value={meaningText}
-          onChange={(event) => onMeaningTextChange(event.target.value)}
-          placeholder="Meaning"
-          className="h-12 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40"
-        />
-        <textarea
-          value={noteText}
-          onChange={(event) => onNoteTextChange(event.target.value)}
-          placeholder="Note"
-          rows={3}
-          className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40"
         />
       </div>
 
@@ -236,7 +222,7 @@ function CollectionComposer({
           ) : (
             <Bookmark size={16} />
           )}
-          {isSaving ? "Saving..." : "Save card"}
+          {isSaving ? "Translating..." : "Save"}
         </button>
       </div>
     </div>
@@ -268,19 +254,19 @@ function CollectionRootView({
                   <Bookmark size={20} />
                 </span>
                 <p className="pr-1 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
-                  Collections
+                  Phrasebook
                 </p>
               </div>
               <p className="mt-4 text-sm leading-6 text-zinc-300">
-                Save phrases by language, reopen them fast, and add new cards without leaving Learning.
+                Words and phrases you want to remember.
               </p>
             </div>
             <button
               type="button"
               onClick={onOpenComposer}
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-200 transition hover:bg-white/[0.08]"
-              title="Add collection card"
-              aria-label="Add collection card"
+              title="Add phrasebook card"
+              aria-label="Add phrasebook card"
             >
               <Plus size={18} />
             </button>
@@ -290,7 +276,7 @@ function CollectionRootView({
             <SearchField
               value={searchQuery}
               onChange={onSearchQueryChange}
-              placeholder="Search collections"
+              placeholder="Search phrasebook"
             />
           </div>
         </div>
@@ -308,7 +294,7 @@ function CollectionRootView({
             </div>
           ) : collections.length === 0 ? (
             <div className="p-8 text-center text-sm text-zinc-500">
-              No collection cards yet.
+              No phrasebook cards yet.
             </div>
           ) : (
             collections.map((collection) => (
@@ -352,148 +338,421 @@ function CollectionDetailView({
   onOpenComposer,
   onArchiveEntry,
   archivingEntryId,
+  activeViewerEntryId,
+  onActiveViewerEntryIdChange,
   onPlayGeneratedSpeech,
   uiStrings,
 }) {
+  const [openEntryMenuId, setOpenEntryMenuId] = useState(null);
+  const viewerEntryIndex = collection.entries.findIndex(
+    (entry) => entry.id === activeViewerEntryId,
+  );
+
+  useEffect(() => {
+    if (!openEntryMenuId) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-collection-card-actions]")
+      ) {
+        return;
+      }
+
+      setOpenEntryMenuId(null);
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setOpenEntryMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openEntryMenuId]);
+
+  useEffect(() => {
+    if (!activeViewerEntryId) {
+      return;
+    }
+
+    if (!collection.entries.some((entry) => entry.id === activeViewerEntryId)) {
+      onActiveViewerEntryIdChange(null);
+    }
+  }, [activeViewerEntryId, collection.entries, onActiveViewerEntryIdChange]);
+
+  const openViewer = (entryId) => {
+    setOpenEntryMenuId(null);
+    onActiveViewerEntryIdChange(entryId);
+  };
+
+  const handleCardKeyDown = (event, entryId) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openViewer(entryId);
+    }
+  };
+
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
-      <div className="mx-auto mb-4 flex w-full max-w-3xl items-center justify-between gap-3">
-        <HistoryShortcutButton onClick={onOpenSidebar} />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-            title="Back to collections"
-            aria-label="Back to collections"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenComposer}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-            title="Add collection card"
-            aria-label="Add collection card"
-          >
-            <Plus size={18} />
-          </button>
+    <>
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
+        <div className="mx-auto mb-4 flex w-full max-w-3xl items-center justify-between gap-3">
+          <HistoryShortcutButton onClick={onOpenSidebar} />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              title="Back to phrasebook"
+              aria-label="Back to phrasebook"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenComposer}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              title="Add phrasebook card"
+              aria-label="Add phrasebook card"
+            >
+              <Plus size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          <div className="rounded-[2rem] border border-white/10 bg-zinc-900/70 p-5 shadow-2xl backdrop-blur-xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <LanguageFlag
+                countryCode={getFlagCountryCode(collection.languageCode)}
+                label={collection.languageName}
+                className="mt-1 h-6 w-8 shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                  {collection.languageName}
+                </h1>
+                <p className="mt-2 text-sm text-zinc-400">
+                  {collection.entryCount} {collection.entryCount === 1 ? "card" : "cards"}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5">
+              <SearchField
+                value={searchQuery}
+                onChange={onSearchQueryChange}
+                placeholder={`Search ${collection.languageName}`}
+              />
+            </div>
+          </div>
+
+          {error ? (
+            <div className="rounded-xl border border-rose-400/15 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="space-y-3">
+            {loading ? (
+              <div className="flex justify-center p-8">
+                <Loader2 size={24} className="animate-spin text-zinc-500" />
+              </div>
+            ) : collection.entries.length === 0 ? (
+              <div className="rounded-[1.75rem] border border-white/10 bg-zinc-900/70 p-8 text-center text-sm text-zinc-500 shadow-xl backdrop-blur-xl">
+                No cards in this phrasebook yet.
+              </div>
+            ) : (
+              collection.entries.map((entry) => {
+                const isArchiving = archivingEntryId === entry.id;
+                const isMenuOpen = openEntryMenuId === entry.id;
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-[1.75rem] border border-white/10 bg-zinc-900/70 p-5 shadow-xl backdrop-blur-xl"
+                  >
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openViewer(entry.id)}
+                        onKeyDown={(event) => handleCardKeyDown(event, entry.id)}
+                        className="min-w-0 cursor-pointer text-left outline-none"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-base font-semibold leading-6 text-white">
+                              {entry.phraseText}
+                            </p>
+                            <PronunciationGuide
+                              value={entry.phrasePronunciation}
+                              className="mt-2 text-sm text-emerald-200/80"
+                            />
+                          </div>
+                          <div onClick={(event) => event.stopPropagation()}>
+                            <TextToSpeechButton
+                              text={entry.phraseText}
+                              languageCode={entry.targetLanguageCode}
+                              onPlay={onPlayGeneratedSpeech}
+                              uiStrings={uiStrings}
+                              className="mt-0.5"
+                            />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-zinc-300">
+                          {entry.meaningText}
+                        </p>
+                        {entry.noteText ? (
+                          <p className="mt-3 text-xs leading-5 text-zinc-500">
+                            {entry.noteText}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div
+                        data-collection-card-actions
+                        onClick={(event) => event.stopPropagation()}
+                        className="flex items-center gap-1 self-start"
+                      >
+                        <button
+                          type="button"
+                          aria-label="Archive card"
+                          title="Archive card"
+                          onClick={() => {
+                            void onArchiveEntry(entry.id);
+                          }}
+                          disabled={isArchiving}
+                          className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
+                            isMenuOpen
+                              ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
+                              : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
+                          } ${isArchiving ? "cursor-wait" : ""}`}
+                        >
+                          {isArchiving ? (
+                            <Loader2 size={12} className="shrink-0 animate-spin" />
+                          ) : (
+                            <Trash2 size={12} className="shrink-0" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label="Card actions"
+                          title="Card actions"
+                          onClick={() => {
+                            setOpenEntryMenuId((currentId) =>
+                              currentId === entry.id ? null : entry.id,
+                            );
+                          }}
+                          disabled={isArchiving}
+                          className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
+                            isArchiving ? "cursor-wait" : ""
+                          }`}
+                        >
+                          <MoreVertical size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl space-y-4">
-        <div className="rounded-[2rem] border border-white/10 bg-zinc-900/70 p-5 shadow-2xl backdrop-blur-xl sm:p-6">
-          <div className="flex items-start gap-3">
-            <LanguageFlag
-              countryCode={getFlagCountryCode(collection.languageCode)}
-              label={collection.languageName}
-              className="mt-1 h-6 w-8 shrink-0"
+      {viewerEntryIndex >= 0 ? (
+        <CollectionEntryViewer
+          entries={collection.entries}
+          activeEntryIndex={viewerEntryIndex}
+          onClose={() => onActiveViewerEntryIdChange(null)}
+          onSelectIndex={(nextIndex) =>
+            onActiveViewerEntryIdChange(
+              collection.entries[nextIndex]?.id ?? null,
+            )
+          }
+          onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+          uiStrings={uiStrings}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function CollectionEntryViewer({
+  entries,
+  activeEntryIndex,
+  onClose,
+  onSelectIndex,
+  onPlayGeneratedSpeech,
+  uiStrings,
+}) {
+  const touchStartXRef = useRef(null);
+  const touchCurrentXRef = useRef(null);
+  const entry = entries[activeEntryIndex] ?? null;
+  const hasPrevious = activeEntryIndex > 0;
+  const hasNext = activeEntryIndex < entries.length - 1;
+  const hasRandomAlternative = entries.length > 1;
+
+  useEffect(() => {
+    if (!entry) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key === "ArrowLeft" && hasPrevious) {
+        onSelectIndex(activeEntryIndex - 1);
+        return;
+      }
+
+      if (event.key === "ArrowRight" && hasNext) {
+        onSelectIndex(activeEntryIndex + 1);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeEntryIndex, entry, hasNext, hasPrevious, onClose, onSelectIndex]);
+
+  if (!entry) {
+    return null;
+  }
+
+  const handleTouchStart = (event) => {
+    touchStartXRef.current = event.touches[0]?.clientX ?? null;
+    touchCurrentXRef.current = touchStartXRef.current;
+  };
+
+  const handleTouchMove = (event) => {
+    touchCurrentXRef.current = event.touches[0]?.clientX ?? touchCurrentXRef.current;
+  };
+
+  const handleTouchEnd = () => {
+    if (
+      touchStartXRef.current == null ||
+      touchCurrentXRef.current == null
+    ) {
+      return;
+    }
+
+    const deltaX = touchCurrentXRef.current - touchStartXRef.current;
+    const threshold = 48;
+
+    if (deltaX >= threshold && hasPrevious) {
+      onSelectIndex(activeEntryIndex - 1);
+    } else if (deltaX <= -threshold && hasNext) {
+      onSelectIndex(activeEntryIndex + 1);
+    }
+
+    touchStartXRef.current = null;
+    touchCurrentXRef.current = null;
+  };
+
+  const handleSelectRandomEntry = () => {
+    if (!hasRandomAlternative) {
+      return;
+    }
+
+    let nextIndex = activeEntryIndex;
+
+    while (nextIndex === activeEntryIndex) {
+      nextIndex = Math.floor(Math.random() * entries.length);
+    }
+
+    onSelectIndex(nextIndex);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div className="mx-auto flex h-full max-w-5xl items-center justify-center p-4 sm:p-6">
+        <div
+          className="w-full max-w-3xl rounded-[2.25rem] border border-white/10 bg-zinc-900/90 p-5 shadow-2xl backdrop-blur-xl sm:p-8"
+          onClick={(event) => event.stopPropagation()}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="flex items-center justify-end gap-2">
+            <TextToSpeechButton
+              text={entry.phraseText}
+              languageCode={entry.targetLanguageCode}
+              onPlay={onPlayGeneratedSpeech}
+              uiStrings={uiStrings}
             />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300/80">
-                Language collection
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-                {collection.languageName}
-              </h1>
-              <p className="mt-2 text-sm text-zinc-400">
-                {collection.entryCount} {collection.entryCount === 1 ? "card" : "cards"}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Close card viewer"
+              title="Close card viewer"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <div className="mt-5">
-            <SearchField
-              value={searchQuery}
-              onChange={onSearchQueryChange}
-              placeholder={`Search ${collection.languageName}`}
+
+          <div className="flex min-h-[min(68vh,38rem)] flex-col justify-center">
+            <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+              {entry.phraseText}
+            </p>
+            <PronunciationGuide
+              value={entry.phrasePronunciation}
+              className="mt-4 text-base text-emerald-200/80 sm:text-lg"
             />
+            <p className="mt-8 text-lg leading-8 text-zinc-200 sm:text-2xl sm:leading-10">
+              {entry.meaningText}
+            </p>
+            {entry.noteText ? (
+              <p className="mt-6 max-w-2xl text-sm leading-7 text-zinc-500 sm:text-base">
+                {entry.noteText}
+              </p>
+            ) : null}
           </div>
-        </div>
 
-        {error ? (
-          <div className="rounded-xl border border-rose-400/15 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-            {error}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => hasPrevious && onSelectIndex(activeEntryIndex - 1)}
+              disabled={!hasPrevious}
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                !hasPrevious ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300" : ""
+              }`}
+              aria-label="Previous card"
+              title="Previous card"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectRandomEntry}
+              disabled={!hasRandomAlternative}
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                !hasRandomAlternative ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300" : ""
+              }`}
+              aria-label="Random card"
+              title="Random card"
+            >
+              <Dices size={18} />
+            </button>
           </div>
-        ) : null}
-
-        <div className="space-y-3">
-          {loading ? (
-            <div className="flex justify-center p-8">
-              <Loader2 size={24} className="animate-spin text-zinc-500" />
-            </div>
-          ) : collection.entries.length === 0 ? (
-            <div className="rounded-[1.75rem] border border-white/10 bg-zinc-900/70 p-8 text-center text-sm text-zinc-500 shadow-xl backdrop-blur-xl">
-              No cards in this collection yet.
-            </div>
-          ) : (
-            collection.entries.map((entry) => {
-              const isArchiving = archivingEntryId === entry.id;
-
-              return (
-                <div
-                  key={entry.id}
-                  className="rounded-[1.75rem] border border-white/10 bg-zinc-900/70 p-5 shadow-xl backdrop-blur-xl"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-base font-semibold leading-6 text-white">
-                            {entry.phraseText}
-                          </p>
-                          <PronunciationGuide
-                            value={entry.phrasePronunciation}
-                            className="mt-2 text-sm text-emerald-200/80"
-                          />
-                        </div>
-                        <TextToSpeechButton
-                          text={entry.phraseText}
-                          languageCode={entry.targetLanguageCode}
-                          onPlay={onPlayGeneratedSpeech}
-                          uiStrings={uiStrings}
-                          className="mt-0.5"
-                        />
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-zinc-300">
-                        {entry.meaningText}
-                      </p>
-                      {entry.noteText ? (
-                        <p className="mt-3 text-xs leading-5 text-zinc-500">
-                          {entry.noteText}
-                        </p>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void onArchiveEntry(entry.id)}
-                      disabled={isArchiving}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-500/20 bg-rose-500/10 text-rose-300 transition hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-wait disabled:opacity-60"
-                      title="Archive card"
-                      aria-label="Archive card"
-                    >
-                      {isArchiving ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
-                    <div className="flex items-center gap-2">
-                      {entry.sourceType === "message" ? (
-                        <MessageSquare size={12} />
-                      ) : (
-                        <Plus size={12} />
-                      )}
-                      <span>{entry.sourceType === "message" ? "Saved from chat" : "Added here"}</span>
-                    </div>
-                    <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              );
-            })
-          )}
         </div>
       </div>
     </div>
@@ -524,10 +783,8 @@ export function CollectionScreen({
   const [selectedLanguageCode, setSelectedLanguageCode] = useState(
     activeLanguageCode ?? theirLang.code,
   );
-  const [phraseText, setPhraseText] = useState("");
-  const [phrasePronunciation, setPhrasePronunciation] = useState("");
-  const [meaningText, setMeaningText] = useState("");
-  const [noteText, setNoteText] = useState("");
+  const [sourceText, setSourceText] = useState("");
+  const [activeViewerEntryId, setActiveViewerEntryId] = useState(null);
   const [archivingEntryId, setArchivingEntryId] = useState(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const uiStrings = useUiStrings(myLang);
@@ -603,10 +860,7 @@ export function CollectionScreen({
     setComposerError("");
     setLanguageSearchQuery("");
     setSelectedLanguageCode(activeLanguageCode ?? theirLang.code);
-    setPhraseText("");
-    setPhrasePronunciation("");
-    setMeaningText("");
-    setNoteText("");
+    setSourceText("");
   };
 
   const openComposer = () => {
@@ -628,21 +882,58 @@ export function CollectionScreen({
     try {
       setIsSaving(true);
       setComposerError("");
+      const trimmedSourceText = sourceText.trim();
+
+      if (!trimmedSourceText) {
+        throw new Error("Enter a word or phrase first.");
+      }
+
+      const targetLanguage =
+        availableLanguages.find((language) => language.code === selectedLanguageCode) ??
+        theirLang;
+      const translation = await translateTextMessage({
+        text: trimmedSourceText,
+        sourceLanguage: myLang,
+        targetLanguage,
+      });
       const result = await saveCollectionEntry(authFetch, {
         sourceType: "manual",
         languageCode: selectedLanguageCode,
-        phraseText,
-        phrasePronunciation,
-        meaningText,
-        noteText,
+        phraseText: translation.translatedText,
+        phrasePronunciation: translation.translatedPronunciation ?? "",
+        meaningText: translation.originalText,
+        meaningPronunciation: translation.originalPronunciation ?? "",
         sourceLanguageCode: myLang.code,
       });
 
+      setActiveViewerEntryId(result.entry.id);
       closeComposer();
 
       if (!activeLanguageCode) {
         onSelectLanguageCode?.(result.collection.languageCode);
       } else {
+        setCollectionDetail((currentDetail) => {
+          if (!currentDetail) {
+            return currentDetail;
+          }
+
+          if (currentDetail.id !== result.collection.id) {
+            return currentDetail;
+          }
+
+          const nextEntries = [
+            result.entry,
+            ...currentDetail.entries.filter(
+              (entry) => entry.id !== result.entry.id,
+            ),
+          ];
+
+          return {
+            ...currentDetail,
+            entryCount: nextEntries.length,
+            entries: nextEntries,
+          };
+        });
         setRefreshNonce((currentValue) => currentValue + 1);
       }
     } catch (saveError) {
@@ -695,11 +986,16 @@ export function CollectionScreen({
           error={error}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
-          onBack={() => onSelectLanguageCode?.(null)}
+          onBack={() => {
+            setActiveViewerEntryId(null);
+            onSelectLanguageCode?.(null);
+          }}
           onOpenSidebar={onOpenSidebar}
           onOpenComposer={openComposer}
           onArchiveEntry={handleArchiveEntry}
           archivingEntryId={archivingEntryId}
+          activeViewerEntryId={activeViewerEntryId}
+          onActiveViewerEntryIdChange={setActiveViewerEntryId}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
           uiStrings={uiStrings}
         />
@@ -726,14 +1022,8 @@ export function CollectionScreen({
               onLanguageSearchQueryChange={setLanguageSearchQuery}
               onSelectLanguageCode={setSelectedLanguageCode}
               allowLanguageSelection={!activeLanguageCode}
-              phraseText={phraseText}
-              onPhraseTextChange={setPhraseText}
-              phrasePronunciation={phrasePronunciation}
-              onPhrasePronunciationChange={setPhrasePronunciation}
-              meaningText={meaningText}
-              onMeaningTextChange={setMeaningText}
-              noteText={noteText}
-              onNoteTextChange={setNoteText}
+              sourceText={sourceText}
+              onSourceTextChange={setSourceText}
               onCancel={closeComposer}
               onSave={handleSaveManualCard}
               isSaving={isSaving}

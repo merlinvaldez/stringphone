@@ -3959,6 +3959,48 @@ export default function StringPhoneApp() {
     return { saved: true };
   };
 
+  const buildCollectionPayloadFromLessonVocabularyItem = ({ lesson, item }) => {
+    const lessonContent = lesson?.content ?? lesson?.lesson_content ?? {};
+    const languageCode = getLessonTargetLanguageCode(lesson) ?? theirLang.code;
+    const sourceLanguageCode = getLessonSourceLanguageCode(lesson) ?? myLang.code;
+
+    return {
+      sourceType: "manual",
+      languageCode,
+      phraseText: item?.term ?? "",
+      phrasePronunciation: item?.transliteration ?? "",
+      meaningText: item?.translation ?? "",
+      meaningPronunciation: "",
+      noteText: "",
+      sourceLanguageCode,
+      sourceConversationId: getLessonConversationId(lesson),
+      sourceSnapshot: {
+        lessonId: lesson?.id ?? "",
+        lessonSource: lesson?.source ?? "",
+        lessonTitle: lessonContent?.title ?? "",
+        term: item?.term ?? "",
+        transliteration: item?.transliteration ?? "",
+        translation: item?.translation ?? "",
+        example: item?.example ?? "",
+        exampleTransliteration: item?.exampleTransliteration ?? "",
+        exampleTranslation: item?.exampleTranslation ?? "",
+      },
+    };
+  };
+
+  const handleSaveLessonVocabularyToCollection = async ({ lesson, item }) => {
+    if (!isSignedIn) {
+      handleRequireSignIn();
+      return { saved: false };
+    }
+
+    await saveCollectionEntry(
+      authFetch,
+      buildCollectionPayloadFromLessonVocabularyItem({ lesson, item }),
+    );
+    return { saved: true };
+  };
+
   const persistActiveConversationLanguages = async (
     sourceLanguage,
     targetLanguage,
@@ -4347,6 +4389,7 @@ export default function StringPhoneApp() {
           onStartNewLesson={openNewLesson}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           onPlayGeneratedSpeech={playGeneratedSpeech}
+          onSaveLessonVocabularyToCollection={handleSaveLessonVocabularyToCollection}
           lessonBuilderConfig={lessonBuilderConfig}
           onRequireSignIn={handleRequireSignIn}
           availableLanguages={LANGUAGES}

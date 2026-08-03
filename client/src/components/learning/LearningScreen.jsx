@@ -11,7 +11,7 @@ const LEARNING_TABS = [
   },
   {
     id: "collections",
-    label: "Collections",
+    label: "Phrasebook",
     Icon: Bookmark,
   },
 ];
@@ -30,6 +30,7 @@ export function LearningScreen({
   onStartNewLesson,
   onOpenSidebar,
   onPlayGeneratedSpeech,
+  onSaveLessonVocabularyToCollection,
   onRequireSignIn,
   availableLanguages,
   activeCollectionLanguageCode,
@@ -39,7 +40,7 @@ export function LearningScreen({
     <div className="relative h-full">
       <div
         className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4"
-        style={{ top: "calc(env(safe-area-inset-top, 16px) + 5rem)" }}
+        style={{ top: "calc(env(safe-area-inset-top, 0px) + 5.75rem)" }}
       >
         <div className="pointer-events-auto flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
           {LEARNING_TABS.map(({ id, label, Icon }) => (
@@ -89,6 +90,7 @@ export function LearningScreen({
           onStartNewLesson={onStartNewLesson}
           onOpenSidebar={onOpenSidebar}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+          onSaveLessonVocabularyToCollection={onSaveLessonVocabularyToCollection}
           lessonBuilderConfig={lessonBuilderConfig}
         />
       )}

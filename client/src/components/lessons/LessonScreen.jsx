@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ArrowRight,
+  Bookmark,
   BookOpen,
+  Check,
   ChevronRight,
   GraduationCap,
   Loader2,
@@ -39,6 +41,74 @@ function LessonHistoryButton({ onOpenSidebar }) {
       aria-label="Open history"
     >
       <Menu size={18} />
+    </button>
+  );
+}
+
+function LessonPhrasebookButton({
+  lesson,
+  item,
+  saveKey,
+  onSaveVocabularyToCollection,
+}) {
+  const [saveState, setSaveState] = useState("idle");
+  const canSaveToCollection =
+    typeof onSaveVocabularyToCollection === "function" &&
+    Boolean(item?.term && item?.translation);
+
+  useEffect(() => {
+    setSaveState("idle");
+  }, [saveKey]);
+
+  const handleSaveToCollection = async () => {
+    if (!canSaveToCollection || saveState === "saving") {
+      return;
+    }
+
+    try {
+      setSaveState("saving");
+      const result = await onSaveVocabularyToCollection({
+        lesson,
+        item,
+      });
+      setSaveState(result?.saved ? "saved" : "idle");
+    } catch (error) {
+      console.error("Failed to save lesson keyword to phrasebook", error);
+      setSaveState("idle");
+    }
+  };
+
+  const saveLabel =
+    saveState === "saving"
+      ? "Saving to phrasebook"
+      : saveState === "saved"
+        ? "Saved to phrasebook"
+        : "Save to phrasebook";
+
+  if (!canSaveToCollection) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleSaveToCollection()}
+      disabled={saveState === "saving"}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+        saveState === "saved"
+          ? "border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 hover:text-emerald-100"
+          : ""
+      } ${saveState === "saving" ? "cursor-wait opacity-60" : ""}`}
+      title={saveLabel}
+      aria-label={saveLabel}
+    >
+      {saveState === "saving" ? (
+        <Loader2 size={14} className="animate-spin" />
+      ) : saveState === "saved" ? (
+        <Check size={14} />
+      ) : (
+        <Bookmark size={14} />
+      )}
     </button>
   );
 }
@@ -239,6 +309,7 @@ function LessonContent({
   onStartNewLesson,
   onOpenSidebar,
   onPlayGeneratedSpeech,
+  onSaveLessonVocabularyToCollection,
   uiStrings,
 }) {
   const content = lesson?.content ?? lesson?.lesson_content ?? lesson;
@@ -303,55 +374,67 @@ function LessonContent({
             Key words
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            {vocabulary.map((item, index) => (
-              <div
-                key={`${item.term}-${index}`}
-                className="rounded-2xl border border-white/8 bg-black/20 p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-white">{item.term}</p>
-                    <PhoneticSpelling
-                      value={item.transliteration}
-                      className="mt-1 text-sm text-emerald-200/80"
-                    />
-                    <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
-                  </div>
-                  {item.term ? (
-                    <TextToSpeechButton
-                      text={item.term}
-                      languageCode={targetLanguageCode}
-                      onPlay={onPlayGeneratedSpeech}
-                      uiStrings={uiStrings}
-                      className="mt-0.5"
-                    />
-                  ) : null}
-                </div>
-                {item.example ? (
-                  <div className="mt-3 flex items-start gap-3">
+            {vocabulary.map((item, index) => {
+              const saveKey = `${item.term ?? ""}-${item.translation ?? ""}-${index}`;
+
+              return (
+                <div
+                  key={`${item.term}-${index}`}
+                  className="rounded-2xl border border-white/8 bg-black/20 p-4"
+                >
+                  <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-5 text-zinc-300">"{item.example}"</p>
+                      <p className="font-medium text-white">{item.term}</p>
                       <PhoneticSpelling
-                        value={item.exampleTransliteration}
-                        className="mt-1 text-xs leading-5 text-emerald-100/70"
+                        value={item.transliteration}
+                        className="mt-1 text-sm text-emerald-200/80"
                       />
-                      {item.exampleTranslation ? (
-                        <p className="mt-1 text-xs leading-5 text-zinc-500">
-                          {item.exampleTranslation}
-                        </p>
+                      <p className="mt-1 text-sm text-zinc-400">{item.translation}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <LessonPhrasebookButton
+                        lesson={lesson}
+                        item={item}
+                        saveKey={saveKey}
+                        onSaveVocabularyToCollection={onSaveLessonVocabularyToCollection}
+                      />
+                      {item.term ? (
+                        <TextToSpeechButton
+                          text={item.term}
+                          languageCode={targetLanguageCode}
+                          onPlay={onPlayGeneratedSpeech}
+                          uiStrings={uiStrings}
+                          className="mt-0.5"
+                        />
                       ) : null}
                     </div>
-                    <TextToSpeechButton
-                      text={item.example}
-                      languageCode={targetLanguageCode}
-                      onPlay={onPlayGeneratedSpeech}
-                      uiStrings={uiStrings}
-                      className="mt-0.5"
-                    />
                   </div>
-                ) : null}
-              </div>
-            ))}
+                  {item.example ? (
+                    <div className="mt-3 flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-5 text-zinc-300">"{item.example}"</p>
+                        <PhoneticSpelling
+                          value={item.exampleTransliteration}
+                          className="mt-1 text-xs leading-5 text-emerald-100/70"
+                        />
+                        {item.exampleTranslation ? (
+                          <p className="mt-1 text-xs leading-5 text-zinc-500">
+                            {item.exampleTranslation}
+                          </p>
+                        ) : null}
+                      </div>
+                      <TextToSpeechButton
+                        text={item.example}
+                        languageCode={targetLanguageCode}
+                        onPlay={onPlayGeneratedSpeech}
+                        uiStrings={uiStrings}
+                        className="mt-0.5"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -457,6 +540,7 @@ export function LessonScreen({
   onStartNewLesson,
   onOpenSidebar,
   onPlayGeneratedSpeech,
+  onSaveLessonVocabularyToCollection,
   lessonBuilderConfig,
 }) {
   const lessonUiStrings = useUiStrings(myLang);
@@ -471,6 +555,7 @@ export function LessonScreen({
         onStartNewLesson={onStartNewLesson}
         onOpenSidebar={onOpenSidebar}
         onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+        onSaveLessonVocabularyToCollection={onSaveLessonVocabularyToCollection}
         uiStrings={lessonUiStrings}
       />
     );
