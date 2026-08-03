@@ -53,6 +53,13 @@ import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 import { runUiTranslations } from "./lib/runUiTranslations.js";
 import { runVoiceChatMessage } from "./lib/runVoiceChatMessage.js";
+import {
+  archiveLanguageCollectionEntryForUser,
+  CollectionRequestError,
+  getLanguageCollectionForUser,
+  listLanguageCollectionsForUser,
+  saveLanguageCollectionEntryForUser,
+} from "./services/languageCollections.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3001);
@@ -594,6 +601,134 @@ app.post("/ui/translations", async (req, res) => {
     return res.status(502).json({ error: "UI translation bundle failed" });
   }
 });
+
+app.get("/collections", requireAuthenticatedAppRequest, async (req, res) => {
+  try {
+    const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+    if (!authenticatedRequest.appUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json(
+      await listLanguageCollectionsForUser({
+        userId: authenticatedRequest.appUser.id,
+        query: req.query?.q,
+      }),
+    );
+  } catch (error) {
+    console.error("Failed to fetch collections", error);
+    return res.status(
+      error instanceof CollectionRequestError ? error.status : 500,
+    ).json({
+      error: error instanceof Error ? error.message : "Failed to fetch collections",
+    });
+  }
+});
+
+app.get(
+  "/collections/:languageCode",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const collection = await getLanguageCollectionForUser({
+        userId: authenticatedRequest.appUser.id,
+        languageCode: req.params.languageCode,
+        query: req.query?.q,
+      });
+
+      if (!collection) {
+        return res.status(404).json({ error: "Collection not found" });
+      }
+
+      return res.status(200).json(collection);
+    } catch (error) {
+      console.error("Failed to fetch collection detail", error);
+      return res.status(
+        error instanceof CollectionRequestError ? error.status : 500,
+      ).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch collection detail",
+      });
+    }
+  },
+);
+
+app.post(
+  "/collections/entries",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      return res.status(201).json(
+        await saveLanguageCollectionEntryForUser({
+          userId: authenticatedRequest.appUser.id,
+          body: req.body,
+        }),
+      );
+    } catch (error) {
+      console.error("Failed to save collection entry", error);
+      return res.status(
+        error instanceof CollectionRequestError ? error.status : 500,
+      ).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to save collection entry",
+      });
+    }
+  },
+);
+
+app.delete(
+  "/collections/entries",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const archivedEntry = await archiveLanguageCollectionEntryForUser({
+        userId: authenticatedRequest.appUser.id,
+        entryId: req.query?.entryId,
+      });
+
+      if (!archivedEntry) {
+        return res
+          .status(404)
+          .json({ error: "Collection entry not found" });
+      }
+
+      return res.status(200).json(archivedEntry);
+    } catch (error) {
+      console.error("Failed to archive collection entry", error);
+      return res.status(
+        error instanceof CollectionRequestError ? error.status : 500,
+      ).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to archive collection entry",
+      });
+    }
+  },
+);
 
 app.get("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
   try {

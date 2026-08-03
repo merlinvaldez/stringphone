@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { Bookmark, Check, Loader2 } from "lucide-react";
 import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
 import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
@@ -19,6 +20,7 @@ export function MessageBubble({
   onRetry,
   onAudioPlay,
   onPlayGeneratedSpeech,
+  onSaveToCollection,
   uiStrings,
   aiPartnerDisplayName = "",
 }) {
@@ -33,6 +35,40 @@ export function MessageBubble({
   const bubbleClasses = isSelf
     ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
     : "mr-auto border-white/10 bg-zinc-900/90";
+  const [saveState, setSaveState] = useState("idle");
+  const canSaveToCollection =
+    typeof onSaveToCollection === "function" &&
+    message.status === "ready" &&
+    Boolean(
+      (isSelf ? message.translatedText : message.originalText) &&
+        (isSelf ? message.originalText : message.translatedText),
+    );
+
+  useEffect(() => {
+    setSaveState("idle");
+  }, [message.id]);
+
+  const handleSaveToCollection = async () => {
+    if (!canSaveToCollection || saveState === "saving") {
+      return;
+    }
+
+    try {
+      setSaveState("saving");
+      const result = await onSaveToCollection(message);
+      setSaveState(result?.saved ? "saved" : "idle");
+    } catch (error) {
+      console.error("Failed to save message to collection", error);
+      setSaveState("idle");
+    }
+  };
+
+  const saveLabel =
+    saveState === "saving"
+      ? "Saving to collection"
+      : saveState === "saved"
+        ? "Saved to collection"
+        : "Save to collection";
 
   return (
     <article className={`flex w-full ${isSelf ? "justify-end" : "justify-start"}`}>
@@ -51,9 +87,35 @@ export function MessageBubble({
                 {formatTimestamp(message.createdAt)}
               </span>
             </div>
-            {!showEmbeddedVoicePlayer ? (
-              <MessageStatusPill status={message.status} uiStrings={uiStrings} />
-            ) : null}
+            <div className="flex items-center gap-2">
+              {canSaveToCollection ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveToCollection()}
+                  disabled={saveState === "saving"}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                    saveState === "saved"
+                      ? "border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 hover:text-emerald-100"
+                      : ""
+                  } ${
+                    saveState === "saving" ? "cursor-wait opacity-60" : ""
+                  }`}
+                  title={saveLabel}
+                  aria-label={saveLabel}
+                >
+                  {saveState === "saving" ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : saveState === "saved" ? (
+                    <Check size={14} />
+                  ) : (
+                    <Bookmark size={14} />
+                  )}
+                </button>
+              ) : null}
+              {!showEmbeddedVoicePlayer ? (
+                <MessageStatusPill status={message.status} uiStrings={uiStrings} />
+              ) : null}
+            </div>
           </div>
 
           {isVoice ? (

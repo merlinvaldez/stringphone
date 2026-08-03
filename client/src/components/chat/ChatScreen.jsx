@@ -26,6 +26,7 @@ export function ChatScreen({
   retryMessage,
   onAudioPlay,
   onPlayGeneratedSpeech,
+  onSaveToCollection,
   sharedRoomSession,
   sharedRoom,
   sharedRoomStatus,
@@ -320,6 +321,7 @@ export function ChatScreen({
           onRetry={retryMessage}
           onAudioPlay={onAudioPlay}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+          onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
           aiPartnerDisplayName={aiPartnerState?.displayName}
         />

@@ -1,6 +1,6 @@
 # StringPhone language collections
 
-**Status:** Proposed on `feat/10-language-collections` for issue [#10](https://github.com/merlinvaldez/stringphone/issues/10) on August 2, 2026.  
+**Status:** Implemented on `feat/10-language-collections` for issue [#10](https://github.com/merlinvaldez/stringphone/issues/10) on August 3, 2026.  
 **Product:** StringPhone  
 **Audience:** people using StringPhone to save useful words and phrases from real conversations, then revisit them by language without leaving the product's existing learning flow.
 
@@ -21,6 +21,8 @@ The feature is deliberately lightweight. It is not a flashcard engine, spaced-re
 | Searchable collection | Search works at both the language-group level and inside a single language collection | Users need retrieval, not just storage |
 | Alphabetical language ordering | Collection groups are ordered by visible language name using the stable English display name already present in the app's language registry | Cross-script sorting stays predictable |
 | Symbol/icon-first UI | Reuse icon toggles, compact action rails, flag markers, and minimal labels instead of adding text-heavy controls | The feature should feel native to StringPhone rather than bolted on |
+| Pronunciation playback | Saved cards reuse the compact TTS playback button pattern already used in chat | Collections should preserve the same listen-and-repeat workflow as message playback |
+| Return state | Signed-in users reopen the app where they last were, while tapping the StringPhone brand returns them to home | Learning and chat stay persistent without losing a reliable home action |
 
 ## User experience
 
@@ -80,8 +82,9 @@ Each saved entry card contains:
 - the paired meaning/translation line
 - an icon showing whether it came from chat or manual entry
 - saved date metadata in the existing compact secondary style
+- a compact archive/delete affordance that soft-deletes the card
 
-If the saved phrase is target-language text, the card may reuse the existing speaker-button pattern for playback. That is an implementation reuse, not a separate requirement to generate new content.
+Each saved entry card reuses the existing compact speaker-button pattern for playback when TTS is supported for that saved phrase language.
 
 ## Saving from messages
 
@@ -283,6 +286,10 @@ Rules:
 - phrase and meaning are required
 - duplicate saves return the existing active entry instead of failing
 
+### `DELETE /api/collections/entries?entryId=...`
+
+Archives one collection entry for the authenticated user.
+
 ## Proposed implementation map
 
 | Area | Files |
@@ -292,6 +299,7 @@ Rules:
 | Existing lesson UI integration | `client/src/components/lessons/LessonScreen.jsx` |
 | History drawer collections tab | `client/src/components/chat/ChatHistorySidebar.jsx` |
 | Message save affordance | `client/src/components/chat/MessageBubble.jsx` |
+| Return-to-last-location and brand-home behavior | `client/src/StringPhoneApp.jsx`, `client/src/authReturnState.js`, `client/src/lastViewState.js` |
 | Client API | `client/src/chatApi.js` |
 | Collection routes | `api/collections/index.ts`, `api/collections/[languageCode].ts`, `api/collections/entries.ts` |
 | DB queries | `src/db/queries/languageCollections.ts` |
@@ -313,6 +321,10 @@ Rules:
 - [ ] Root collection search can find a phrase by language name, phrase text, meaning, or note.
 - [ ] In-language search filters entries without leaving that collection.
 - [ ] Saving the same phrase twice reuses the existing entry instead of creating duplicates.
+- [ ] Collection cards expose compact pronunciation playback using the existing chat-style TTS control.
+- [ ] A user can archive a saved collection card from the collection detail view.
+- [ ] A signed-in user who reopens the app returns to the last active chat or learning screen instead of always landing on home.
+- [ ] Tapping the StringPhone brand returns the user to home.
 
 ## Out of scope for this release
 
@@ -326,5 +338,4 @@ Rules:
 ## Open questions
 
 - Should collection search live entirely on the server from the first release, or is client-side filtering acceptable until the collection size proves otherwise?
-- Should a saved collection entry support user editing and deletion in the initial rollout, or should the first release stay add/search-only?
 - Should lesson cards later gain their own save-to-collection affordance, or do we intentionally keep the first version scoped to chat messages plus manual add?

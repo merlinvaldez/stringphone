@@ -35,6 +35,7 @@ import {
   createConversation,
   createLanguageLesson,
   fetchAiPartnerSession,
+  saveCollectionEntry,
   fetchOutputSpeech,
   fetchLessons,
   fetchMessages,
@@ -50,6 +51,10 @@ import {
   saveAuthReturnState,
 } from "./authReturnState.js";
 import {
+  readLastViewState,
+  saveLastViewState,
+} from "./lastViewState.js";
+import {
   buildSharedRoomEventsUrl,
   createSharedRoom,
   fetchSharedRoomSnapshot,
@@ -63,7 +68,7 @@ import {
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
-import { LessonScreen } from "./components/lessons/LessonScreen.jsx";
+import { LearningScreen } from "./components/learning/LearningScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
@@ -167,7 +172,7 @@ const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
-  { id: "lesson", label: "Lessons", Icon: GraduationCap },
+  { id: "lesson", label: "Learning", Icon: GraduationCap },
 ];
 
 function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
@@ -224,14 +229,18 @@ export function StringPhoneBrand({
   );
 }
 
-function FloatingBrand() {
+function FloatingBrand({ onClick }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       className="absolute left-4 z-50 sm:left-6"
       style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
+      aria-label="Return home"
+      title="Return home"
     >
       <StringPhoneBrand compact />
-    </div>
+    </button>
   );
 }
 
@@ -258,6 +267,8 @@ function FloatingAuthControls({
   myLanguageCode,
   theirLanguageCode,
   joinQueryToken,
+  learningView,
+  activeCollectionLanguageCode,
 }) {
   const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
   const { user } = useUser();
@@ -325,6 +336,8 @@ function FloatingAuthControls({
       myLanguageCode,
       theirLanguageCode,
       joinQueryToken,
+      learningView,
+      activeCollectionLanguageCode,
     });
     navigate(nextPath);
   };
@@ -2100,9 +2113,11 @@ export function SharedRoomControls({
 
 export default function StringPhoneApp() {
   const { isLoaded: isAuthLoaded, isSignedIn, authFetch } = useAppAuth();
+  const { isLoaded: isUserLoaded, user } = useUser();
   const navigate = useNavigate();
   const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
+  const [learningView, setLearningView] = useState("lessons");
   const [myLang, setMyLang] = useState(() =>
     getLanguageOption(storedChatLanguages?.myLanguageCode),
   );
@@ -2113,8 +2128,10 @@ export default function StringPhoneApp() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [aiPartnerState, setAiPartnerState] = useState(buildDefaultAiPartnerState);
   const [activeLesson, setActiveLesson] = useState(null);
+  const [activeCollectionLanguageCode, setActiveCollectionLanguageCode] = useState(null);
   const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
   const messagesRef = useRef(messages);
   const aiPartnerStateRef = useRef(aiPartnerState);
   const aiPartnerReplyQueueRef = useRef(Promise.resolve());
@@ -2172,25 +2189,233 @@ export default function StringPhoneApp() {
   }, [aiPartnerState]);
 
   useEffect(() => {
-    if (!isAuthLoaded || hasRestoredAuthReturnStateRef.current) {
+    if (!isAuthLoaded || !isUserLoaded || hasRestoredAuthReturnStateRef.current) {
       return;
     }
 
     hasRestoredAuthReturnStateRef.current = true;
 
-    const savedReturnState = readAuthReturnState();
+    let cancelled = false;
 
-    if (!savedReturnState) {
+    const applySavedChatState = async (savedState) => {
+      setAppMode("chat");
+      setLearningView(savedState.learningView ?? "lessons");
+      setActiveCollectionLanguageCode(
+        savedState.activeCollectionLanguageCode ?? null,
+      );
+      setActiveLesson(null);
+      setLessonBuilderConfig(null);
+      bumpAiPartnerContextVersion();
+      resetAiPartnerState();
+
+      if (!savedState.currentConversationId || !isSignedIn) {
+        clearMessages();
+        setCurrentConversationId(null);
+        return;
+      }
+
+      try {
+        const dbMessages = await fetchMessages(
+          authFetch,
+          savedState.currentConversationId,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        replaceMessages(
+          mapConversationMessages(dbMessages, {
+            source_language: savedState.myLanguageCode,
+            target_language: savedState.theirLanguageCode,
+          }),
+        );
+        setCurrentConversationId(savedState.currentConversationId);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("Failed to restore saved conversation", error);
+        clearMessages();
+        setCurrentConversationId(null);
+      }
+    };
+
+    const applySavedLearningState = async (savedState) => {
+      setAppMode("lesson");
+      setLearningView(savedState.learningView ?? "lessons");
+      setCurrentConversationId(savedState.currentConversationId ?? null);
+      setLessonBuilderConfig(null);
+      bumpAiPartnerContextVersion();
+      resetAiPartnerState();
+
+      if (savedState.learningView === "collections") {
+        setActiveLesson(null);
+        setActiveCollectionLanguageCode(
+          savedState.activeCollectionLanguageCode ?? null,
+        );
+        return;
+      }
+
+      setActiveCollectionLanguageCode(null);
+
+      if (!savedState.activeLessonId || !isSignedIn) {
+        setActiveLesson(null);
+        return;
+      }
+
+      try {
+        const lessons = await fetchLessons(authFetch);
+
+        if (cancelled) {
+          return;
+        }
+
+        const matchingLesson =
+          lessons.find((lesson) => lesson.id === savedState.activeLessonId) ??
+          null;
+
+        setActiveLesson(matchingLesson);
+
+        if (!matchingLesson) {
+          return;
+        }
+
+        const sourceLanguageCode = getLessonSourceLanguageCode(matchingLesson);
+        const targetLanguageCode = getLessonTargetLanguageCode(matchingLesson);
+
+        if (sourceLanguageCode) {
+          setMyLang(getLanguageOption(sourceLanguageCode));
+        }
+
+        if (targetLanguageCode) {
+          setTheirLang(getLanguageOption(targetLanguageCode));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to restore saved lesson", error);
+          setActiveLesson(null);
+        }
+      }
+    };
+
+    const applySavedLiveModeState = (savedState) => {
+      setAppMode(savedState.appMode);
+      setLearningView(savedState.learningView ?? "lessons");
+      setActiveCollectionLanguageCode(
+        savedState.activeCollectionLanguageCode ?? null,
+      );
+      setActiveLesson(null);
+      setLessonBuilderConfig(null);
+      setCurrentConversationId(savedState.currentConversationId ?? null);
+      bumpAiPartnerContextVersion();
+      resetAiPartnerState();
+      clearMessages();
+    };
+
+    const restoreInitialLocation = async () => {
+      if (sharedRoomSession || pendingInviteToken) {
+        setHasResolvedInitialLocation(true);
+        return;
+      }
+
+      const savedReturnState = readAuthReturnState();
+
+      if (savedReturnState) {
+        setAppMode(savedReturnState.appMode);
+        setLearningView(savedReturnState.learningView ?? "lessons");
+        setActiveCollectionLanguageCode(
+          savedReturnState.activeCollectionLanguageCode ?? null,
+        );
+        setMyLang(getLanguageOption(savedReturnState.myLanguageCode));
+        setTheirLang(getLanguageOption(savedReturnState.theirLanguageCode));
+        setPendingInviteToken(savedReturnState.joinQueryToken);
+        syncSharedRoomInviteToken(savedReturnState.joinQueryToken);
+        clearAuthReturnState();
+        setHasResolvedInitialLocation(true);
+        return;
+      }
+
+      if (!isSignedIn || !user?.id) {
+        setHasResolvedInitialLocation(true);
+        return;
+      }
+
+      const savedLastViewState = readLastViewState(user.id);
+
+      if (!savedLastViewState) {
+        setHasResolvedInitialLocation(true);
+        return;
+      }
+
+      setMyLang(getLanguageOption(savedLastViewState.myLanguageCode));
+      setTheirLang(getLanguageOption(savedLastViewState.theirLanguageCode));
+
+      if (savedLastViewState.appMode === "lesson") {
+        await applySavedLearningState(savedLastViewState);
+      } else if (savedLastViewState.appMode === "chat") {
+        await applySavedChatState(savedLastViewState);
+      } else {
+        applySavedLiveModeState(savedLastViewState);
+      }
+
+      if (!cancelled) {
+        setHasResolvedInitialLocation(true);
+      }
+    };
+
+    void restoreInitialLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authFetch,
+    isAuthLoaded,
+    isSignedIn,
+    isUserLoaded,
+    pendingInviteToken,
+    sharedRoomSession,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      !hasResolvedInitialLocation ||
+      !isSignedIn ||
+      !user?.id ||
+      sharedRoomSession
+    ) {
       return;
     }
 
-    setAppMode(savedReturnState.appMode);
-    setMyLang(getLanguageOption(savedReturnState.myLanguageCode));
-    setTheirLang(getLanguageOption(savedReturnState.theirLanguageCode));
-    setPendingInviteToken(savedReturnState.joinQueryToken);
-    syncSharedRoomInviteToken(savedReturnState.joinQueryToken);
-    clearAuthReturnState();
-  }, [isAuthLoaded]);
+    saveLastViewState(user.id, {
+      appMode,
+      learningView,
+      myLanguageCode: myLang.code,
+      theirLanguageCode: theirLang.code,
+      currentConversationId:
+        appMode === "chat" || currentConversationId
+          ? currentConversationId
+          : null,
+      activeLessonId: activeLesson?.id ?? null,
+      activeCollectionLanguageCode:
+        learningView === "collections" ? activeCollectionLanguageCode : null,
+    });
+  }, [
+    activeCollectionLanguageCode,
+    activeLesson?.id,
+    appMode,
+    currentConversationId,
+    hasResolvedInitialLocation,
+    isSignedIn,
+    learningView,
+    myLang.code,
+    sharedRoomSession,
+    theirLang.code,
+    user?.id,
+  ]);
 
   useEffect(() => {
     persistSharedRoomSession(sharedRoomSession);
@@ -3558,6 +3783,8 @@ export default function StringPhoneApp() {
 
     setMyLang(sourceLanguage);
     setTheirLang(targetLanguage);
+    setLearningView("lessons");
+    setActiveCollectionLanguageCode(null);
     setActiveLesson(lesson);
     setLessonBuilderConfig(null);
     return lesson;
@@ -3574,6 +3801,8 @@ export default function StringPhoneApp() {
     }
 
     setActiveLesson(null);
+    setLearningView("lessons");
+    setActiveCollectionLanguageCode(null);
     setLessonBuilderConfig({
       key: createId(),
       sourceLanguage,
@@ -3594,6 +3823,9 @@ export default function StringPhoneApp() {
   };
 
   const openLessonForCurrentChat = async () => {
+    setLearningView("lessons");
+    setActiveCollectionLanguageCode(null);
+
     if (!currentConversationId || !isSignedIn) {
       setActiveLesson(null);
       setLessonBuilderConfig(null);
@@ -3637,13 +3869,94 @@ export default function StringPhoneApp() {
     setAppMode("lesson");
   };
 
+  const openCollectionsRoot = () => {
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+    }
+
+    setLearningView("collections");
+    setActiveCollectionLanguageCode(null);
+    setActiveLesson(null);
+    setLessonBuilderConfig(null);
+    setAppMode("lesson");
+  };
+
+  const openCollectionByLanguage = (languageCode) => {
+    if (sharedRoomSession) {
+      leaveSharedRoom();
+    }
+
+    setLearningView("collections");
+    setActiveCollectionLanguageCode(languageCode);
+    setActiveLesson(null);
+    setLessonBuilderConfig(null);
+    setAppMode("lesson");
+  };
+
   const handleSelectAppMode = async (nextMode) => {
     if (nextMode === "lesson") {
+      if (learningView === "collections") {
+        setAppMode("lesson");
+        return;
+      }
+
       await openLessonForCurrentChat();
       return;
     }
 
     setAppMode(nextMode);
+  };
+
+  const buildCollectionPayloadFromMessage = (message) => {
+    const savingOwnMessage = message.sender === "self";
+    const languageCode = savingOwnMessage
+      ? message.targetLanguageCode
+      : message.sourceLanguageCode;
+    const sourceLanguageCode = savingOwnMessage
+      ? message.sourceLanguageCode
+      : message.targetLanguageCode;
+
+    return {
+      sourceType: "message",
+      languageCode,
+      phraseText: savingOwnMessage
+        ? message.translatedText ?? ""
+        : message.originalText ?? "",
+      phrasePronunciation: savingOwnMessage
+        ? message.translatedPronunciation ?? ""
+        : message.originalPronunciation ?? "",
+      meaningText: savingOwnMessage
+        ? message.originalText ?? ""
+        : message.translatedText ?? "",
+      meaningPronunciation: savingOwnMessage
+        ? message.originalPronunciation ?? ""
+        : message.translatedPronunciation ?? "",
+      noteText: "",
+      sourceLanguageCode,
+      sourceConversationId: sharedRoomSession ? null : currentConversationId,
+      sourceMessageKind: message.kind ?? "",
+      sourceMessageSender: message.sender ?? "",
+      sourceSnapshot: {
+        messageId: message.id,
+        createdAt: message.createdAt ?? "",
+        originalText: message.originalText ?? "",
+        originalPronunciation: message.originalPronunciation ?? "",
+        translatedText: message.translatedText ?? "",
+        translatedPronunciation: message.translatedPronunciation ?? "",
+        sourceLanguageCode: message.sourceLanguageCode ?? "",
+        targetLanguageCode: message.targetLanguageCode ?? "",
+      },
+    };
+  };
+
+  const handleSaveMessageToCollection = async (message) => {
+    if (!isSignedIn) {
+      handleRequireSignIn();
+      return { saved: false };
+    }
+
+    await saveCollectionEntry(authFetch, buildCollectionPayloadFromMessage(message));
+    return { saved: true };
   };
 
   const persistActiveConversationLanguages = async (
@@ -3879,9 +4192,28 @@ export default function StringPhoneApp() {
       myLanguageCode: myLang.code,
       theirLanguageCode: theirLang.code,
       joinQueryToken: pendingInviteToken,
+      learningView,
+      activeCollectionLanguageCode,
     });
     setIsSidebarOpen(false);
     navigate("/login");
+  };
+
+  const handleReturnHome = () => {
+    if (sharedRoomSession || pendingInviteToken) {
+      leaveSharedRoom();
+    }
+
+    setIsSidebarOpen(false);
+    clearMessages();
+    setCurrentConversationId(null);
+    setActiveLesson(null);
+    setActiveCollectionLanguageCode(null);
+    setLearningView("lessons");
+    setLessonBuilderConfig(null);
+    bumpAiPartnerContextVersion();
+    resetAiPartnerState();
+    setAppMode("chat");
   };
 
   return (
@@ -3889,12 +4221,14 @@ export default function StringPhoneApp() {
       className="relative flex min-h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
       style={{ minHeight: "100svh", height: "100dvh" }}
     >
-      <FloatingBrand />
+      <FloatingBrand onClick={handleReturnHome} />
       <FloatingAuthControls
         appMode={appMode}
         myLanguageCode={myLang.code}
         theirLanguageCode={theirLang.code}
         joinQueryToken={pendingInviteToken}
+        learningView={learningView}
+        activeCollectionLanguageCode={activeCollectionLanguageCode}
       />
       <ModeSwitcher
         appMode={appMode}
@@ -3908,7 +4242,13 @@ export default function StringPhoneApp() {
       <ChatHistorySidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        preferredHistoryType={appMode === "lesson" || activeLesson ? "lessons" : "chats"}
+        preferredHistoryType={
+          appMode === "lesson"
+            ? learningView === "collections"
+              ? "collections"
+              : "lessons"
+            : "chats"
+        }
         signedOutContext={
           appMode === "single" || appMode === "conversation" ? "voice" : "standard"
         }
@@ -3934,12 +4274,17 @@ export default function StringPhoneApp() {
             setTheirLang(getLanguageOption(targetLanguageCode));
           }
 
+          setLearningView("lessons");
+          setActiveCollectionLanguageCode(null);
           setActiveLesson(lesson);
           setLessonBuilderConfig(null);
           setAppMode("lesson");
         }}
         onCreateLesson={openFreshLessonFromHistory}
         onArchiveLesson={handleArchivedLesson}
+        currentCollectionLanguageCode={activeCollectionLanguageCode}
+        onSelectCollection={openCollectionByLanguage}
+        onOpenCollections={openCollectionsRoot}
         currentSourceLanguage={myLang}
         currentTargetLanguage={theirLang}
       />
@@ -3957,6 +4302,7 @@ export default function StringPhoneApp() {
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
           onPlayGeneratedSpeech={playGeneratedSpeech}
+          onSaveToCollection={handleSaveMessageToCollection}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
           sharedRoomStatus={sharedRoomStatus}
@@ -3988,17 +4334,24 @@ export default function StringPhoneApp() {
       ) : null}
 
       {appMode === "lesson" ? (
-        <LessonScreen
+        <LearningScreen
+          learningView={learningView}
+          onSelectLearningView={setLearningView}
           activeLesson={activeLesson}
           myLang={myLang}
           theirLang={theirLang}
           currentMessages={chatMessages}
           isSignedIn={isSignedIn}
+          authFetch={authFetch}
           onCreateLesson={createLessonFromCurrentContext}
           onStartNewLesson={openNewLesson}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           onPlayGeneratedSpeech={playGeneratedSpeech}
           lessonBuilderConfig={lessonBuilderConfig}
+          onRequireSignIn={handleRequireSignIn}
+          availableLanguages={LANGUAGES}
+          activeCollectionLanguageCode={activeCollectionLanguageCode}
+          onSelectCollectionLanguageCode={setActiveCollectionLanguageCode}
         />
       ) : null}
 
