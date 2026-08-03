@@ -441,16 +441,17 @@ function CollectionDetailView({
                 placeholder={`Search ${collection.languageName}`}
               />
             </div>
-            <button
-              type="button"
-              onClick={onOpenComposer}
-              className="mt-4 inline-flex h-12 w-full items-center justify-center rounded-[1.35rem] border border-white/10 bg-black/20 text-zinc-300 transition hover:border-white/15 hover:bg-white/[0.06] hover:text-white"
-              title="Add phrasebook card"
-              aria-label="Add phrasebook card"
-            >
-              <Plus size={18} />
-            </button>
           </div>
+
+          <button
+            type="button"
+            onClick={onOpenComposer}
+            className="inline-flex h-12 w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-zinc-900/70 text-zinc-300 shadow-xl backdrop-blur-xl transition hover:border-white/15 hover:bg-white/[0.06] hover:text-white"
+            title="Add phrasebook card"
+            aria-label="Add phrasebook card"
+          >
+            <Plus size={18} />
+          </button>
 
           {error ? (
             <div className="rounded-xl border border-rose-400/15 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
