@@ -406,26 +406,15 @@ function CollectionDetailView({
       <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-4 pb-8 pt-28 sm:px-6 sm:pt-32">
         <div className="mx-auto mb-4 flex w-full max-w-3xl items-center justify-between gap-3">
           <HistoryShortcutButton onClick={onOpenSidebar} />
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-              title="Back to phrasebook"
-              aria-label="Back to phrasebook"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={onOpenComposer}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-              title="Add phrasebook card"
-              aria-label="Add phrasebook card"
-            >
-              <Plus size={18} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+            title="Back to phrasebook"
+            aria-label="Back to phrasebook"
+          >
+            <ChevronLeft size={18} />
+          </button>
         </div>
 
         <div className="mx-auto w-full max-w-3xl space-y-4">
@@ -452,6 +441,15 @@ function CollectionDetailView({
                 placeholder={`Search ${collection.languageName}`}
               />
             </div>
+            <button
+              type="button"
+              onClick={onOpenComposer}
+              className="mt-4 inline-flex h-12 w-full items-center justify-center rounded-[1.35rem] border border-white/10 bg-black/20 text-zinc-300 transition hover:border-white/15 hover:bg-white/[0.06] hover:text-white"
+              title="Add phrasebook card"
+              aria-label="Add phrasebook card"
+            >
+              <Plus size={18} />
+            </button>
           </div>
 
           {error ? (
