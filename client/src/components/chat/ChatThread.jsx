@@ -7,6 +7,7 @@ export function ChatThread({
   onRetry,
   onAudioPlay,
   onPlayGeneratedSpeech,
+  onSaveToCollection,
   uiStrings,
   aiPartnerDisplayName,
 }) {
@@ -40,6 +41,7 @@ export function ChatThread({
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
             onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+            onSaveToCollection={onSaveToCollection}
             uiStrings={uiStrings}
             aiPartnerDisplayName={aiPartnerDisplayName}
           />

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  Bookmark,
   X,
   Plus,
   Loader2,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   archiveConversation,
+  fetchCollections,
   archiveLesson,
   createConversation,
   fetchConversations,
@@ -34,11 +36,15 @@ export function ChatHistorySidebar({
   onSelectLesson,
   onCreateLesson,
   onArchiveLesson,
+  currentCollectionLanguageCode,
+  onSelectCollection,
+  onOpenCollections,
   currentSourceLanguage,
   currentTargetLanguage,
 }) {
   const { authFetch, isSignedIn } = useAppAuth();
   const [conversations, setConversations] = useState([]);
+  const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [archivingConversationId, setArchivingConversationId] = useState(null);
   const [archivingLessonId, setArchivingLessonId] = useState(null);
@@ -58,6 +64,11 @@ export function ChatHistorySidebar({
             Icon: GraduationCap,
             detail: "to save your lessons",
           }
+        : historyType === "collections"
+          ? {
+              Icon: Bookmark,
+              detail: "to save your phrasebook",
+            }
         : {
             Icon: MessageSquare,
             detail: "to create new conversations",
@@ -138,9 +149,26 @@ export function ChatHistorySidebar({
     }
   }
 
+  async function loadCollections() {
+    try {
+      setLoading(true);
+      setError("");
+      setCollections(await fetchCollections(authFetch));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadHistory() {
     if (historyType === "lessons") {
       await loadLessons();
+      return;
+    }
+
+    if (historyType === "collections") {
+      await loadCollections();
       return;
     }
 
@@ -192,6 +220,11 @@ export function ChatHistorySidebar({
     onClose();
   }
 
+  function handleOpenCollections() {
+    onOpenCollections?.();
+    onClose();
+  }
+
   async function handleArchiveConversation(conversationId) {
     try {
       setArchivingConversationId(conversationId);
@@ -232,7 +265,7 @@ export function ChatHistorySidebar({
     return title || "New chat";
   }
 
-  function renderConversationFlags(conversation) {
+function renderConversationFlags(conversation) {
     const sourceCountryCode = getFlagCountryCode(conversation.source_language);
     const targetCountryCode = getFlagCountryCode(conversation.target_language);
 
@@ -280,6 +313,55 @@ export function ChatHistorySidebar({
   }
 
   if (!isOpen) return null;
+
+  const actionButton = isSignedIn ? (
+    historyType === "chats" ? (
+      <button
+        onClick={handleNewConversation}
+        disabled={isBusy}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+        New Conversation
+      </button>
+    ) : historyType === "collections" ? (
+      <button
+        onClick={handleOpenCollections}
+        disabled={isBusy}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Bookmark size={18} />
+        Open phrasebook
+      </button>
+    ) : (
+      <button
+        onClick={handleCreateLesson}
+        disabled={isBusy}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <GraduationCap size={18} />
+        New lesson
+      </button>
+    )
+  ) : (
+    <button
+      type="button"
+      onClick={onRequireSignIn}
+      className="flex w-full items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5 transition hover:border-emerald-300/24 hover:bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(24,24,27,0.92))] focus:outline-none focus:ring-2 focus:ring-emerald-300/25"
+    >
+      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
+        <signedOutCallout.Icon size={20} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
+          Sign in
+        </span>
+        <span className="mt-1 block text-sm font-medium text-zinc-200">
+          {signedOutCallout.detail}
+        </span>
+      </span>
+    </button>
+  );
 
   return (
     <>
@@ -335,49 +417,26 @@ export function ChatHistorySidebar({
             >
               <GraduationCap size={16} />
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={historyType === "collections"}
+              onClick={() => setHistoryType("collections")}
+              className={`flex h-8 w-9 items-center justify-center rounded-lg transition ${
+                historyType === "collections"
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              aria-label="Phrasebook history"
+              title="Phrasebook history"
+            >
+              <Bookmark size={15} />
+            </button>
           </div>
         </div>
 
         <div className="border-b border-white/10 p-4">
-          {isSignedIn ? (
-            historyType === "chats" ? (
-              <button
-                onClick={handleNewConversation}
-                disabled={isBusy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-                New Conversation
-              </button>
-            ) : (
-              <button
-                onClick={handleCreateLesson}
-                disabled={isBusy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-medium text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <GraduationCap size={18} />
-                New lesson
-              </button>
-            )
-          ) : (
-            <button
-              type="button"
-              onClick={onRequireSignIn}
-              className="flex w-full items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5 transition hover:border-emerald-300/24 hover:bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(24,24,27,0.92))] focus:outline-none focus:ring-2 focus:ring-emerald-300/25"
-            >
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
-                <signedOutCallout.Icon size={20} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
-                  Sign in
-                </span>
-                <span className="mt-1 block text-sm font-medium text-zinc-200">
-                  {signedOutCallout.detail}
-                </span>
-              </span>
-            </button>
-          )}
+          {actionButton}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -387,7 +446,7 @@ export function ChatHistorySidebar({
             </div>
           )}
 
-          {loading && ((historyType === "chats" && conversations.length === 0) || (historyType === "lessons" && lessons.length === 0)) && (
+          {loading && ((historyType === "chats" && conversations.length === 0) || (historyType === "lessons" && lessons.length === 0) || (historyType === "collections" && collections.length === 0)) && (
             <div className="flex justify-center p-8">
               <Loader2 size={24} className="animate-spin text-zinc-500" />
             </div>
@@ -402,6 +461,12 @@ export function ChatHistorySidebar({
           {!loading && historyType === "lessons" && lessons.length === 0 && !error && isSignedIn && (
             <div className="p-8 text-center text-sm text-zinc-500">
               No saved lessons yet.
+            </div>
+          )}
+
+          {!loading && historyType === "collections" && collections.length === 0 && !error && isSignedIn && (
+            <div className="p-8 text-center text-sm text-zinc-500">
+              No saved phrasebook entries yet.
             </div>
           )}
 
@@ -568,6 +633,42 @@ export function ChatHistorySidebar({
                   </button>
                 </div>
               </div>
+            );
+          })}
+
+          {historyType === "collections" && collections.map((collection) => {
+            const isSelected =
+              currentCollectionLanguageCode === collection.languageCode;
+
+            return (
+              <button
+                key={collection.id}
+                type="button"
+                onClick={() => {
+                  onSelectCollection?.(collection.languageCode);
+                  onClose();
+                }}
+                disabled={isBusy}
+                className={`mb-1 flex w-full items-start gap-3 rounded-xl p-3 text-left transition ${
+                  isSelected
+                    ? "bg-white/10 text-white"
+                    : "text-zinc-300 hover:bg-white/5"
+                } ${isBusy ? "cursor-wait opacity-70" : ""}`}
+              >
+                <LanguageFlag
+                  countryCode={getFlagCountryCode(collection.languageCode)}
+                  label={collection.languageName}
+                  className="mt-1 h-5 w-7 shrink-0"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">
+                    {collection.languageName}
+                  </span>
+                  <span className="mt-1 block text-xs text-zinc-500">
+                    {collection.entryCount} {collection.entryCount === 1 ? "card" : "cards"}
+                  </span>
+                </span>
+              </button>
             );
           })}
         </div>

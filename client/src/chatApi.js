@@ -1,6 +1,21 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
+function buildApiUrl(path, query = {}) {
+  const params = new URLSearchParams();
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value == null || value === "") {
+      return;
+    }
+
+    params.set(key, String(value));
+  });
+
+  const queryString = params.toString();
+  return `${API_BASE_URL}${path}${queryString ? `?${queryString}` : ""}`;
+}
+
 export async function parseApiError(response, fallbackMessage) {
   try {
     const body = await response.json();
@@ -308,6 +323,61 @@ export async function createLanguageLesson(
 
   if (!response.ok) {
     throw new Error(await parseApiError(response, "Failed to create lesson"));
+  }
+
+  return response.json();
+}
+
+export async function fetchCollections(authFetch, { q = "" } = {}) {
+  const response = await authFetch(buildApiUrl("/collections", { q }));
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, "Failed to fetch collections"));
+  }
+
+  return response.json();
+}
+
+export async function fetchCollection(authFetch, languageCode, { q = "" } = {}) {
+  const response = await authFetch(
+    buildApiUrl(`/collections/${encodeURIComponent(languageCode)}`, { q }),
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, "Failed to fetch collection"));
+  }
+
+  return response.json();
+}
+
+export async function saveCollectionEntry(authFetch, payload) {
+  const response = await authFetch(`${API_BASE_URL}/collections/entries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to save collection entry"),
+    );
+  }
+
+  return response.json();
+}
+
+export async function archiveCollectionEntry(authFetch, entryId) {
+  const response = await authFetch(
+    buildApiUrl("/collections/entries", { entryId }),
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to archive collection entry"),
+    );
   }
 
   return response.json();

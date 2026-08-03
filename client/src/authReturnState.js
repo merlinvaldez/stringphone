@@ -22,11 +22,28 @@ export function readAuthReturnState() {
       return null;
     }
 
+    if (
+      parsed?.learningView != null &&
+      parsed.learningView !== "lessons" &&
+      parsed.learningView !== "collections"
+    ) {
+      return null;
+    }
+
+    if (
+      parsed?.activeCollectionLanguageCode != null &&
+      typeof parsed.activeCollectionLanguageCode !== "string"
+    ) {
+      return null;
+    }
+
     return {
       appMode: parsed.appMode,
       myLanguageCode: parsed.myLanguageCode,
       theirLanguageCode: parsed.theirLanguageCode,
       joinQueryToken: parsed.joinQueryToken ?? "",
+      learningView: parsed.learningView ?? "lessons",
+      activeCollectionLanguageCode: parsed.activeCollectionLanguageCode ?? null,
     };
   } catch {
     return null;
@@ -38,6 +55,8 @@ export function saveAuthReturnState({
   myLanguageCode,
   theirLanguageCode,
   joinQueryToken = "",
+  learningView = "lessons",
+  activeCollectionLanguageCode = null,
 }) {
   if (typeof window === "undefined") return;
 
@@ -48,6 +67,8 @@ export function saveAuthReturnState({
       myLanguageCode,
       theirLanguageCode,
       joinQueryToken,
+      learningView,
+      activeCollectionLanguageCode,
     }),
   );
 }
