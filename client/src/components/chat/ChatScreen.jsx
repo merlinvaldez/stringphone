@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ChatHeader } from "./ChatHeader.jsx";
 import { ChatThread } from "./ChatThread.jsx";
 import { ChatComposer } from "./ChatComposer.jsx";
+import { useLiveConversationCapture } from "../live/useLiveConversationCapture.js";
 import {
   getChatCommandOptions,
   resolveChatSlashSubmission,
@@ -40,6 +41,9 @@ export function ChatScreen({
   onOpenSidebar,
   aiPartnerState,
   onExecuteSlashCommand,
+  liveCaptureState,
+  setLiveCaptureState,
+  onLiveSegment,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -71,6 +75,11 @@ export function ChatScreen({
   const composerDisabled =
     waitingForSharedRoomAutoJoin ||
     (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
+  const liveCaptureBusy =
+    liveCaptureState?.status === "starting" ||
+    liveCaptureState?.status === "listening" ||
+    liveCaptureState?.status === "processing" ||
+    liveCaptureState?.status === "stopping";
   const composerDisabledPlaceholder = waitingForSharedRoomAutoJoin
     ? "Joining shared chat..."
     : sharedRoomStatus === "connecting"
@@ -85,6 +94,13 @@ export function ChatScreen({
   const partnerStatusLabel = aiPartnerState?.displayName
     ? aiPartnerState.displayName
     : "Partner";
+  const { startListening, stopListening } = useLiveConversationCapture({
+    myLang,
+    theirLang,
+    captureState: liveCaptureState,
+    setCaptureState: setLiveCaptureState,
+    onLiveSegment,
+  });
 
   useEffect(
     () => {
@@ -278,7 +294,12 @@ export function ChatScreen({
         theirLang={theirLang}
         setTheirLang={setTheirLang}
         onInvertLanguages={onInvertLanguages}
-        disabled={status !== "idle" || liveRoomBusy || waitingForSharedRoomAutoJoin}
+        disabled={
+          status !== "idle" ||
+          liveRoomBusy ||
+          waitingForSharedRoomAutoJoin ||
+          liveCaptureBusy
+        }
         uiStrings={screenUiStrings}
         sharedRoomSession={sharedRoomSession}
         sharedRoom={sharedRoom}
@@ -338,7 +359,11 @@ export function ChatScreen({
         onInvertLanguages={onInvertLanguages}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
+        liveCaptureState={liveCaptureState}
+        onStartLiveCapture={() => void startListening()}
+        onStopLiveCapture={() => void stopListening()}
         supportsVoiceInput
+        supportsLiveCapture={!sharedRoomSession && !textOnlyChat}
         showInvertLanguages={textOnlyChat}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}

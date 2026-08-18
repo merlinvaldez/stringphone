@@ -91,7 +91,10 @@ export function MessageBubble({
               {canSaveToCollection ? (
                 <button
                   type="button"
-                  onClick={() => void handleSaveToCollection()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleSaveToCollection();
+                  }}
                   disabled={saveState === "saving"}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
                     saveState === "saved"
@@ -186,13 +189,15 @@ export function MessageBubble({
                     ) : null}
                   </div>
                   {!isSelf && message.originalText && !isAiPartnerMessage ? (
-                    <TextToSpeechButton
-                      text={message.originalText}
-                      languageCode={message.sourceLanguageCode}
-                      onPlay={onPlayGeneratedSpeech}
-                      uiStrings={uiStrings}
-                      className="mt-0.5"
-                    />
+                    <div onClick={(event) => event.stopPropagation()}>
+                      <TextToSpeechButton
+                        text={message.originalText}
+                        languageCode={message.sourceLanguageCode}
+                        onPlay={onPlayGeneratedSpeech}
+                        uiStrings={uiStrings}
+                        className="mt-0.5"
+                      />
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -214,13 +219,15 @@ export function MessageBubble({
                     ) : null}
                   </div>
                   {isSelf && message.translatedText ? (
-                    <TextToSpeechButton
-                      text={message.translatedText}
-                      languageCode={message.targetLanguageCode}
-                      onPlay={onPlayGeneratedSpeech}
-                      uiStrings={uiStrings}
-                      className="mt-0.5"
-                    />
+                    <div onClick={(event) => event.stopPropagation()}>
+                      <TextToSpeechButton
+                        text={message.translatedText}
+                        languageCode={message.targetLanguageCode}
+                        onPlay={onPlayGeneratedSpeech}
+                        uiStrings={uiStrings}
+                        className="mt-0.5"
+                      />
+                    </div>
                   ) : null}
                 </div>
               </div>

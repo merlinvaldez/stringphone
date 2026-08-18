@@ -22,6 +22,14 @@ import {
 import { useAppAuth } from "../../AuthContext.jsx";
 import { getFlagCountryCode, LanguageFlag } from "../../languageFlags.jsx";
 
+const SHOW_LESSON_HISTORY = false;
+
+function getVisibleHistoryType(historyType) {
+  return !SHOW_LESSON_HISTORY && historyType === "lessons"
+    ? "collections"
+    : historyType;
+}
+
 export function ChatHistorySidebar({
   isOpen,
   onClose,
@@ -51,7 +59,9 @@ export function ChatHistorySidebar({
   const [openConversationMenuId, setOpenConversationMenuId] = useState(null);
   const [openLessonMenuId, setOpenLessonMenuId] = useState(null);
   const [lessons, setLessons] = useState([]);
-  const [historyType, setHistoryType] = useState(preferredHistoryType);
+  const [historyType, setHistoryType] = useState(() =>
+    getVisibleHistoryType(preferredHistoryType),
+  );
   const [error, setError] = useState("");
   const signedOutCallout =
     signedOutContext === "voice"
@@ -59,7 +69,7 @@ export function ChatHistorySidebar({
           Icon: Mic,
           detail: "to save your voice",
         }
-      : historyType === "lessons"
+      : SHOW_LESSON_HISTORY && historyType === "lessons"
         ? {
             Icon: GraduationCap,
             detail: "to save your lessons",
@@ -82,7 +92,7 @@ export function ChatHistorySidebar({
 
   useEffect(() => {
     if (isOpen) {
-      setHistoryType(preferredHistoryType);
+      setHistoryType(getVisibleHistoryType(preferredHistoryType));
     }
   }, [isOpen, preferredHistoryType]);
 
@@ -162,7 +172,7 @@ export function ChatHistorySidebar({
   }
 
   async function loadHistory() {
-    if (historyType === "lessons") {
+    if (SHOW_LESSON_HISTORY && historyType === "lessons") {
       await loadLessons();
       return;
     }
@@ -324,7 +334,7 @@ function renderConversationFlags(conversation) {
         {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
         New Conversation
       </button>
-    ) : historyType === "collections" ? (
+    ) : historyType === "collections" || !SHOW_LESSON_HISTORY ? (
       <button
         onClick={handleOpenCollections}
         disabled={isBusy}
@@ -402,21 +412,23 @@ function renderConversationFlags(conversation) {
             >
               <MessageSquare size={15} />
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={historyType === "lessons"}
-              onClick={() => setHistoryType("lessons")}
-              className={`flex h-8 w-9 items-center justify-center rounded-lg transition ${
-                historyType === "lessons"
-                  ? "bg-white/10 text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-              aria-label="Lesson history"
-              title="Lesson history"
-            >
-              <GraduationCap size={16} />
-            </button>
+            {SHOW_LESSON_HISTORY ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={historyType === "lessons"}
+                onClick={() => setHistoryType("lessons")}
+                className={`flex h-8 w-9 items-center justify-center rounded-lg transition ${
+                  historyType === "lessons"
+                    ? "bg-white/10 text-white"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+                aria-label="Lesson history"
+                title="Lesson history"
+              >
+                <GraduationCap size={16} />
+              </button>
+            ) : null}
             <button
               type="button"
               role="tab"

@@ -49,6 +49,7 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
+import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 import { runUiTranslations } from "./lib/runUiTranslations.js";
@@ -1151,6 +1152,46 @@ app.post(
     } catch (error) {
       console.error("Voice chat translation failed", error);
       return res.status(502).json({ error: "Voice chat translation failed" });
+    }
+  },
+);
+
+app.post(
+  "/chat/messages/live-segment",
+  upload.fields([{ name: "sourceAudio", maxCount: 1 }]),
+  async (req, res) => {
+    const uploadedFiles = req.files as
+      | {
+          sourceAudio?: Express.Multer.File[];
+        }
+      | undefined;
+    const sourceAudioFile = uploadedFiles?.sourceAudio?.[0];
+
+    try {
+      const authenticatedRequest =
+        await getOptionalAuthenticatedAppRequest(req);
+      const result = await runLiveConversationSegment({
+        sourceLanguage: req.body?.sourceLanguage,
+        targetLanguage: req.body?.targetLanguage,
+        conversationId: req.body?.conversationId,
+        userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile: sourceAudioFile
+          ? {
+              buffer: sourceAudioFile.buffer,
+              filename: sourceAudioFile.originalname,
+              mimeType: sourceAudioFile.mimetype,
+            }
+          : undefined,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Live conversation segment failed", error);
+      return res.status(502).json({ error: "Live conversation segment failed" });
     }
   },
 );

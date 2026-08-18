@@ -82,6 +82,50 @@ export async function translateVoiceMessage({
   return response.json();
 }
 
+export async function processLiveConversationSegment({
+  audioBlob,
+  sourceLanguage,
+  targetLanguage,
+  authFetch,
+  conversationId = null,
+  segmentStartedAt = "",
+  segmentEndedAt = "",
+}) {
+  const formData = new FormData();
+  const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
+  const fileName = `stringphone-live-segment.${extension}`;
+
+  formData.append("sourceLanguage", sourceLanguage.code);
+  formData.append("targetLanguage", targetLanguage.code);
+  formData.append("sourceAudio", audioBlob, fileName);
+
+  if (conversationId) {
+    formData.append("conversationId", conversationId);
+  }
+
+  if (segmentStartedAt) {
+    formData.append("segmentStartedAt", segmentStartedAt);
+  }
+
+  if (segmentEndedAt) {
+    formData.append("segmentEndedAt", segmentEndedAt);
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/messages/live-segment`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Live transcription failed."),
+    );
+  }
+
+  return response.json();
+}
+
 export async function fetchConversations(authFetch) {
   const response = await authFetch(`${API_BASE_URL}/chat/conversations`);
   if (!response.ok) throw new Error(await parseApiError(response, "Failed to fetch conversations"));

@@ -86,7 +86,9 @@ export function TextToSpeechButton({
     setIsPlaying(!player.paused);
   };
 
-  const handleClick = async () => {
+  const handleClick = async (event) => {
+    event.stopPropagation();
+
     if (!canPlay || isLoading) {
       return;
     }
@@ -124,7 +126,7 @@ export function TextToSpeechButton({
   return (
     <button
       type="button"
-      onClick={() => void handleClick()}
+      onClick={(event) => void handleClick(event)}
       disabled={isDisabled}
       title={label}
       aria-label={label}
