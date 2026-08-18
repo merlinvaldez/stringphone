@@ -13,7 +13,9 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
       ? uiStrings.pauseAudio
       : uiStrings.playAudio;
 
-  const togglePlayback = async () => {
+  const togglePlayback = async (event) => {
+    event.stopPropagation();
+
     const audioElement = audioRef.current;
 
     if (!audioElement) {
@@ -38,8 +40,8 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
     <div className={`flex ${isSelf ? "justify-end" : "justify-start"}`}>
       <button
         type="button"
-        onClick={() => {
-          void togglePlayback();
+        onClick={(event) => {
+          void togglePlayback(event);
         }}
         className={BASE_AUDIO_ICON_BUTTON_CLASSNAME}
         title={label}

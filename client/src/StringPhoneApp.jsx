@@ -5,7 +5,6 @@ import {
   ArrowLeftRight,
   ArrowRight,
   Copy,
-  Ear,
   GraduationCap,
   Loader2,
   Menu,
@@ -39,6 +38,7 @@ import {
   fetchOutputSpeech,
   fetchLessons,
   fetchMessages,
+  processLiveConversationSegment,
   requestAiPartnerReply,
   saveMessage,
   saveVoiceSample,
@@ -91,6 +91,13 @@ const DEFAULT_AI_PARTNER_STATE = {
   status: "idle",
   lastError: "",
   metadata: {},
+};
+const DEFAULT_LIVE_CAPTURE_STATE = {
+  status: "idle",
+  sessionStartedAt: null,
+  activeSegmentId: null,
+  pendingSegmentCount: 0,
+  lastError: "",
 };
 
 const RAW_LANGUAGES = [
@@ -2127,6 +2134,9 @@ export default function StringPhoneApp() {
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [aiPartnerState, setAiPartnerState] = useState(buildDefaultAiPartnerState);
+  const [liveCaptureState, setLiveCaptureState] = useState(() => ({
+    ...DEFAULT_LIVE_CAPTURE_STATE,
+  }));
   const [activeLesson, setActiveLesson] = useState(null);
   const [activeCollectionLanguageCode, setActiveCollectionLanguageCode] = useState(null);
   const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
@@ -2136,6 +2146,7 @@ export default function StringPhoneApp() {
   const aiPartnerStateRef = useRef(aiPartnerState);
   const aiPartnerReplyQueueRef = useRef(Promise.resolve());
   const aiPartnerContextVersionRef = useRef(0);
+  const liveSegmentQueueRef = useRef(Promise.resolve());
   const pendingConversationIdRef = useRef(null);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
@@ -2207,6 +2218,7 @@ export default function StringPhoneApp() {
       setLessonBuilderConfig(null);
       bumpAiPartnerContextVersion();
       resetAiPartnerState();
+      resetLiveCaptureState();
 
       if (!savedState.currentConversationId || !isSignedIn) {
         clearMessages();
@@ -2249,6 +2261,7 @@ export default function StringPhoneApp() {
       setLessonBuilderConfig(null);
       bumpAiPartnerContextVersion();
       resetAiPartnerState();
+      resetLiveCaptureState();
 
       if (savedState.learningView === "collections") {
         setActiveLesson(null);
@@ -2311,6 +2324,7 @@ export default function StringPhoneApp() {
       setCurrentConversationId(savedState.currentConversationId ?? null);
       bumpAiPartnerContextVersion();
       resetAiPartnerState();
+      resetLiveCaptureState();
       clearMessages();
     };
 
@@ -2867,6 +2881,20 @@ export default function StringPhoneApp() {
     setMessages(nextMessages);
   };
 
+  const removeMessage = (messageId) => {
+    const currentMessage = messagesRef.current.find(
+      (message) => message.id === messageId,
+    );
+
+    revokeObjectUrl(currentMessage?.audioUrl);
+
+    const nextMessages = messagesRef.current.filter(
+      (message) => message.id !== messageId,
+    );
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+  };
+
   const replaceMessages = (nextMessages) => {
     stopAllPlayback();
     revokeMessageAudioUrls(messagesRef.current);
@@ -2891,6 +2919,39 @@ export default function StringPhoneApp() {
     const nextState = buildDefaultAiPartnerState();
     aiPartnerStateRef.current = nextState;
     setAiPartnerState(nextState);
+  };
+
+  const setLiveCaptureStateWithPatch = (patch) => {
+    setLiveCaptureState((previousState) => ({
+      ...previousState,
+      ...(typeof patch === "function" ? patch(previousState) : patch),
+    }));
+  };
+
+  const resetLiveCaptureState = () => {
+    setLiveCaptureState({ ...DEFAULT_LIVE_CAPTURE_STATE });
+  };
+
+  const updateLivePendingSegmentCount = (delta) => {
+    setLiveCaptureState((previousState) => {
+      const pendingSegmentCount = Math.max(
+        0,
+        Number(previousState.pendingSegmentCount ?? 0) + delta,
+      );
+      const isActiveLiveState =
+        previousState.status === "listening" ||
+        previousState.status === "processing";
+
+      return {
+        ...previousState,
+        pendingSegmentCount,
+        status: isActiveLiveState
+          ? pendingSegmentCount > 0
+            ? "processing"
+            : "listening"
+          : previousState.status,
+      };
+    });
   };
 
   const ensurePersistedConversationId = async ({
@@ -3528,6 +3589,164 @@ export default function StringPhoneApp() {
     }
   };
 
+  const submitLiveConversationSegment = ({
+    audioBlob,
+    sourceLanguage,
+    targetLanguage,
+    segmentStartedAt = "",
+    segmentEndedAt = "",
+    existingMessageId = null,
+  }) => {
+    const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
+    const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    const retryPayload = {
+      kind: "live",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      sourceLanguageCode: sourceLanguage.code,
+      targetLanguageCode: targetLanguage.code,
+      recordingBlob: audioBlob,
+      segmentStartedAt,
+      segmentEndedAt,
+    };
+    const pendingMessage = {
+      kind: "text",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      status: "transcribing",
+      originalText: "",
+      originalPronunciation: "",
+      translatedText: "",
+      translatedPronunciation: "",
+      transcript: "",
+      audioUrl: "",
+      errorMessage: "",
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
+      segmentStartedAt,
+      segmentEndedAt,
+      retryPayload,
+    };
+    let messageId = existingMessageId;
+
+    if (existingMessageId) {
+      updateMessage(existingMessageId, pendingMessage);
+    }
+
+    updateLivePendingSegmentCount(1);
+
+    liveSegmentQueueRef.current = liveSegmentQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const conversationId =
+          (await ensurePersistedConversationId({
+            sourceLanguage,
+            targetLanguage,
+          }).catch((error) => {
+            console.error(
+              "Failed to create a conversation before saving the live segment",
+              error,
+            );
+            return null;
+          })) ?? currentConversationId;
+
+        try {
+          const data = await processLiveConversationSegment({
+            audioBlob,
+            sourceLanguage,
+            targetLanguage,
+            authFetch: isSignedIn ? authFetch : undefined,
+            conversationId,
+            segmentStartedAt,
+            segmentEndedAt,
+          });
+          const detectedSourceLanguage = getLanguageOption(
+            data.sourceLanguage?.code,
+          );
+          const detectedTargetLanguage = getLanguageOption(
+            data.targetLanguage?.code,
+          );
+          const detectedSourceSnapshot =
+            buildLanguageSnapshot(detectedSourceLanguage);
+          const detectedTargetSnapshot =
+            buildLanguageSnapshot(detectedTargetLanguage);
+
+          const readyMessage = {
+            kind: "text",
+            originMode: "live",
+            sender: data.sender === "partner" ? "partner" : "self",
+            messageOrigin: "human",
+            status: "ready",
+            originalText: data.transcript ?? "",
+            originalPronunciation: data.originalPronunciation ?? "",
+            translatedText: data.translatedText ?? "",
+            translatedPronunciation: data.translatedPronunciation ?? "",
+            transcript: data.transcript ?? "",
+            audioUrl: "",
+            errorMessage: "",
+            detectedSourceLanguageCode:
+              data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
+            detectedSourceLanguageConfidence:
+              data.detectedSourceLanguage?.confidence ?? 0,
+            sourceLanguageCode: detectedSourceSnapshot.code,
+            sourceLanguageLabel: detectedSourceSnapshot.label,
+            sourceLanguageFlag: detectedSourceSnapshot.flag,
+            targetLanguageCode: detectedTargetSnapshot.code,
+            targetLanguageLabel: detectedTargetSnapshot.label,
+            targetLanguageFlag: detectedTargetSnapshot.flag,
+            retryPayload,
+          };
+
+          if (messageId) {
+            updateMessage(messageId, readyMessage);
+          } else {
+            messageId = appendMessage(readyMessage);
+          }
+
+          setLiveCaptureStateWithPatch({ lastError: "" });
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Live transcription failed.";
+
+          if (/no speech was detected/i.test(message)) {
+            if (messageId) {
+              removeMessage(messageId);
+            }
+            return;
+          }
+
+          if (messageId) {
+            updateMessage(messageId, {
+              status: "error",
+              errorMessage: message,
+              retryPayload,
+            });
+          } else {
+            appendMessage({
+              ...pendingMessage,
+              status: "error",
+              errorMessage: message,
+            });
+          }
+          setLiveCaptureStateWithPatch({
+            lastError: message,
+          });
+        } finally {
+          updateLivePendingSegmentCount(-1);
+        }
+      });
+
+    return liveSegmentQueueRef.current;
+  };
+
   const retryMessage = async (message) => {
     const retryPayload = message.retryPayload;
 
@@ -3560,6 +3779,18 @@ export default function StringPhoneApp() {
           blob: retryPayload.recordingBlob,
           mimeType: retryPayload.recordingBlob.type,
         },
+        existingMessageId: message.id,
+      });
+      return;
+    }
+
+    if (retryPayload.kind === "live" && retryPayload.recordingBlob) {
+      await submitLiveConversationSegment({
+        audioBlob: retryPayload.recordingBlob,
+        sourceLanguage,
+        targetLanguage,
+        segmentStartedAt: retryPayload.segmentStartedAt,
+        segmentEndedAt: retryPayload.segmentEndedAt,
         existingMessageId: message.id,
       });
       return;
@@ -3710,6 +3941,7 @@ export default function StringPhoneApp() {
     setTheirLang(getLanguageOption(conversation.target_language));
     bumpAiPartnerContextVersion();
     resetAiPartnerState();
+    resetLiveCaptureState();
     replaceMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
@@ -3726,6 +3958,7 @@ export default function StringPhoneApp() {
     setTheirLang(getLanguageOption(conversation.target_language));
     bumpAiPartnerContextVersion();
     resetAiPartnerState();
+    resetLiveCaptureState();
     clearMessages();
     setCurrentConversationId(conversation.id);
     setActiveLesson(null);
@@ -3742,6 +3975,7 @@ export default function StringPhoneApp() {
     setActiveLesson(null);
     bumpAiPartnerContextVersion();
     resetAiPartnerState();
+    resetLiveCaptureState();
   };
 
   const handleArchivedLesson = (lessonId) => {
@@ -4265,6 +4499,7 @@ export default function StringPhoneApp() {
     setLessonBuilderConfig(null);
     bumpAiPartnerContextVersion();
     resetAiPartnerState();
+    resetLiveCaptureState();
     setAppMode("chat");
   };
 
@@ -4302,7 +4537,9 @@ export default function StringPhoneApp() {
             : "chats"
         }
         signedOutContext={
-          appMode === "single" || appMode === "conversation" ? "voice" : "standard"
+          appMode === "single" || appMode === "conversation"
+            ? "voice"
+            : "standard"
         }
         onRequireSignIn={handleRequireSignIn}
         currentConversationId={currentConversationId}
@@ -4368,6 +4605,9 @@ export default function StringPhoneApp() {
           onOpenSidebar={() => setIsSidebarOpen(true)}
           aiPartnerState={aiPartnerState}
           onExecuteSlashCommand={executeChatSlashCommand}
+          liveCaptureState={liveCaptureState}
+          setLiveCaptureState={setLiveCaptureState}
+          onLiveSegment={submitLiveConversationSegment}
         />
       ) : null}
 
