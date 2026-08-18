@@ -61,12 +61,12 @@ export async function classifyLiveSegmentLanguage(input: {
       messages: [
         {
           role: "system",
-          content: `Classify the transcript as exactly one of two selected languages or ambiguous. Return only JSON with this shape:
+          content: `Classify the transcript as one of exactly two selected languages. Never identify, infer, or return any third language. Return only JSON with this shape:
 {
-  "languageCode": "${myLanguageCode} | ${theirLanguageCode} | ambiguous",
+  "languageCode": "${myLanguageCode} | ${theirLanguageCode}",
   "confidence": 0.0
 }
-Use "${myLanguageCode}" for ${input.myLanguage}. Use "${theirLanguageCode}" for ${input.theirLanguage}. If the transcript is mixed, unclear, or too short, return "ambiguous".`,
+Use "${myLanguageCode}" only for ${input.myLanguage}. Use "${theirLanguageCode}" only for ${input.theirLanguage}. If the transcript is mixed, unclear, or too short, choose the closer of those two selected languages with low confidence.`,
         },
         {
           role: "user",

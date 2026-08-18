@@ -56,8 +56,8 @@ export async function runLiveConversationSegment(input: {
   userId?: number | null;
   sourceAudioFile?: UploadedAudioFile;
 }): Promise<RunLiveConversationSegmentResult> {
-  let myLanguage = getSupportedTtsLanguage(input.sourceLanguage);
-  let theirLanguage = getSupportedTtsLanguage(input.targetLanguage);
+  const myLanguage = getSupportedTtsLanguage(input.sourceLanguage);
+  const theirLanguage = getSupportedTtsLanguage(input.targetLanguage);
   const conversationId = normalizeOptionalText(input.conversationId);
 
   if (conversationId) {
@@ -79,8 +79,9 @@ export async function runLiveConversationSegment(input: {
       };
     }
 
-    myLanguage = getSupportedTtsLanguage(conversation.source_language);
-    theirLanguage = getSupportedTtsLanguage(conversation.target_language);
+    // The live language pair must come from the active Chat selection. The
+    // conversation lookup is only an ownership check; saved conversation
+    // languages can lag behind a just-changed L1/L2 pair.
   }
 
   if (!myLanguage) {

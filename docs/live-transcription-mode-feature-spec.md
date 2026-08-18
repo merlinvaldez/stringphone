@@ -37,9 +37,9 @@ Live utterances should render through the same message-thread mental model as Ch
 
 ### No Unnecessary UI
 
-The only new visible surface should be what is required to enter and control Live mode. Everything else should reuse existing patterns:
+The only new visible surface should be what is required to enter and control Live mode inside Chat. Everything else should reuse existing patterns:
 
-- top mode switcher;
+- `ChatComposer` control row;
 - `ChatHeader` language controls;
 - `ChatThread` scrolling behavior;
 - `MessageBubble` bilingual text hierarchy;
@@ -70,14 +70,14 @@ True token-level streaming transcription is a non-goal unless the selected provi
 - No pronunciation scoring.
 - No autoplay of every captured segment.
 - No background microphone capture before user consent.
-- No replacement of Chat, Single, Conversation, Learning, or shared chat.
+- No deletion of the dormant Single or Conversation implementations; they are hidden from the switcher in V1 and can be brought back later.
 - No separate top-level Live tab in V1.
 
 ## Current Repo Constraints
 
 The implementation should fit the current StringPhone code paths.
 
-- Top-level mode selection is in `client/src/StringPhoneApp.jsx` through `MODE_OPTIONS` and `appMode` rendering. V1 should not add Live to this switcher; Live belongs inside Chat.
+- Top-level mode selection is in `client/src/StringPhoneApp.jsx` through `MODE_OPTIONS`, `VISIBLE_MODE_OPTIONS`, and `appMode` rendering. V1 should not add Live, Single, or Conversation to this switcher; Live belongs inside Chat.
 - Chat UI composition lives in `client/src/components/chat/ChatScreen.jsx`.
 - Thread rendering lives in `client/src/components/chat/ChatThread.jsx` and `MessageBubble.jsx`.
 - Text playback already uses `client/src/components/audio/TextToSpeechButton.jsx` plus `POST /api/speech/output`.
@@ -95,7 +95,7 @@ The implementation should fit the current StringPhone code paths.
 
 Add Live listening to the existing Chat composer as a compact icon control.
 
-Recommended icon: use a Lucide icon that communicates listening or live capture, such as `Ear`, placed beside the existing send/mic composer controls.
+Recommended icon: use a Lucide icon that communicates live capture, such as `Radio`, placed beside the existing send/mic composer controls.
 
 ### First Open
 
@@ -136,7 +136,7 @@ Recommended segment shape:
 - pronunciation guidance follows the existing cross-script rules;
 - `messageOrigin: "human"` remains unchanged.
 
-If language detection is ambiguous, V1 should still show the transcript and translation, but it may use the current selected source side as the fallback. The row should not introduce a third neutral bubble style unless a later design explicitly adds that pattern.
+If language detection is ambiguous, V1 should still show the transcript and translation, but it must choose one of the two selected language sides with low confidence. The row should not introduce a third neutral bubble style or any language outside the active L1/L2 pair unless a later design explicitly adds that pattern.
 
 ### Sound Button Behavior
 
@@ -361,7 +361,7 @@ Output:
 }
 ```
 
-Implementation should prefer provider metadata if available. If transcription providers do not return reliable language metadata, use a compact model classification call constrained to the two selected languages plus `ambiguous`.
+Implementation should prefer provider metadata if available only when it maps cleanly to one of the two selected languages. If transcription providers do not return reliable selected-pair metadata, use a compact model classification call constrained to exactly the two selected languages. Any third-language or uncertain result must be clamped back to the active L1/L2 pair.
 
 Do not expose model reasoning to the client.
 
@@ -496,7 +496,7 @@ Recommended file additions and changes:
 - [ ] Speech is split into short utterance segments and processed in chronological order.
 - [ ] Each valid spoken segment appears in the thread after transcript plus translation are ready.
 - [ ] The app renders every resolved segment in both selected languages.
-- [ ] Segment language detection maps utterances to `my language`, `their language`, or an ambiguity fallback.
+- [ ] Segment language detection maps utterances strictly to `my language` or `their language`; no third language appears in Live rows.
 - [ ] No-speech chunks do not append or retain visible message rows.
 - [ ] Live rows use the same compact sound button as typed Chat messages.
 - [ ] The sound button appears only on the second-language side of each live row.
@@ -510,7 +510,7 @@ Recommended file additions and changes:
 - [ ] Reopening a saved conversation shows saved live segments as normal bilingual messages.
 - [ ] Signed-out live segments remain temporary and clear on reload.
 - [ ] Shared-room active state blocks Live mode with the existing lock-notice pattern unless shared compatibility is intentionally added.
-- [ ] Existing Chat, Single, Conversation, Learning, AI partner, shared chat, phrasebook saves, and text playback still work.
+- [ ] Existing Chat, Phrasebook, AI partner, shared chat, phrasebook saves, and text playback still work; dormant Single, Conversation, and lesson-building code paths remain available for a future switcher restore.
 
 ## Verification Plan
 

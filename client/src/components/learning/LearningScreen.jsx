@@ -15,6 +15,7 @@ const LEARNING_TABS = [
     Icon: Bookmark,
   },
 ];
+const SHOW_LESSON_BUILDING = false;
 
 export function LearningScreen({
   learningView,
@@ -36,37 +37,41 @@ export function LearningScreen({
   activeCollectionLanguageCode,
   onSelectCollectionLanguageCode,
 }) {
+  const visibleLearningView = SHOW_LESSON_BUILDING ? learningView : "collections";
+
   return (
     <div className="relative h-full">
-      <div
-        className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4"
-        style={{ top: "calc(env(safe-area-inset-top, 0px) + 5.75rem)" }}
-      >
-        <div className="pointer-events-auto flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
-          {LEARNING_TABS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onSelectLearningView(id)}
-              aria-label={label}
-              aria-pressed={learningView === id}
-              title={label}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ${
-                learningView === id
-                  ? "text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <Icon size={17} strokeWidth={2.1} />
-              {learningView === id ? (
-                <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
-              ) : null}
-            </button>
-          ))}
+      {SHOW_LESSON_BUILDING ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4"
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 5.75rem)" }}
+        >
+          <div className="pointer-events-auto flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
+            {LEARNING_TABS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onSelectLearningView(id)}
+                aria-label={label}
+                aria-pressed={visibleLearningView === id}
+                title={label}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ${
+                  visibleLearningView === id
+                    ? "text-white"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                <Icon size={17} strokeWidth={2.1} />
+                {visibleLearningView === id ? (
+                  <div className="absolute inset-0 -z-10 rounded-full border border-white/10 bg-white/10 shadow-sm" />
+                ) : null}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {learningView === "collections" ? (
+      {visibleLearningView === "collections" ? (
         <CollectionScreen
           authFetch={authFetch}
           isSignedIn={isSignedIn}

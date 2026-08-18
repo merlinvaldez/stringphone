@@ -1,5 +1,5 @@
 import React from "react";
-import { Square, Send, Mic, ArrowLeftRight, Ear, Loader2 } from "lucide-react";
+import { Square, Send, Mic, ArrowLeftRight, Radio, Loader2 } from "lucide-react";
 import { interpolateTemplate } from "../../uiStrings.js";
 import { AudioWave } from "../../StringPhoneApp.jsx";
 import { ChatCommandMenu } from "./ChatCommandMenu.jsx";
@@ -195,7 +195,7 @@ export function ChatComposer({
             ) : liveActive ? (
               <Square size={18} fill="currentColor" />
             ) : (
-              <Ear size={18} />
+              <Radio size={18} />
             )}
           </button>
         ) : null}

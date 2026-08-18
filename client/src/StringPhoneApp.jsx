@@ -4,8 +4,9 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftRight,
   ArrowRight,
+  Bookmark,
   Copy,
-  GraduationCap,
+  Ear,
   Loader2,
   Menu,
   MessageSquare,
@@ -179,8 +180,16 @@ const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
-  { id: "lesson", label: "Learning", Icon: GraduationCap },
+  { id: "lesson", label: "Phrasebook", Icon: Bookmark },
 ];
+const HIDDEN_MODE_IDS = new Set(["single", "conversation"]);
+const VISIBLE_MODE_OPTIONS = MODE_OPTIONS.filter(
+  ({ id }) => !HIDDEN_MODE_IDS.has(id),
+);
+
+function resolveVisibleAppMode(nextMode) {
+  return HIDDEN_MODE_IDS.has(nextMode) ? "chat" : nextMode;
+}
 
 function StringPhoneLogoBadge({ className = "", imageClassName = "" }) {
   return (
@@ -339,11 +348,11 @@ function FloatingAuthControls({
 
   const handleAuthNavigation = (nextPath) => {
     saveAuthReturnState({
-      appMode,
+      appMode: resolveVisibleAppMode(appMode),
       myLanguageCode,
       theirLanguageCode,
       joinQueryToken,
-      learningView,
+      learningView: "collections",
       activeCollectionLanguageCode,
     });
     navigate(nextPath);
@@ -1344,7 +1353,7 @@ function ModeSwitcher({
       style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
     >
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
-        {MODE_OPTIONS.map(({ id, label, Icon }) => {
+        {VISIBLE_MODE_OPTIONS.map(({ id, label, Icon }) => {
           const modeBlocked =
             (id === "single" || id === "conversation") &&
             (sharedChatLocked || textOnlyChatLocked);
@@ -2124,7 +2133,7 @@ export default function StringPhoneApp() {
   const navigate = useNavigate();
   const storedChatLanguages = readStoredChatLanguages();
   const [appMode, setAppMode] = useState("chat");
-  const [learningView, setLearningView] = useState("lessons");
+  const [learningView, setLearningView] = useState("collections");
   const [myLang, setMyLang] = useState(() =>
     getLanguageOption(storedChatLanguages?.myLanguageCode),
   );
@@ -2210,7 +2219,7 @@ export default function StringPhoneApp() {
 
     const applySavedChatState = async (savedState) => {
       setAppMode("chat");
-      setLearningView(savedState.learningView ?? "lessons");
+      setLearningView("collections");
       setActiveCollectionLanguageCode(
         savedState.activeCollectionLanguageCode ?? null,
       );
@@ -2256,66 +2265,21 @@ export default function StringPhoneApp() {
 
     const applySavedLearningState = async (savedState) => {
       setAppMode("lesson");
-      setLearningView(savedState.learningView ?? "lessons");
+      setLearningView("collections");
       setCurrentConversationId(savedState.currentConversationId ?? null);
       setLessonBuilderConfig(null);
       bumpAiPartnerContextVersion();
       resetAiPartnerState();
       resetLiveCaptureState();
-
-      if (savedState.learningView === "collections") {
-        setActiveLesson(null);
-        setActiveCollectionLanguageCode(
-          savedState.activeCollectionLanguageCode ?? null,
-        );
-        return;
-      }
-
-      setActiveCollectionLanguageCode(null);
-
-      if (!savedState.activeLessonId || !isSignedIn) {
-        setActiveLesson(null);
-        return;
-      }
-
-      try {
-        const lessons = await fetchLessons(authFetch);
-
-        if (cancelled) {
-          return;
-        }
-
-        const matchingLesson =
-          lessons.find((lesson) => lesson.id === savedState.activeLessonId) ??
-          null;
-
-        setActiveLesson(matchingLesson);
-
-        if (!matchingLesson) {
-          return;
-        }
-
-        const sourceLanguageCode = getLessonSourceLanguageCode(matchingLesson);
-        const targetLanguageCode = getLessonTargetLanguageCode(matchingLesson);
-
-        if (sourceLanguageCode) {
-          setMyLang(getLanguageOption(sourceLanguageCode));
-        }
-
-        if (targetLanguageCode) {
-          setTheirLang(getLanguageOption(targetLanguageCode));
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to restore saved lesson", error);
-          setActiveLesson(null);
-        }
-      }
+      setActiveLesson(null);
+      setActiveCollectionLanguageCode(
+        savedState.activeCollectionLanguageCode ?? null,
+      );
     };
 
     const applySavedLiveModeState = (savedState) => {
       setAppMode(savedState.appMode);
-      setLearningView(savedState.learningView ?? "lessons");
+      setLearningView("collections");
       setActiveCollectionLanguageCode(
         savedState.activeCollectionLanguageCode ?? null,
       );
@@ -2337,8 +2301,8 @@ export default function StringPhoneApp() {
       const savedReturnState = readAuthReturnState();
 
       if (savedReturnState) {
-        setAppMode(savedReturnState.appMode);
-        setLearningView(savedReturnState.learningView ?? "lessons");
+        setAppMode(resolveVisibleAppMode(savedReturnState.appMode));
+        setLearningView("collections");
         setActiveCollectionLanguageCode(
           savedReturnState.activeCollectionLanguageCode ?? null,
         );
@@ -2366,12 +2330,18 @@ export default function StringPhoneApp() {
       setMyLang(getLanguageOption(savedLastViewState.myLanguageCode));
       setTheirLang(getLanguageOption(savedLastViewState.theirLanguageCode));
 
-      if (savedLastViewState.appMode === "lesson") {
+      const restoredAppMode = resolveVisibleAppMode(savedLastViewState.appMode);
+      const visibleLastViewState = {
+        ...savedLastViewState,
+        appMode: restoredAppMode,
+      };
+
+      if (restoredAppMode === "lesson") {
         await applySavedLearningState(savedLastViewState);
-      } else if (savedLastViewState.appMode === "chat") {
-        await applySavedChatState(savedLastViewState);
+      } else if (restoredAppMode === "chat") {
+        await applySavedChatState(visibleLastViewState);
       } else {
-        applySavedLiveModeState(savedLastViewState);
+        applySavedLiveModeState(visibleLastViewState);
       }
 
       if (!cancelled) {
@@ -2405,17 +2375,16 @@ export default function StringPhoneApp() {
     }
 
     saveLastViewState(user.id, {
-      appMode,
-      learningView,
+      appMode: resolveVisibleAppMode(appMode),
+      learningView: "collections",
       myLanguageCode: myLang.code,
       theirLanguageCode: theirLang.code,
       currentConversationId:
         appMode === "chat" || currentConversationId
           ? currentConversationId
           : null,
-      activeLessonId: activeLesson?.id ?? null,
-      activeCollectionLanguageCode:
-        learningView === "collections" ? activeCollectionLanguageCode : null,
+      activeLessonId: null,
+      activeCollectionLanguageCode: activeCollectionLanguageCode ?? null,
     });
   }, [
     activeCollectionLanguageCode,
@@ -3666,6 +3635,15 @@ export default function StringPhoneApp() {
             segmentStartedAt,
             segmentEndedAt,
           });
+
+          if (conversationId) {
+            void persistConversationLanguages(
+              conversationId,
+              sourceLanguage,
+              targetLanguage,
+            );
+          }
+
           const detectedSourceLanguage = getLanguageOption(
             data.sourceLanguage?.code,
           );
@@ -4138,17 +4116,14 @@ export default function StringPhoneApp() {
   };
 
   const handleSelectAppMode = async (nextMode) => {
-    if (nextMode === "lesson") {
-      if (learningView === "collections") {
-        openCollectionsRoot();
-        return;
-      }
+    const visibleNextMode = resolveVisibleAppMode(nextMode);
 
-      await openLessonForCurrentChat();
+    if (visibleNextMode === "lesson") {
+      openCollectionsRoot();
       return;
     }
 
-    setAppMode(nextMode);
+    setAppMode(visibleNextMode);
   };
 
   const buildCollectionPayloadFromMessage = (message) => {
@@ -4474,11 +4449,11 @@ export default function StringPhoneApp() {
 
   const handleRequireSignIn = () => {
     saveAuthReturnState({
-      appMode,
+      appMode: resolveVisibleAppMode(appMode),
       myLanguageCode: myLang.code,
       theirLanguageCode: theirLang.code,
       joinQueryToken: pendingInviteToken,
-      learningView,
+      learningView: "collections",
       activeCollectionLanguageCode,
     });
     setIsSidebarOpen(false);
@@ -4495,7 +4470,7 @@ export default function StringPhoneApp() {
     setCurrentConversationId(null);
     setActiveLesson(null);
     setActiveCollectionLanguageCode(null);
-    setLearningView("lessons");
+    setLearningView("collections");
     setLessonBuilderConfig(null);
     bumpAiPartnerContextVersion();
     resetAiPartnerState();
@@ -4530,11 +4505,7 @@ export default function StringPhoneApp() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         preferredHistoryType={
-          appMode === "lesson"
-            ? learningView === "collections"
-              ? "collections"
-              : "lessons"
-            : "chats"
+          appMode === "lesson" ? "collections" : "chats"
         }
         signedOutContext={
           appMode === "single" || appMode === "conversation"
@@ -4546,7 +4517,7 @@ export default function StringPhoneApp() {
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}
         onArchiveConversation={handleArchivedConversation}
-        currentLessonId={activeLesson?.id ?? null}
+        currentLessonId={null}
         onSelectLesson={(lesson) => {
           if (sharedRoomSession) {
             leaveSharedRoom();
