@@ -43,7 +43,9 @@ export function ChatScreen({
   onExecuteSlashCommand,
   liveCaptureState,
   setLiveCaptureState,
-  onLiveSegment,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -97,9 +99,10 @@ export function ChatScreen({
   const { startListening, stopListening } = useLiveConversationCapture({
     myLang,
     theirLang,
-    captureState: liveCaptureState,
     setCaptureState: setLiveCaptureState,
-    onLiveSegment,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
   });
 
   useEffect(

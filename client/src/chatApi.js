@@ -126,6 +126,58 @@ export async function processLiveConversationSegment({
   return response.json();
 }
 
+export async function createLiveTranscriptionClientSecret({
+  sourceLanguage,
+  targetLanguage,
+  authFetch,
+}) {
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/live-transcription/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sourceLanguage: sourceLanguage.code,
+      targetLanguage: targetLanguage.code,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Unable to start live transcription."),
+    );
+  }
+
+  return response.json();
+}
+
+export async function processLiveConversationTranscript({
+  transcript,
+  sourceLanguage,
+  targetLanguage,
+  authFetch,
+  conversationId = null,
+}) {
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/messages/live-transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transcript,
+      sourceLanguage: sourceLanguage.code,
+      targetLanguage: targetLanguage.code,
+      conversationId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Live transcription failed."),
+    );
+  }
+
+  return response.json();
+}
+
 export async function fetchConversations(authFetch) {
   const response = await authFetch(`${API_BASE_URL}/chat/conversations`);
   if (!response.ok) throw new Error(await parseApiError(response, "Failed to fetch conversations"));

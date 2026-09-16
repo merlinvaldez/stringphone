@@ -39,7 +39,7 @@ import {
   fetchOutputSpeech,
   fetchLessons,
   fetchMessages,
-  processLiveConversationSegment,
+  processLiveConversationTranscript,
   requestAiPartnerReply,
   saveMessage,
   saveVoiceSample,
@@ -2156,6 +2156,7 @@ export default function StringPhoneApp() {
   const aiPartnerReplyQueueRef = useRef(Promise.resolve());
   const aiPartnerContextVersionRef = useRef(0);
   const liveSegmentQueueRef = useRef(Promise.resolve());
+  const liveTranscriptDraftMessageIdsRef = useRef(new Map());
   const pendingConversationIdRef = useRef(null);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
@@ -3558,38 +3559,39 @@ export default function StringPhoneApp() {
     }
   };
 
-  const submitLiveConversationSegment = ({
-    audioBlob,
+  const appendLiveTranscriptDelta = ({
+    itemId,
+    transcriptDelta,
     sourceLanguage,
     targetLanguage,
-    segmentStartedAt = "",
-    segmentEndedAt = "",
-    existingMessageId = null,
   }) => {
+    if (!itemId || !transcriptDelta) {
+      return;
+    }
+
+    const existingMessageId = liveTranscriptDraftMessageIdsRef.current.get(itemId);
+
+    if (existingMessageId) {
+      updateMessage(existingMessageId, (message) => ({
+        originalText: `${message.originalText ?? ""}${transcriptDelta}`,
+        transcript: `${message.transcript ?? ""}${transcriptDelta}`,
+      }));
+      return;
+    }
+
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
-    const retryPayload = {
-      kind: "live",
-      originMode: "live",
-      sender: "self",
-      messageOrigin: "human",
-      sourceLanguageCode: sourceLanguage.code,
-      targetLanguageCode: targetLanguage.code,
-      recordingBlob: audioBlob,
-      segmentStartedAt,
-      segmentEndedAt,
-    };
-    const pendingMessage = {
+    const messageId = appendMessage({
       kind: "text",
       originMode: "live",
       sender: "self",
       messageOrigin: "human",
       status: "transcribing",
-      originalText: "",
+      originalText: transcriptDelta,
       originalPronunciation: "",
       translatedText: "",
       translatedPronunciation: "",
-      transcript: "",
+      transcript: transcriptDelta,
       audioUrl: "",
       errorMessage: "",
       sourceLanguageCode: sourceSnapshot.code,
@@ -3598,8 +3600,48 @@ export default function StringPhoneApp() {
       targetLanguageCode: targetSnapshot.code,
       targetLanguageLabel: targetSnapshot.label,
       targetLanguageFlag: targetSnapshot.flag,
-      segmentStartedAt,
-      segmentEndedAt,
+    });
+    liveTranscriptDraftMessageIdsRef.current.set(itemId, messageId);
+  };
+
+  const submitLiveConversationTranscript = ({
+    itemId = "",
+    transcript,
+    sourceLanguage,
+    targetLanguage,
+    existingMessageId = liveTranscriptDraftMessageIdsRef.current.get(itemId) ?? null,
+  }) => {
+    const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
+    const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    const retryPayload = {
+      kind: "live-transcript",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      sourceLanguageCode: sourceLanguage.code,
+      targetLanguageCode: targetLanguage.code,
+      transcript,
+      realtimeItemId: itemId,
+    };
+    const pendingMessage = {
+      kind: "text",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      status: "transcribing",
+      originalText: transcript,
+      originalPronunciation: "",
+      translatedText: "",
+      translatedPronunciation: "",
+      transcript,
+      audioUrl: "",
+      errorMessage: "",
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
       retryPayload,
     };
     let messageId = existingMessageId;
@@ -3618,16 +3660,13 @@ export default function StringPhoneApp() {
             sourceLanguage,
             targetLanguage,
           }).catch((error) => {
-            console.error(
-              "Failed to create a conversation before saving the live segment",
-              error,
-            );
+            console.error("Failed to create a conversation before saving the live transcript", error);
             return null;
           })) ?? currentConversationId;
 
         try {
-          const data = await processLiveConversationSegment({
-            audioBlob,
+          const data = await processLiveConversationTranscript({
+            transcript,
             sourceLanguage,
             targetLanguage,
             authFetch: isSignedIn ? authFetch : undefined,
@@ -3718,6 +3757,9 @@ export default function StringPhoneApp() {
             lastError: message,
           });
         } finally {
+          if (itemId) {
+            liveTranscriptDraftMessageIdsRef.current.delete(itemId);
+          }
           updateLivePendingSegmentCount(-1);
         }
       });
@@ -3762,13 +3804,12 @@ export default function StringPhoneApp() {
       return;
     }
 
-    if (retryPayload.kind === "live" && retryPayload.recordingBlob) {
-      await submitLiveConversationSegment({
-        audioBlob: retryPayload.recordingBlob,
+    if (retryPayload.kind === "live-transcript" && retryPayload.transcript) {
+      await submitLiveConversationTranscript({
+        itemId: retryPayload.realtimeItemId,
+        transcript: retryPayload.transcript,
         sourceLanguage,
         targetLanguage,
-        segmentStartedAt: retryPayload.segmentStartedAt,
-        segmentEndedAt: retryPayload.segmentEndedAt,
         existingMessageId: message.id,
       });
       return;
@@ -4578,7 +4619,9 @@ export default function StringPhoneApp() {
           onExecuteSlashCommand={executeChatSlashCommand}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
-          onLiveSegment={submitLiveConversationSegment}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
         />
       ) : null}
 

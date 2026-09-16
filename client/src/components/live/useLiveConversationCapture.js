@@ -1,24 +1,11 @@
 import { useEffect, useRef } from "react";
+import { createLiveTranscriptionClientSecret } from "../../chatApi.js";
 
+const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+const CLOSE_TIMEOUT_MS = 5000;
 const SILENCE_FINALIZE_MS = 1000;
-const MAX_SEGMENT_MS = 10000;
-const MIN_SEGMENT_MS = 550;
-const MIN_SEGMENT_BYTES = 1200;
+const MIN_SPEECH_MS = 550;
 const SPEECH_RMS_THRESHOLD = 0.018;
-
-function getSupportedLiveMimeType() {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-  ];
-
-  if (typeof MediaRecorder === "undefined") {
-    return "";
-  }
-
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
-}
 
 function calculateRms(samples) {
   let sum = 0;
@@ -31,125 +18,186 @@ function calculateRms(samples) {
   return Math.sqrt(sum / samples.length);
 }
 
+function waitForIceGatheringComplete(peerConnection) {
+  if (peerConnection.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      peerConnection.removeEventListener("icegatheringstatechange", onStateChange);
+      reject(new Error("Timed out while preparing the live transcription connection."));
+    }, 10000);
+
+    function onStateChange() {
+      if (peerConnection.iceGatheringState !== "complete") {
+        return;
+      }
+
+      window.clearTimeout(timeoutId);
+      peerConnection.removeEventListener("icegatheringstatechange", onStateChange);
+      resolve();
+    }
+
+    peerConnection.addEventListener("icegatheringstatechange", onStateChange);
+  });
+}
+
 export function useLiveConversationCapture({
   myLang,
   theirLang,
-  captureState,
   setCaptureState,
-  onLiveSegment,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
 }) {
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const monitorFrameRef = useRef(0);
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
-  const segmentStartedAtRef = useRef("");
-  const segmentStartedMsRef = useRef(0);
-  const lastSpeechMsRef = useRef(0);
-  const segmentPeakRmsRef = useRef(0);
+  const speechStartedAtRef = useRef(0);
+  const lastSpeechAtRef = useRef(0);
+  const peerConnectionRef = useRef(null);
+  const eventsChannelRef = useRef(null);
+  const closeTimeoutRef = useRef(0);
   const isListeningRef = useRef(false);
-  const latestLanguagesRef = useRef({ myLang, theirLang });
+  const isClosingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const latestValuesRef = useRef({
+    myLang,
+    theirLang,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+  });
 
   useEffect(() => {
-    latestLanguagesRef.current = { myLang, theirLang };
-  }, [myLang, theirLang]);
+    latestValuesRef.current = {
+      myLang,
+      theirLang,
+      authFetch,
+      onLiveTranscriptDelta,
+      onLiveTranscript,
+    };
+  }, [myLang, theirLang, authFetch, onLiveTranscriptDelta, onLiveTranscript]);
 
   const patchCaptureState = (patch) => {
+    if (!isMountedRef.current) {
+      return;
+    }
+
     setCaptureState((previousState) => ({
       ...previousState,
       ...(typeof patch === "function" ? patch(previousState) : patch),
     }));
   };
 
-  const stopMonitoring = () => {
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current) {
+      window.clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = 0;
+    }
+  };
+
+  const releaseConnection = ({ status = "idle", lastError = "" } = {}) => {
+    clearCloseTimeout();
     if (monitorFrameRef.current) {
       cancelAnimationFrame(monitorFrameRef.current);
       monitorFrameRef.current = 0;
     }
-  };
+    const eventsChannel = eventsChannelRef.current;
+    const peerConnection = peerConnectionRef.current;
+    const stream = streamRef.current;
+    const audioContext = audioContextRef.current;
 
-  const closeStream = async () => {
-    stopMonitoring();
-
-    if (audioContextRef.current) {
-      await audioContextRef.current.close().catch(() => undefined);
-      audioContextRef.current = null;
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
+    eventsChannelRef.current = null;
+    peerConnectionRef.current = null;
+    streamRef.current = null;
+    audioContextRef.current = null;
     analyserRef.current = null;
+    speechStartedAtRef.current = 0;
+    lastSpeechAtRef.current = 0;
+    isListeningRef.current = false;
+    isClosingRef.current = false;
+
+    if (eventsChannel && eventsChannel.readyState !== "closed") {
+      eventsChannel.close();
+    }
+
+    if (peerConnection) {
+      peerConnection.close();
+    }
+
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+
+    void audioContext?.close().catch(() => undefined);
+
+    patchCaptureState({
+      status,
+      sessionStartedAt: null,
+      activeSegmentId: null,
+      lastError,
+    });
   };
 
-  const finalizeActiveSegment = () => {
-    const recorder = recorderRef.current;
+  const handleRealtimeEvent = (event) => {
+    const latest = latestValuesRef.current;
 
-    if (!recorder || recorder.state === "inactive") {
+    if (
+      event?.type === "conversation.item.input_audio_transcription.delta" &&
+      typeof event.item_id === "string" &&
+      typeof event.delta === "string" &&
+      event.delta
+    ) {
+      latest.onLiveTranscriptDelta?.({
+        itemId: event.item_id,
+        transcriptDelta: event.delta,
+        sourceLanguage: latest.myLang,
+        targetLanguage: latest.theirLang,
+      });
+      patchCaptureState({ activeSegmentId: event.item_id });
       return;
     }
 
-    recorder.stop();
-  };
-
-  const startSegmentRecorder = () => {
-    if (!streamRef.current || recorderRef.current?.state === "recording") {
+    if (
+      event?.type === "conversation.item.input_audio_transcription.completed" &&
+      typeof event.item_id === "string" &&
+      typeof event.transcript === "string"
+    ) {
+      latest.onLiveTranscript?.({
+        itemId: event.item_id,
+        transcript: event.transcript,
+        sourceLanguage: latest.myLang,
+        targetLanguage: latest.theirLang,
+      });
       return;
     }
 
-    chunksRef.current = [];
-    segmentPeakRmsRef.current = 0;
-    segmentStartedMsRef.current = performance.now();
-    segmentStartedAtRef.current = new Date().toISOString();
-    lastSpeechMsRef.current = segmentStartedMsRef.current;
+    if (event?.type === "session.closed") {
+      releaseConnection();
+      return;
+    }
 
-    const mimeType = getSupportedLiveMimeType();
-    const recorder = new MediaRecorder(
-      streamRef.current,
-      mimeType ? { mimeType } : undefined,
-    );
+    if (event?.type === "error") {
+      const message =
+        typeof event.error?.message === "string"
+          ? event.error.message
+          : "Live transcription connection failed.";
+      patchCaptureState({ lastError: message });
+    }
+  };
 
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        chunksRef.current.push(event.data);
-      }
-    };
+  const commitCurrentTranscriptTurn = () => {
+    const eventsChannel = eventsChannelRef.current;
 
-    recorder.onstop = () => {
-      const chunks = chunksRef.current;
-      const durationMs = performance.now() - segmentStartedMsRef.current;
-      const bytes = chunks.reduce((total, chunk) => total + chunk.size, 0);
-      const segmentStartedAt = segmentStartedAtRef.current;
-      const segmentEndedAt = new Date().toISOString();
-      recorderRef.current = null;
-      chunksRef.current = [];
+    if (eventsChannel?.readyState === "open") {
+      eventsChannel.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    }
 
-      if (
-        durationMs < MIN_SEGMENT_MS ||
-        bytes < MIN_SEGMENT_BYTES ||
-        segmentPeakRmsRef.current < SPEECH_RMS_THRESHOLD
-      ) {
-        return;
-      }
-
-      const audioBlob = new Blob(chunks, {
-        type: recorder.mimeType || "audio/webm",
-      });
-
-      onLiveSegment({
-        audioBlob,
-        sourceLanguage: latestLanguagesRef.current.myLang,
-        targetLanguage: latestLanguagesRef.current.theirLang,
-        segmentStartedAt,
-        segmentEndedAt,
-      });
-    };
-
-    recorderRef.current = recorder;
-    recorder.start(250);
+    speechStartedAtRef.current = 0;
+    lastSpeechAtRef.current = 0;
   };
 
   const monitorAudio = () => {
@@ -163,42 +211,36 @@ export function useLiveConversationCapture({
     analyser.getByteTimeDomainData(samples);
     const rms = calculateRms(samples);
     const now = performance.now();
-    const hasSpeech = rms >= SPEECH_RMS_THRESHOLD;
 
-    if (hasSpeech) {
-      lastSpeechMsRef.current = now;
-      segmentPeakRmsRef.current = Math.max(segmentPeakRmsRef.current, rms);
-      startSegmentRecorder();
-    }
-
-    if (recorderRef.current?.state === "recording") {
-      const segmentDuration = now - segmentStartedMsRef.current;
-      const silenceDuration = now - lastSpeechMsRef.current;
-
-      if (
-        segmentDuration >= MAX_SEGMENT_MS ||
-        (segmentDuration >= MIN_SEGMENT_MS &&
-          silenceDuration >= SILENCE_FINALIZE_MS)
-      ) {
-        finalizeActiveSegment();
+    if (rms >= SPEECH_RMS_THRESHOLD) {
+      if (!speechStartedAtRef.current) {
+        speechStartedAtRef.current = now;
       }
+      lastSpeechAtRef.current = now;
+    } else if (
+      speechStartedAtRef.current &&
+      now - speechStartedAtRef.current >= MIN_SPEECH_MS &&
+      now - lastSpeechAtRef.current >= SILENCE_FINALIZE_MS
+    ) {
+      commitCurrentTranscriptTurn();
     }
 
     monitorFrameRef.current = requestAnimationFrame(monitorAudio);
   };
 
   const startListening = async () => {
-    if (isListeningRef.current) {
+    if (isListeningRef.current || peerConnectionRef.current) {
       return;
     }
 
     if (
       typeof navigator === "undefined" ||
-      !navigator.mediaDevices?.getUserMedia
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof RTCPeerConnection === "undefined"
     ) {
       patchCaptureState({
         status: "error",
-        lastError: "This browser does not support audio recording.",
+        lastError: "This browser does not support live audio transcription.",
       });
       return;
     }
@@ -209,70 +251,144 @@ export function useLiveConversationCapture({
         lastError: "",
         sessionStartedAt: new Date().toISOString(),
       });
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const AudioContextClass =
-        window.AudioContext || window.webkitAudioContext;
+      const peerConnection = new RTCPeerConnection();
+      const eventsChannel = peerConnection.createDataChannel("oai-events");
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       const audioContext = new AudioContextClass();
-      const source = audioContext.createMediaStreamSource(stream);
+      const audioSource = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
+      const latest = latestValuesRef.current;
 
       analyser.fftSize = 1024;
-      source.connect(analyser);
+      audioSource.connect(analyser);
+      await audioContext.resume();
+
+      stream.getAudioTracks().forEach((track) => {
+        peerConnection.addTrack(track, stream);
+      });
+
       streamRef.current = stream;
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
-      isListeningRef.current = true;
-      patchCaptureState({
-        status: "listening",
-        lastError: "",
+      peerConnectionRef.current = peerConnection;
+      eventsChannelRef.current = eventsChannel;
+
+      eventsChannel.addEventListener("message", ({ data }) => {
+        try {
+          handleRealtimeEvent(JSON.parse(data));
+        } catch {
+          // Ignore malformed non-protocol data without interrupting audio capture.
+        }
       });
+
+      eventsChannel.addEventListener("close", () => {
+        if (!isClosingRef.current && peerConnectionRef.current === peerConnection) {
+          releaseConnection({
+            status: "error",
+            lastError: "Live transcription disconnected unexpectedly.",
+          });
+        }
+      });
+
+      peerConnection.addEventListener("connectionstatechange", () => {
+        if (
+          peerConnection.connectionState === "failed" &&
+          peerConnectionRef.current === peerConnection
+        ) {
+          releaseConnection({
+            status: "error",
+            lastError: "Live transcription connection failed.",
+          });
+        }
+      });
+
+      const clientSecret = await createLiveTranscriptionClientSecret({
+        sourceLanguage: latest.myLang,
+        targetLanguage: latest.theirLang,
+        authFetch: latest.authFetch,
+      });
+
+      if (typeof clientSecret?.value !== "string" || !clientSecret.value) {
+        throw new Error("Live transcription did not return a session credential.");
+      }
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      await waitForIceGatheringComplete(peerConnection);
+      const sdp = peerConnection.localDescription?.sdp;
+
+      if (!sdp) {
+        throw new Error("Unable to prepare the live transcription connection.");
+      }
+
+      const response = await fetch(OPENAI_REALTIME_CALLS_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${clientSecret.value}`,
+          "Content-Type": "application/sdp",
+        },
+        body: sdp,
+      });
+
+      if (!response.ok) {
+        throw new Error("OpenAI could not start live transcription.");
+      }
+
+      await peerConnection.setRemoteDescription({
+        type: "answer",
+        sdp: await response.text(),
+      });
+
+      isListeningRef.current = true;
+      patchCaptureState({ status: "listening", lastError: "" });
       monitorFrameRef.current = requestAnimationFrame(monitorAudio);
     } catch (error) {
-      isListeningRef.current = false;
-      await closeStream();
-      patchCaptureState({
+      releaseConnection({
         status: "error",
-        sessionStartedAt: null,
-        activeSegmentId: null,
         lastError:
           error instanceof Error && error.message
             ? error.message
-            : "Microphone permission was denied.",
+            : "Unable to start live transcription.",
       });
     }
   };
 
-  const stopListening = async () => {
-    if (!isListeningRef.current && captureState?.status !== "listening") {
+  const stopListening = () => {
+    if (!isListeningRef.current && !peerConnectionRef.current) {
       return;
     }
 
     patchCaptureState({ status: "stopping" });
     isListeningRef.current = false;
-    finalizeActiveSegment();
-    await closeStream();
-    patchCaptureState({
-      status: "idle",
-      sessionStartedAt: null,
-      activeSegmentId: null,
-    });
+    isClosingRef.current = true;
+
+    const eventsChannel = eventsChannelRef.current;
+
+    if (eventsChannel?.readyState === "open") {
+      if (speechStartedAtRef.current) {
+        commitCurrentTranscriptTurn();
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      eventsChannel.send(JSON.stringify({ type: "session.close" }));
+      closeTimeoutRef.current = window.setTimeout(() => {
+        releaseConnection();
+      }, CLOSE_TIMEOUT_MS);
+      return;
+    }
+
+    releaseConnection();
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     return () => {
-      isListeningRef.current = false;
-      finalizeActiveSegment();
-      void closeStream();
-      patchCaptureState({
-        status: "idle",
-        sessionStartedAt: null,
-        activeSegmentId: null,
-      });
+      isMountedRef.current = false;
+      releaseConnection();
     };
   }, []);
 
-  return {
-    startListening,
-    stopListening,
-  };
+  return { startListening, stopListening };
 }
