@@ -1,11 +1,23 @@
 import { useEffect, useRef } from "react";
 import { createLiveTranscriptionClientSecret } from "../../chatApi.js";
 
-const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+const OPENAI_REALTIME_TRANSCRIPTION_CALLS_URL =
+  "https://api.openai.com/v1/realtime/calls";
+const OPENAI_REALTIME_TRANSLATION_CALLS_URL =
+  "https://api.openai.com/v1/realtime/translations/calls";
 const CLOSE_TIMEOUT_MS = 5000;
 const SILENCE_FINALIZE_MS = 1000;
+const TRANSLATION_TURN_FINALIZE_MS = 1500;
 const MIN_SPEECH_MS = 550;
 const SPEECH_RMS_THRESHOLD = 0.018;
+
+function createClientLiveTurnId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function calculateRms(samples) {
   let sum = 0;
@@ -62,6 +74,8 @@ export function useLiveConversationCapture({
   const closeTimeoutRef = useRef(0);
   const isListeningRef = useRef(false);
   const isClosingRef = useRef(false);
+  const translationModeRef = useRef("fallback-transcription");
+  const activeTranslationTurnRef = useRef(null);
   const isMountedRef = useRef(true);
   const latestValuesRef = useRef({
     myLang,
@@ -101,6 +115,13 @@ export function useLiveConversationCapture({
 
   const releaseConnection = ({ status = "idle", lastError = "" } = {}) => {
     clearCloseTimeout();
+    const activeTranslationTurn = activeTranslationTurnRef.current;
+
+    if (activeTranslationTurn?.finalizeTimeoutId) {
+      window.clearTimeout(activeTranslationTurn.finalizeTimeoutId);
+    }
+
+    activeTranslationTurnRef.current = null;
     if (monitorFrameRef.current) {
       cancelAnimationFrame(monitorFrameRef.current);
       monitorFrameRef.current = 0;
@@ -142,8 +163,125 @@ export function useLiveConversationCapture({
     });
   };
 
+  const ensureActiveTranslationTurn = (itemId = "") => {
+    const existingTurn = activeTranslationTurnRef.current;
+
+    if (existingTurn) {
+      if (existingTurn.finalizeTimeoutId) {
+        window.clearTimeout(existingTurn.finalizeTimeoutId);
+        existingTurn.finalizeTimeoutId = 0;
+      }
+      return existingTurn;
+    }
+
+    const turn = {
+      itemId: itemId || createClientLiveTurnId(),
+      transcript: "",
+      translatedText: "",
+      finalizeTimeoutId: 0,
+    };
+    activeTranslationTurnRef.current = turn;
+    return turn;
+  };
+
+  const finalizeActiveTranslationTurn = () => {
+    const turn = activeTranslationTurnRef.current;
+
+    if (!turn || !turn.transcript.trim()) {
+      return;
+    }
+
+    if (turn.finalizeTimeoutId) {
+      window.clearTimeout(turn.finalizeTimeoutId);
+    }
+
+    activeTranslationTurnRef.current = null;
+    const latest = latestValuesRef.current;
+    latest.onLiveTranscript?.({
+      itemId: turn.itemId,
+      transcript: turn.transcript,
+      translatedText: turn.translatedText,
+      sourceLanguage: latest.myLang,
+      targetLanguage: latest.theirLang,
+      liveMode: "realtime-translation",
+    });
+  };
+
+  const scheduleTranslationTurnFinalize = () => {
+    const turn = activeTranslationTurnRef.current;
+
+    if (!turn) {
+      return;
+    }
+
+    if (turn.finalizeTimeoutId) {
+      window.clearTimeout(turn.finalizeTimeoutId);
+    }
+
+    turn.finalizeTimeoutId = window.setTimeout(() => {
+      turn.finalizeTimeoutId = 0;
+      finalizeActiveTranslationTurn();
+    }, TRANSLATION_TURN_FINALIZE_MS);
+  };
+
+  const retryWithFallback = (reason) => {
+    if (
+      translationModeRef.current !== "realtime-translation" ||
+      isClosingRef.current
+    ) {
+      return false;
+    }
+
+    releaseConnection({ status: "starting", lastError: "" });
+    void startListening({
+      forceFallback: true,
+      fallbackReason:
+        reason || "Realtime translation failed; using fallback translation.",
+    });
+    return true;
+  };
+
   const handleRealtimeEvent = (event) => {
     const latest = latestValuesRef.current;
+
+    if (translationModeRef.current === "realtime-translation") {
+      if (
+        event?.type === "session.input_transcript.delta" &&
+        typeof event.delta === "string" &&
+        event.delta
+      ) {
+        const turn = ensureActiveTranslationTurn(event.item_id);
+        turn.transcript = `${turn.transcript}${event.delta}`;
+        latest.onLiveTranscriptDelta?.({
+          itemId: turn.itemId,
+          transcriptDelta: event.delta,
+          translatedTextDelta: "",
+          sourceLanguage: latest.myLang,
+          targetLanguage: latest.theirLang,
+          liveMode: "realtime-translation",
+        });
+        patchCaptureState({ activeSegmentId: turn.itemId });
+        return;
+      }
+
+      if (
+        event?.type === "session.output_transcript.delta" &&
+        typeof event.delta === "string" &&
+        event.delta
+      ) {
+        const turn = ensureActiveTranslationTurn(event.item_id);
+        turn.translatedText = `${turn.translatedText}${event.delta}`;
+        latest.onLiveTranscriptDelta?.({
+          itemId: turn.itemId,
+          transcriptDelta: "",
+          translatedTextDelta: event.delta,
+          sourceLanguage: latest.myLang,
+          targetLanguage: latest.theirLang,
+          liveMode: "realtime-translation",
+        });
+        return;
+      }
+    }
 
     if (
       event?.type === "conversation.item.input_audio_transcription.delta" &&
@@ -156,6 +294,7 @@ export function useLiveConversationCapture({
         transcriptDelta: event.delta,
         sourceLanguage: latest.myLang,
         targetLanguage: latest.theirLang,
+        liveMode: "fallback-transcription",
       });
       patchCaptureState({ activeSegmentId: event.item_id });
       return;
@@ -171,11 +310,13 @@ export function useLiveConversationCapture({
         transcript: event.transcript,
         sourceLanguage: latest.myLang,
         targetLanguage: latest.theirLang,
+        liveMode: "fallback-transcription",
       });
       return;
     }
 
     if (event?.type === "session.closed") {
+      finalizeActiveTranslationTurn();
       releaseConnection();
       return;
     }
@@ -184,7 +325,14 @@ export function useLiveConversationCapture({
       const message =
         typeof event.error?.message === "string"
           ? event.error.message
-          : "Live transcription connection failed.";
+          : translationModeRef.current === "realtime-translation"
+            ? "Live translation connection failed."
+            : "Live transcription connection failed.";
+
+      if (retryWithFallback(`${message} Switching to fallback translation.`)) {
+        return;
+      }
+
       patchCaptureState({ lastError: message });
     }
   };
@@ -192,7 +340,9 @@ export function useLiveConversationCapture({
   const commitCurrentTranscriptTurn = () => {
     const eventsChannel = eventsChannelRef.current;
 
-    if (eventsChannel?.readyState === "open") {
+    if (translationModeRef.current === "realtime-translation") {
+      scheduleTranslationTurnFinalize();
+    } else if (eventsChannel?.readyState === "open") {
       eventsChannel.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     }
 
@@ -228,7 +378,10 @@ export function useLiveConversationCapture({
     monitorFrameRef.current = requestAnimationFrame(monitorAudio);
   };
 
-  const startListening = async () => {
+  const startListening = async ({
+    forceFallback = false,
+    fallbackReason = "",
+  } = {}) => {
     if (isListeningRef.current || peerConnectionRef.current) {
       return;
     }
@@ -246,9 +399,12 @@ export function useLiveConversationCapture({
     }
 
     try {
+      translationModeRef.current = "fallback-transcription";
       patchCaptureState({
         status: "starting",
         lastError: "",
+        liveMode: "",
+        fallbackReason: forceFallback ? fallbackReason : "",
         sessionStartedAt: new Date().toISOString(),
       });
 
@@ -285,6 +441,14 @@ export function useLiveConversationCapture({
 
       eventsChannel.addEventListener("close", () => {
         if (!isClosingRef.current && peerConnectionRef.current === peerConnection) {
+          if (
+            retryWithFallback(
+              "Realtime translation disconnected; using fallback translation.",
+            )
+          ) {
+            return;
+          }
+
           releaseConnection({
             status: "error",
             lastError: "Live transcription disconnected unexpectedly.",
@@ -297,6 +461,14 @@ export function useLiveConversationCapture({
           peerConnection.connectionState === "failed" &&
           peerConnectionRef.current === peerConnection
         ) {
+          if (
+            retryWithFallback(
+              "Realtime translation connection failed; using fallback translation.",
+            )
+          ) {
+            return;
+          }
+
           releaseConnection({
             status: "error",
             lastError: "Live transcription connection failed.",
@@ -304,15 +476,38 @@ export function useLiveConversationCapture({
         }
       });
 
+      peerConnection.addEventListener("track", ({ track }) => {
+        // StringPhone renders translated text here; do not play the model's
+        // translated audio on top of the conversation audio.
+        track.enabled = false;
+      });
+
       const clientSecret = await createLiveTranscriptionClientSecret({
         sourceLanguage: latest.myLang,
         targetLanguage: latest.theirLang,
+        forceFallback,
+        fallbackReason,
         authFetch: latest.authFetch,
       });
 
       if (typeof clientSecret?.value !== "string" || !clientSecret.value) {
         throw new Error("Live transcription did not return a session credential.");
       }
+
+      translationModeRef.current =
+        clientSecret.liveMode === "realtime-translation"
+          ? "realtime-translation"
+          : "fallback-transcription";
+      patchCaptureState({
+        liveMode: translationModeRef.current,
+        fallbackReason:
+          translationModeRef.current === "fallback-transcription" &&
+          typeof clientSecret.fallbackReason === "string"
+            ? clientSecret.fallbackReason
+            : forceFallback
+              ? fallbackReason
+              : "",
+      });
 
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
@@ -323,17 +518,26 @@ export function useLiveConversationCapture({
         throw new Error("Unable to prepare the live transcription connection.");
       }
 
-      const response = await fetch(OPENAI_REALTIME_CALLS_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${clientSecret.value}`,
-          "Content-Type": "application/sdp",
+      const response = await fetch(
+        translationModeRef.current === "realtime-translation"
+          ? OPENAI_REALTIME_TRANSLATION_CALLS_URL
+          : OPENAI_REALTIME_TRANSCRIPTION_CALLS_URL,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${clientSecret.value}`,
+            "Content-Type": "application/sdp",
+          },
+          body: sdp,
         },
-        body: sdp,
-      });
+      );
 
       if (!response.ok) {
-        throw new Error("OpenAI could not start live transcription.");
+        throw new Error(
+          translationModeRef.current === "realtime-translation"
+            ? "OpenAI could not start live translation."
+            : "OpenAI could not start live transcription.",
+        );
       }
 
       await peerConnection.setRemoteDescription({
@@ -345,12 +549,22 @@ export function useLiveConversationCapture({
       patchCaptureState({ status: "listening", lastError: "" });
       monitorFrameRef.current = requestAnimationFrame(monitorAudio);
     } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to start live transcription.";
+
+      if (
+        !forceFallback &&
+        !isClosingRef.current &&
+        retryWithFallback(`${message} Switching to fallback translation.`)
+      ) {
+        return;
+      }
+
       releaseConnection({
         status: "error",
-        lastError:
-          error instanceof Error && error.message
-            ? error.message
-            : "Unable to start live transcription.",
+        lastError: message,
       });
     }
   };

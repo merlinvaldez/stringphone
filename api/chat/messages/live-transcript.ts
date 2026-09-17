@@ -31,9 +31,13 @@ export default {
       const authenticatedRequest =
         await getOptionalAuthenticatedVercelAppRequest(request);
       const result = await runLiveConversationTranscript({
+        utteranceId: body?.utteranceId,
+        revision: body?.revision,
         sourceLanguage: body?.sourceLanguage,
         targetLanguage: body?.targetLanguage,
         transcript: body?.transcript,
+        translatedText: body?.translatedText,
+        liveMode: body?.liveMode,
         conversationId: body?.conversationId,
         userId: authenticatedRequest?.appUser?.id ?? null,
       });

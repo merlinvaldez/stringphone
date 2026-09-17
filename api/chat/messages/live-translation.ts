@@ -1,5 +1,4 @@
-import { getOptionalAuthenticatedVercelAppRequest } from "../../../src/auth/vercel.js";
-import { createLiveTranscriptionClientSecret } from "../../../src/lib/createLiveTranscriptionClientSecret.js";
+import { runLiveConversationTranslation } from "../../../src/lib/runLiveConversationTranslation.js";
 
 export const config = { runtime: "nodejs" };
 
@@ -28,24 +27,22 @@ export default {
 
     try {
       const body = await request.json().catch(() => null);
-      const authenticatedRequest =
-        await getOptionalAuthenticatedVercelAppRequest(request);
-      const result = await createLiveTranscriptionClientSecret({
+      const result = await runLiveConversationTranslation({
+        utteranceId: body?.utteranceId,
+        revision: body?.revision,
         sourceLanguage: body?.sourceLanguage,
         targetLanguage: body?.targetLanguage,
-        userId: authenticatedRequest?.appUser?.id ?? null,
-        forceFallback: body?.forceFallback === true,
-        fallbackReason: body?.fallbackReason,
+        transcript: body?.transcript,
       });
 
       if (!result.ok) {
         return jsonResponse(result.body, result.status);
       }
 
-      return jsonResponse(result.body);
+      return jsonResponse(result);
     } catch (error) {
-      console.error("Live transcription token creation failed", error);
-      return jsonResponse({ error: "Unable to start live transcription." }, 502);
+      console.error("Live draft translation failed", error);
+      return jsonResponse({ error: "Live draft translation failed." }, 502);
     }
   },
 };

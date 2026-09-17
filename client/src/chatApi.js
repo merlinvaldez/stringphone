@@ -129,6 +129,8 @@ export async function processLiveConversationSegment({
 export async function createLiveTranscriptionClientSecret({
   sourceLanguage,
   targetLanguage,
+  forceFallback = false,
+  fallbackReason = "",
   authFetch,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
@@ -138,6 +140,8 @@ export async function createLiveTranscriptionClientSecret({
     body: JSON.stringify({
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
+      forceFallback,
+      fallbackReason,
     }),
   });
 
@@ -151,7 +155,11 @@ export async function createLiveTranscriptionClientSecret({
 }
 
 export async function processLiveConversationTranscript({
+  utteranceId,
+  revision,
   transcript,
+  translatedText,
+  liveMode,
   sourceLanguage,
   targetLanguage,
   authFetch,
@@ -162,7 +170,11 @@ export async function processLiveConversationTranscript({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      utteranceId,
+      revision,
       transcript,
+      translatedText,
+      liveMode,
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
       conversationId,
@@ -172,6 +184,36 @@ export async function processLiveConversationTranscript({
   if (!response.ok) {
     throw new Error(
       await parseApiError(response, "Live transcription failed."),
+    );
+  }
+
+  return response.json();
+}
+
+export async function processLiveConversationDraftTranslation({
+  utteranceId,
+  revision,
+  transcript,
+  sourceLanguage,
+  targetLanguage,
+  authFetch,
+}) {
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/messages/live-translation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      utteranceId,
+      revision,
+      transcript,
+      sourceLanguage: sourceLanguage.code,
+      targetLanguage: targetLanguage.code,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Live draft translation failed."),
     );
   }
 

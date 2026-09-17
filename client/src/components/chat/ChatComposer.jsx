@@ -31,6 +31,8 @@ export function ChatComposer({
   const liveStatus = liveCaptureState?.status ?? "idle";
   const liveActive = liveStatus === "listening" || liveStatus === "processing";
   const liveBusy = liveStatus === "starting" || liveStatus === "stopping";
+  const usingFallbackLiveTranslation =
+    liveCaptureState?.liveMode === "fallback-transcription";
   const liveDisabled =
     disabled || recordingStatus !== "idle" || liveBusy || !supportsLiveCapture;
   const liveLabel = liveActive
@@ -116,13 +118,30 @@ export function ChatComposer({
       ) : null}
 
       {supportsLiveCapture && liveStatus !== "idle" && liveStatus !== "error" ? (
-        <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+        <div
+          className={`mb-3 flex items-center justify-between rounded-2xl border px-4 py-3 ${
+            usingFallbackLiveTranslation
+              ? "border-amber-400/30 bg-amber-400/10"
+              : "border-white/10 bg-white/5"
+          }`}
+        >
           <div className="text-sm text-zinc-200">
-            {liveActive
-              ? liveCaptureState?.pendingSegmentCount > 0
-                ? `Live listening, ${liveCaptureState.pendingSegmentCount} processing`
-                : "Live listening"
-              : liveLabel}
+            {usingFallbackLiveTranslation
+              ? (
+                  <>
+                    <div>{uiStrings.liveTranslationFallback}</div>
+                    {liveCaptureState?.fallbackReason ? (
+                      <div className="mt-1 text-xs text-amber-100/80">
+                        {liveCaptureState.fallbackReason}
+                      </div>
+                    ) : null}
+                  </>
+                )
+              : liveActive
+                ? liveCaptureState?.pendingSegmentCount > 0
+                  ? `${uiStrings.liveTranslation}, ${liveCaptureState.pendingSegmentCount} processing`
+                  : uiStrings.liveTranslation
+                : liveLabel}
           </div>
           {liveActive ? (
             <AudioWave active colorClass="bg-rose-400" />

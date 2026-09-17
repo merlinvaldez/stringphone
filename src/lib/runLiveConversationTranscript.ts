@@ -1,13 +1,11 @@
 import {
-  CANONICAL_TTS_LANGUAGES,
   getSupportedTtsLanguage,
   requiresPhoneticGuide,
 } from "./languages.js";
 import { createMessage, getConversation } from "../db/queries/conversations.js";
-import { classifyLiveSegmentLanguage } from "../services/classifyLiveSegmentLanguage.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 import { refreshConversationTitle } from "../services/refreshConversationTitle.js";
-import { translateText } from "../services/translateText.js";
+import { runLiveConversationTranslation } from "./runLiveConversationTranslation.js";
 
 type ChatLanguagePayload = {
   code: string;
@@ -17,6 +15,8 @@ type ChatLanguagePayload = {
 export type RunLiveConversationTranscriptResult =
   | {
       ok: true;
+      utteranceId: string;
+      revision: number;
       detectedSourceLanguage: ChatLanguagePayload & {
         confidence: number;
         ambiguous: boolean;
@@ -46,15 +46,18 @@ function normalizeOptionalText(value: unknown) {
  * owns only selected-language classification, translation, and persistence.
  */
 export async function runLiveConversationTranscript(input: {
+  utteranceId: unknown;
+  revision: unknown;
   sourceLanguage: unknown;
   targetLanguage: unknown;
   transcript: unknown;
+  translatedText?: unknown;
+  liveMode?: unknown;
   conversationId?: unknown;
   userId?: number | null;
 }): Promise<RunLiveConversationTranscriptResult> {
   const myLanguage = getSupportedTtsLanguage(input.sourceLanguage);
   const theirLanguage = getSupportedTtsLanguage(input.targetLanguage);
-  const transcript = normalizeOptionalText(input.transcript);
   const conversationId = normalizeOptionalText(input.conversationId);
 
   if (conversationId) {
@@ -73,53 +76,37 @@ export async function runLiveConversationTranscript(input: {
     }
   }
 
-  if (!myLanguage) {
+  const translation = await runLiveConversationTranslation({
+    utteranceId: input.utteranceId,
+    revision: input.revision,
+    sourceLanguage: input.sourceLanguage,
+    targetLanguage: input.targetLanguage,
+    transcript: input.transcript,
+    translatedText: input.translatedText,
+    liveMode: input.liveMode,
+  });
+
+  if (!translation.ok) {
+    return translation;
+  }
+
+  const transcript = translation.transcript;
+  const spokenLanguage = getSupportedTtsLanguage(
+    translation.sourceLanguage.code,
+  );
+  const translationLanguage = getSupportedTtsLanguage(
+    translation.targetLanguage.code,
+  );
+
+  if (!myLanguage || !theirLanguage || !spokenLanguage || !translationLanguage) {
     return {
       ok: false,
       status: 400,
-      body: {
-        error: "sourceLanguage is not supported",
-        supportedLanguages: CANONICAL_TTS_LANGUAGES,
-      },
+      body: { error: "Selected live languages are not supported" },
     };
   }
 
-  if (!theirLanguage) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        error: "targetLanguage is not supported",
-        supportedLanguages: CANONICAL_TTS_LANGUAGES,
-      },
-    };
-  }
-
-  if (!transcript) {
-    return {
-      ok: false,
-      status: 422,
-      body: { error: "No speech was detected" },
-    };
-  }
-
-  const classification = await classifyLiveSegmentLanguage({
-    transcript,
-    myLanguageCode: myLanguage.code,
-    myLanguage: myLanguage.name,
-    theirLanguageCode: theirLanguage.code,
-    theirLanguage: theirLanguage.name,
-  });
-  const detectedIsTheirLanguage =
-    classification.languageCode === theirLanguage.code;
-  const spokenLanguage = detectedIsTheirLanguage ? theirLanguage : myLanguage;
-  const translationLanguage = detectedIsTheirLanguage ? myLanguage : theirLanguage;
-  const sender = detectedIsTheirLanguage ? "partner" : "self";
-  const translatedText = await translateText({
-    text: transcript,
-    sourceLanguage: spokenLanguage.name,
-    targetLanguage: translationLanguage.name,
-  });
+  const { translatedText } = translation;
   let originalPronunciation = "";
   let translatedPronunciation = "";
 
@@ -150,7 +137,7 @@ export async function runLiveConversationTranscript(input: {
     try {
       const message = await createMessage({
         conversationId,
-        sender,
+        sender: translation.sender,
         messageOrigin: "human",
         originalText: transcript,
         originalPronunciation,
@@ -175,16 +162,12 @@ export async function runLiveConversationTranscript(input: {
 
   return {
     ok: true,
-    detectedSourceLanguage: {
-      code: spokenLanguage.code,
-      label: spokenLanguage.name,
-      confidence: classification.confidence,
-      ambiguous:
-        classification.confidence > 0 && classification.confidence < 0.55,
-    },
-    sourceLanguage: { code: spokenLanguage.code, label: spokenLanguage.name },
-    targetLanguage: { code: translationLanguage.code, label: translationLanguage.name },
-    sender,
+    utteranceId: translation.utteranceId,
+    revision: translation.revision,
+    detectedSourceLanguage: translation.detectedSourceLanguage,
+    sourceLanguage: translation.sourceLanguage,
+    targetLanguage: translation.targetLanguage,
+    sender: translation.sender,
     transcript,
     translatedText,
     originalPronunciation,
