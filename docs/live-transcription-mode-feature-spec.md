@@ -2,25 +2,25 @@
 
 **Status:** Implemented on `feat/14-live-text-translation` on 2026-09-18.
 **Product:** StringPhone  
-**Audience:** people using StringPhone in an in-person conversation who want a passive bilingual transcript and sound-button playback while keeping Chat focused on text and voice notes.
+**Audience:** people using StringPhone in an in-person conversation who want a passive bilingual transcript while continuing to read and use Chat.
 
 ## Outcome
 
-StringPhone adds a separate top-level Live mode for passive conversation capture.
+StringPhone adds Live capture as a dock inside Chat. The dock is collapsed and secondary by default, and can expand in place when the user needs to focus on the active bilingual text.
 
 When Live listening is started, the app streams speech transcription continuously, shows a translated preview while the speaker is still talking, and uses short silence windows only to commit utterances. Each committed utterance is classified as one of the selected two languages, translated into the opposite selected language, and appended to the existing bilingual thread pattern.
 
 Live conversation segments use the same playback pattern as typed Chat messages: the compact sound button appears only on the second-language side of the message.
 
-The feature should feel like the current StringPhone conversation surface gaining a passive listening state. It reuses the existing header, thread, message bubble, language controls, playback, and history patterns without introducing a transcript dashboard or a new visual language. Chat remains text chat plus voice notes; Live owns continuous microphone capture.
+The feature should feel like Chat gaining a passive listening surface. It reuses the existing zinc/glass dock, rounded geometry, spacing, Radio state marker, and icon-only expand/minimize affordances without introducing a new route, full-screen interruption, prose help card, or one-line preview.
 
 ## Product Intent
 
 - Let people put the phone down during an in-person bilingual conversation and get a running transcript in both selected languages.
-- Reduce interaction cost compared with the current turn-based voice modes.
+- Let people keep reading the normal Chat thread while Live runs.
 - Keep the app's two-language model: `my language` and `their language`.
-- Reuse the current chat thread, message bubble, language selector, history, and playback components wherever possible.
-- Keep Live as an explicit top-level mode so microphone capture and its consent state are separate from ordinary Chat composition.
+- Reuse the current Chat thread, composer safe area, language controls, history, and playback components wherever possible.
+- Keep Live state separate from persisted Chat messages so partial text never enters the normal `MessageBubble` list.
 - Make every captured utterance playable through the existing second-language sound button.
 - Preserve current typed chat, single voice, conversation voice, learning, shared chat, AI partner, saved history, and phrasebook behavior.
 
@@ -32,19 +32,17 @@ Live mode should require one intentional user action to satisfy browser micropho
 
 V1 must not require the user to hold the mic button or manually stop after every turn.
 
-### Existing Thread First
+### Chat Surface First
 
-Live utterances should render through the same message-thread mental model as Chat. They should look like regular bilingual conversation rows, not like a log viewer.
+Live should remain secondary to the existing Chat surface. The dock belongs above the composer, keeps the newest active text visible, and never covers the composer or obscures the newest finalized message.
 
 ### No Unnecessary UI
 
-The only new visible surface should be what is required to enter and control the top-level Live mode. Everything else should reuse existing patterns:
+The only new visible surface should be the dock and its compact composer control. Everything else should reuse existing patterns:
 
-- `LiveModeScreen` listening control;
-- `ChatHeader` language controls;
-- `ChatThread` scrolling behavior;
-- `MessageBubble` bilingual text hierarchy;
-- compact circular playback controls;
+- `LiveTranslationDock` and its compact Radio control;
+- the existing Chat thread and composer safe area;
+- the existing bilingual text hierarchy and compact circular playback controls;
 - existing amber, emerald, rose, zinc, and white state colors;
 - History sidebar access.
 
@@ -71,41 +69,42 @@ The UI does not wait for silence before showing speech. True provider-generated 
 - No pronunciation scoring.
 - No autoplay of every captured segment.
 - No background microphone capture before user consent.
-- No deletion of the dormant Single or Conversation implementations; they are hidden from the switcher in V1 and can be brought back later.
-- No turn-based Live control inside Chat; Chat remains text chat plus voice notes.
+- No separate top-level Live route or full-screen Live interruption.
+- No deletion of the dormant Single or Conversation implementations.
 
 ## Current Repo Constraints
 
 The implementation should fit the current StringPhone code paths.
 
-- Top-level mode selection is in `client/src/StringPhoneApp.jsx` through `MODE_OPTIONS`, `VISIBLE_MODE_OPTIONS`, and `appMode` rendering. Live is a visible top-level mode; the dormant turn-based Single and Conversation modes remain hidden from the switcher.
+- Top-level mode selection remains in `client/src/StringPhoneApp.jsx`; Live is not a visible top-level mode. The dormant turn-based Single and Conversation modes remain hidden from the switcher.
 - Chat UI composition lives in `client/src/components/chat/ChatScreen.jsx`.
-- Thread rendering lives in `client/src/components/chat/ChatThread.jsx` and `MessageBubble.jsx`.
+- Live dock composition lives in `client/src/components/live/LiveTranslationDock.jsx`; Chat thread rendering remains in `client/src/components/chat/ChatThread.jsx` and `MessageBubble.jsx`.
 - Text playback already uses `client/src/components/audio/TextToSpeechButton.jsx` plus `POST /api/speech/output`.
 - Voice bubble playback already uses `VoiceMessagePlayer.jsx`.
 - Turn-based voice chat uses `translateVoiceMessage()` in `client/src/chatApi.js` and `POST /api/chat/messages/voice`.
 - Backend voice translation uses `src/lib/runVoiceChatMessage.ts`, `src/lib/runSpeechTranslation.ts`, `src/services/transcribeAudio.ts`, `src/services/translateText.ts`, and `src/services/generateSpeech.ts`.
 - Saved conversation persistence uses `public.conversations` and `public.messages` through `src/db/queries/conversations.ts`.
 - AI partner state and `/aipartner` command handling already exist and must remain separate from Live mode.
-- Shared-room chat currently locks the voice-focused live modes. Live mode should follow that lock behavior unless shared-room compatibility is intentionally designed later.
+- Shared-room chat currently disables the Live capture control unless shared-room compatibility is intentionally designed later.
 - `MAX_RECORDING_TIME` currently applies to turn-based recording. Live mode needs chunk-level limits instead of a 30-second whole-session limit.
 
 ## User Experience
 
 ### Entry Point
 
-Expose Live as a top-level mode beside Chat and Phrasebook. Chat itself remains the text-and-voice-note surface.
+Expose Live from the Chat composer with an icon-only `Radio` control. Chat remains the primary screen.
 
 Recommended icon: use a Lucide icon that communicates live capture, such as `Radio`, placed beside the existing send/mic composer controls.
 
 ### First Open
 
-When the user opens Live:
+When the user starts Live from Chat:
 
-- show the same language selector header used by Chat;
-- show the existing History access control;
-- show the same empty thread treatment or a lightly adapted empty state;
-- show a continuous listening control below the shared header and thread.
+- keep the existing Chat header, thread, and composer visible;
+- open a bounded dock directly above the composer;
+- show the complete active source and translated text in the dock;
+- keep the newest active text visible with internal scrolling;
+- show an icon-only expand affordance; the default dock remains secondary.
 
 Browser microphone capture usually requires a user gesture, so Live listening should not silently start on page render. The visible start control should use the current mic/recording pattern and then transition into the continuous listening state.
 
@@ -113,18 +112,18 @@ Browser microphone capture usually requires a user gesture, so Live listening sh
 
 After the user starts Live listening:
 
-- the bottom control shows listening state using the existing rose/recording treatment;
+- the composer Radio control shows listening state using the existing rose/recording treatment;
 - the app keeps listening until stopped;
-- Chat's text input is not part of Live; switching to Chat returns to the ordinary text-and-voice-note composer;
+- Chat's text input remains usable while Live runs;
 - language selectors are disabled while processing active audio;
 - partial transcript and translation previews appear while the speaker is talking;
-- the thread promotes a draft to a saved message after the utterance is committed and final translation returns;
+- the normal thread promotes a draft to a saved message after the utterance is committed and final translation returns;
 - long silence should not create empty messages;
 - short non-speech sounds and provider no-speech responses should be ignored quietly with no visible error row.
 
 ### Live Segment Rendering
 
-A resolved live segment should reuse `MessageBubble` where possible.
+A resolved live segment should render through the existing normal Chat thread and `MessageBubble` path.
 
 Recommended segment shape:
 
@@ -153,7 +152,7 @@ Recommended behavior:
 - only one segment should play at a time;
 - playback must work on desktop click, mobile tap, keyboard activation, and screen-reader accessible controls through the existing button.
 
-Playback is manual. Live mode should not auto-play every segment as it appears in V1.
+Playback is manual. Live should not auto-play every segment as it appears in V1.
 
 ### Stopping Live
 
@@ -162,7 +161,7 @@ When the user stops Live listening:
 - the current in-flight chunk should be finalized when possible;
 - incomplete silence-only chunks should be discarded;
 - pending rows should resolve, fail softly, or be removed if they contain no transcript;
-- the mode remains open so the user can review and tap previous segments;
+- Chat remains open so the user can review and tap previous segments;
 - the stop action should use the existing square stop icon and recording color treatment.
 
 ### Mode Switching
@@ -212,19 +211,19 @@ Acceptable V1 behavior:
 
 ## Client Architecture
 
-### Top-Level Live Capture
+### Chat-Owned Live Capture
 
 Recommended file:
 
 - `client/src/components/live/useLiveConversationCapture.js`
 
-This hook is owned by the top-level `LiveModeScreen`, which keeps continuous microphone capture separate from Chat.
+This hook is owned by `ChatScreen`, which keeps continuous microphone capture available without replacing Chat.
 
 Recommended composition:
 
-- reuse `ChatHeader` for language controls and History access;
-- reuse `ChatThread` for rendering the live transcript;
-- reuse `MessageBubble` for individual bilingual rows;
+- render the active draft in `LiveTranslationDock` above `ChatComposer`;
+- keep the final-message thread and active dock separate;
+- reuse the existing compact text-to-speech button for resolved translated lines in `MessageBubble`;
 - use the existing stop icon, processing spinner, and color semantics;
 - keep ChatComposer free of Live controls.
 
@@ -483,10 +482,10 @@ Recommended file additions and changes:
 
 | Area | Files |
 | --- | --- |
-| Top-level Live orchestration | `client/src/StringPhoneApp.jsx`, `client/src/components/live/LiveModeScreen.jsx` |
+| Chat-owned Live orchestration | `client/src/StringPhoneApp.jsx`, `client/src/components/chat/ChatScreen.jsx` |
 | Live capture hook | `client/src/components/live/useLiveConversationCapture.js` |
-| Live capture control | `client/src/components/live/LiveModeScreen.jsx` |
-| Existing thread rendering reuse | `client/src/components/chat/ChatHeader.jsx`, `ChatThread.jsx`, `MessageBubble.jsx`, `VoiceMessagePlayer.jsx`, `TextToSpeechButton.jsx` |
+| Live dock and control | `client/src/components/live/LiveTranslationDock.jsx`, `client/src/components/chat/ChatComposer.jsx` |
+| Existing Chat-surface reuse | `ChatThread.jsx`, `MessageBubble.jsx`, `ChatComposer.jsx`, plus `TextToSpeechButton.jsx` |
 | Client API | `client/src/chatApi.js` |
 | Streaming Live routes | `api/chat/live-transcription/token.ts`, `api/chat/messages/live-translation.ts`, `api/chat/messages/live-transcript.ts` |
 | Uploaded-segment compatibility route | `api/chat/messages/live-segment.ts` |
@@ -498,7 +497,7 @@ Recommended file additions and changes:
 
 ## Acceptance Criteria
 
-- [ ] Live is available as a visible top-level mode using existing mode-switcher styling.
+- [ ] Live starts from an icon-only control inside Chat; no top-level Live route is required.
 - [ ] Chat continues to show the existing language selector/header and thread layout.
 - [ ] Starting Live requires one user action and then listens continuously until stopped.
 - [ ] Live mode does not require manual start/stop per utterance.
@@ -513,8 +512,8 @@ Recommended file additions and changes:
 - [ ] Clicking or tapping the bubble body does not play audio.
 - [ ] Only one segment plays at a time.
 - [ ] Existing explicit playback buttons still work and remain accessible.
-- [ ] Live listening reuses current chat/thread/bubble visual patterns without adding a separate transcript dashboard.
-- [ ] Leaving Live mode stops microphone capture.
+- [ ] Live listening uses a bounded dock above the composer without adding a separate transcript dashboard.
+- [ ] Leaving Chat stops microphone capture.
 - [ ] Returning home stops microphone capture and clears transient live state as appropriate.
 - [ ] Signed-in live segments save to the current conversation as normal messages.
 - [ ] Reopening a saved conversation shows saved live segments as normal bilingual messages.
@@ -525,8 +524,8 @@ Recommended file additions and changes:
 ## Verification Plan
 
 1. Start the dev server and open StringPhone in a desktop browser.
-2. Open Live and verify no microphone capture starts before the user presses the Live listening control.
-3. Press start, grant microphone permission, and verify the listening state is visible.
+2. Open Chat and verify no microphone capture starts before the user presses the composer Radio control.
+3. Press start, grant microphone permission, and verify the bounded dock appears above the composer.
 4. Speak continuously in `my language`; verify the transcript draft appears before pausing and the opposite-language preview updates before the utterance ends.
 5. Respond immediately in `their language`; verify a new draft can appear after the first silence boundary and resolves in the opposite direction.
 6. Pause between utterances and verify silence commits drafts without creating empty rows.
@@ -534,14 +533,14 @@ Recommended file additions and changes:
 8. Verify no-speech silence does not leave a pending or error row.
 9. Tap the live segment bubble body and verify it does not play audio.
 10. Tap the compact sound button on the second-language side and verify generated speech plays.
-11. Stop Live and verify microphone capture ends while existing rows remain reviewable.
+11. Stop Live and verify microphone capture ends while the dock closes and existing rows remain reviewable.
 12. Leave Chat during active capture and verify background recording stops.
 13. Sign in, start Live in a saved conversation, speak two segments, then reopen the conversation from History and verify the saved bilingual rows hydrate.
-14. Try Live mode while shared chat is active and verify the existing lock-notice behavior blocks it.
+14. Try the Live control while shared chat is active and verify it is disabled by the existing lock behavior.
 15. Deny microphone permission and verify Live returns to idle with a compact inline error.
 16. Force a segment transcription or translation failure and verify only that segment fails while capture can continue.
 17. Run the existing build and targeted chat/audio verification scripts after implementation.
-18. Use browser testing at mobile and desktop widths to confirm controls do not overlap and the thread remains scrollable above the bottom control.
+18. Use browser testing at mobile and desktop widths to confirm the dock stays above the composer, keeps the newest active text visible, and expands/minimizes without obscuring Chat.
 
 ## Open Product Calls
 

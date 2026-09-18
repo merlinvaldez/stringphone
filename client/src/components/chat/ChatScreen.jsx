@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { ChatHeader } from "./ChatHeader.jsx";
 import { ChatThread } from "./ChatThread.jsx";
 import { ChatComposer } from "./ChatComposer.jsx";
+import { LiveTranslationDock } from "../live/LiveTranslationDock.jsx";
+import { useLiveConversationCapture } from "../live/useLiveConversationCapture.js";
 import {
   getChatCommandOptions,
   resolveChatSlashSubmission,
@@ -40,6 +42,13 @@ export function ChatScreen({
   onOpenSidebar,
   aiPartnerState,
   onExecuteSlashCommand,
+  liveDrafts = [],
+  liveCaptureState,
+  setLiveCaptureState,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -85,6 +94,26 @@ export function ChatScreen({
   const partnerStatusLabel = aiPartnerState?.displayName
     ? aiPartnerState.displayName
     : "Partner";
+  const [isLiveExpanded, setIsLiveExpanded] = useState(false);
+  const { startListening, stopListening } = useLiveConversationCapture({
+    myLang,
+    theirLang,
+    captureState: liveCaptureState,
+    setCaptureState: setLiveCaptureState,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+  });
+  const liveStatus = liveCaptureState?.status ?? "idle";
+  const liveIsActive =
+    liveStatus === "starting" ||
+    liveStatus === "listening" ||
+    liveStatus === "processing" ||
+    liveStatus === "stopping";
+  const activeLiveDraft = liveDrafts[liveDrafts.length - 1] ?? null;
+  const showLiveDock =
+    liveIsActive ||
+    Boolean(activeLiveDraft?.transcript || activeLiveDraft?.translatedText);
   useEffect(
     () => {
       mountedRef.current = true;
@@ -92,6 +121,7 @@ export function ChatScreen({
       return () => {
         mountedRef.current = false;
         recorder.cancel();
+        onLiveCaptureClosed?.();
       };
     },
     [],
@@ -330,6 +360,15 @@ export function ChatScreen({
         />
       </div>
 
+      {showLiveDock ? (
+        <LiveTranslationDock
+          draft={activeLiveDraft}
+          status={liveStatus}
+          isExpanded={isLiveExpanded}
+          onToggleExpanded={() => setIsLiveExpanded((expanded) => !expanded)}
+        />
+      ) : null}
+
       <ChatComposer
         text={composerText}
         setText={setComposerText}
@@ -341,7 +380,7 @@ export function ChatScreen({
         onInvertLanguages={onInvertLanguages}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        supportsVoiceInput
+        supportsVoiceInput={!liveIsActive}
         showInvertLanguages={textOnlyChat}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}
@@ -356,6 +395,17 @@ export function ChatScreen({
             void executeSlashCommand(commandValue);
           },
         }}
+        liveStatus={liveStatus}
+        onStartLive={() => {
+          setIsLiveExpanded(false);
+          void startListening();
+        }}
+        onStopLive={() => void stopListening()}
+        liveDisabled={
+          Boolean(sharedRoomSession) ||
+          waitingForSharedRoomAutoJoin ||
+          liveRoomBusy
+        }
       />
 
       <ErrorNotice message={error} onDismiss={() => setError("")} />

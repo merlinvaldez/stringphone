@@ -73,7 +73,6 @@ import {
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
 import { LearningScreen } from "./components/learning/LearningScreen.jsx";
-import { LiveModeScreen } from "./components/live/LiveModeScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
@@ -193,7 +192,7 @@ const MODE_OPTIONS = [
   { id: "conversation", label: "Conversation", Icon: Users },
   { id: "lesson", label: "Phrasebook", Icon: Bookmark },
 ];
-const HIDDEN_MODE_IDS = new Set(["single", "conversation"]);
+const HIDDEN_MODE_IDS = new Set(["live", "single", "conversation"]);
 const VISIBLE_MODE_OPTIONS = MODE_OPTIONS.filter(
   ({ id }) => !HIDDEN_MODE_IDS.has(id),
 );
@@ -5077,28 +5076,13 @@ export default function StringPhoneApp() {
           onOpenSidebar={() => setIsSidebarOpen(true)}
           aiPartnerState={aiPartnerState}
           onExecuteSlashCommand={executeChatSlashCommand}
-        />
-      ) : null}
-
-      {appMode === "live" ? (
-        <LiveModeScreen
-          myLang={myLang}
-          setMyLang={handleSelectChatMyLanguage}
-          theirLang={theirLang}
-          setTheirLang={handleSelectChatTheirLanguage}
-          onInvertLanguages={handleInvertChatLanguages}
-          messages={chatMessages}
           liveDrafts={liveDrafts}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}
           onLiveTranscriptDelta={appendLiveTranscriptDelta}
           onLiveTranscript={submitLiveConversationTranscript}
-          onRetry={retryChatMessage}
-          onAudioPlay={handleThreadAudioPlay}
-          onPlayGeneratedSpeech={playGeneratedSpeech}
-          onSaveToCollection={handleSaveMessageToCollection}
-          onOpenSidebar={() => setIsSidebarOpen(true)}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { Square, Send, Mic, ArrowLeftRight, Loader2 } from "lucide-react";
+import { Square, Send, Mic, ArrowLeftRight, Loader2, Radio } from "lucide-react";
 import { interpolateTemplate } from "../../uiStrings.js";
 import { AudioWave } from "../../StringPhoneApp.jsx";
 import { ChatCommandMenu } from "./ChatCommandMenu.jsx";
@@ -22,6 +22,10 @@ export function ChatComposer({
   commandMenu = null,
   commandNotice = "",
   onInputKeyDown,
+  liveStatus = "idle",
+  onStartLive,
+  onStopLive,
+  liveDisabled = false,
 }) {
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
@@ -54,7 +58,16 @@ export function ChatComposer({
               "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10",
             icon: <Mic size={18} />,
             disabled: recordingStatus === "processing" || !supportsVoiceInput,
-          };
+        };
+  const liveIsActive =
+    liveStatus === "starting" ||
+    liveStatus === "listening" ||
+    liveStatus === "processing" ||
+    liveStatus === "stopping";
+  const liveIsBusy = liveStatus === "starting" || liveStatus === "stopping";
+  const liveActionLabel = liveIsActive
+    ? "Stop live translation"
+    : "Start live translation";
 
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
@@ -134,6 +147,28 @@ export function ChatComposer({
             <ArrowLeftRight size={18} />
           </button>
         ) : null}
+
+        <button
+          type="button"
+          onClick={liveIsActive ? onStopLive : onStartLive}
+          disabled={liveDisabled || liveIsBusy || recordingStatus !== "idle"}
+          className={`flex h-14 w-14 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            liveIsActive
+              ? "border-rose-400/30 bg-rose-500/10 text-rose-300"
+              : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white"
+          }`}
+          title={liveActionLabel}
+          aria-label={liveActionLabel}
+        >
+          {liveIsBusy ? (
+            <Loader2 size={18} className="animate-spin" />
+          ) : (
+            <Radio
+              size={18}
+              className={liveIsActive ? "animate-pulse" : ""}
+            />
+          )}
+        </button>
 
         <button
           type="button"
