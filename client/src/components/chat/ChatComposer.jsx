@@ -1,5 +1,5 @@
 import React from "react";
-import { Square, Send, Mic, ArrowLeftRight, Radio, Loader2 } from "lucide-react";
+import { Square, Send, Mic, ArrowLeftRight, Loader2 } from "lucide-react";
 import { interpolateTemplate } from "../../uiStrings.js";
 import { AudioWave } from "../../StringPhoneApp.jsx";
 import { ChatCommandMenu } from "./ChatCommandMenu.jsx";
@@ -15,11 +15,7 @@ export function ChatComposer({
   onInvertLanguages,
   onStartRecording,
   onStopRecording,
-  liveCaptureState = null,
-  onStartLiveCapture,
-  onStopLiveCapture,
   supportsVoiceInput = true,
-  supportsLiveCapture = false,
   showInvertLanguages = false,
   disabled = false,
   disabledPlaceholder = "",
@@ -28,22 +24,7 @@ export function ChatComposer({
   onInputKeyDown,
 }) {
   const hasText = text.trim().length > 0;
-  const liveStatus = liveCaptureState?.status ?? "idle";
-  const liveActive = liveStatus === "listening" || liveStatus === "processing";
-  const liveBusy = liveStatus === "starting" || liveStatus === "stopping";
-  const usingFallbackLiveTranslation =
-    liveCaptureState?.liveMode === "fallback-transcription";
-  const liveDisabled =
-    disabled || recordingStatus !== "idle" || liveBusy || !supportsLiveCapture;
-  const liveLabel = liveActive
-    ? "Stop live listening"
-    : liveBusy
-      ? liveStatus === "starting"
-        ? "Starting live listening"
-        : "Stopping live listening"
-      : "Start live listening";
-  const canSendText =
-    hasText && recordingStatus === "idle" && !disabled && !liveActive && !liveBusy;
+  const canSendText = hasText && recordingStatus === "idle" && !disabled;
   const actionKind =
     recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
 
@@ -111,46 +92,6 @@ export function ChatComposer({
         </div>
       ) : null}
 
-      {supportsLiveCapture && liveStatus === "error" && liveCaptureState?.lastError ? (
-        <div className="mb-3 rounded-[1.1rem] border border-rose-500/20 bg-rose-950/40 px-4 py-2 text-sm text-rose-100">
-          {liveCaptureState.lastError}
-        </div>
-      ) : null}
-
-      {supportsLiveCapture && liveStatus !== "idle" && liveStatus !== "error" ? (
-        <div
-          className={`mb-3 flex items-center justify-between rounded-2xl border px-4 py-3 ${
-            usingFallbackLiveTranslation
-              ? "border-amber-400/30 bg-amber-400/10"
-              : "border-white/10 bg-white/5"
-          }`}
-        >
-          <div className="text-sm text-zinc-200">
-            {usingFallbackLiveTranslation
-              ? (
-                  <>
-                    <div>{uiStrings.liveTranslationFallback}</div>
-                    {liveCaptureState?.fallbackReason ? (
-                      <div className="mt-1 text-xs text-amber-100/80">
-                        {liveCaptureState.fallbackReason}
-                      </div>
-                    ) : null}
-                  </>
-                )
-              : liveActive
-                ? liveCaptureState?.pendingSegmentCount > 0
-                  ? `${uiStrings.liveTranslation}, ${liveCaptureState.pendingSegmentCount} processing`
-                  : uiStrings.liveTranslation
-                : liveLabel}
-          </div>
-          {liveActive ? (
-            <AudioWave active colorClass="bg-rose-400" />
-          ) : (
-            <Loader2 size={18} className="animate-spin text-amber-300" />
-          )}
-        </div>
-      ) : null}
-
       <div className="flex items-end gap-2">
         <input
           type="text"
@@ -170,12 +111,10 @@ export function ChatComposer({
               }
             }
           }}
-          disabled={recordingStatus !== "idle" || disabled || liveActive || liveBusy}
+          disabled={recordingStatus !== "idle" || disabled}
           placeholder={
             disabled
               ? disabledPlaceholder
-              : liveActive
-                ? "Live listening..."
               : interpolateTemplate(uiStrings.messageIn, {
                   language: sourceLanguage.name,
                 })
@@ -196,33 +135,10 @@ export function ChatComposer({
           </button>
         ) : null}
 
-        {supportsLiveCapture ? (
-          <button
-            type="button"
-            onClick={liveActive ? onStopLiveCapture : onStartLiveCapture}
-            disabled={liveDisabled}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              liveActive
-                ? "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]"
-                : "border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            }`}
-            title={liveLabel}
-            aria-label={liveLabel}
-          >
-            {liveBusy ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : liveActive ? (
-              <Square size={18} fill="currentColor" />
-            ) : (
-              <Radio size={18} />
-            )}
-          </button>
-        ) : null}
-
         <button
           type="button"
           onClick={actionProps.onClick}
-          disabled={actionProps.disabled || disabled || liveActive || liveBusy}
+          disabled={actionProps.disabled || disabled}
           className={`flex h-14 w-14 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${actionProps.className}`}
           title={actionProps.title}
           aria-label={actionProps.title}

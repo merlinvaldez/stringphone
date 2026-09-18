@@ -1,3 +1,5 @@
+import { translateText } from "./translateText.js";
+
 type OpenAiOutputContent = {
   type?: unknown;
   text?: unknown;
@@ -37,39 +39,52 @@ export async function translateLiveDraft(input: {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error("Live translation is not configured.");
+    return translateText({
+      text: input.text,
+      sourceLanguage: input.sourceLanguage,
+      targetLanguage: input.targetLanguage,
+    });
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_LIVE_TRANSLATION_MODEL?.trim() || "gpt-4o-mini",
-      store: false,
-      instructions:
-        "You are a low-latency translation engine. Return only the translation, with no explanation or quotation marks.",
-      input: `Source language: ${input.sourceLanguage}\nTarget language: ${input.targetLanguage}\n\nText:\n${input.text}`,
-    }),
-  });
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_LIVE_TRANSLATION_MODEL?.trim() || "gpt-4o-mini",
+        store: false,
+        instructions:
+          "You are a low-latency translation engine. Return only the translation, with no explanation or quotation marks.",
+        input: `Source language: ${input.sourceLanguage}\nTarget language: ${input.targetLanguage}\n\nText:\n${input.text}`,
+      }),
+    });
 
-  const body = (await response.json().catch(() => null)) as OpenAiResponseBody | null;
+    const body = (await response.json().catch(() => null)) as OpenAiResponseBody | null;
 
-  if (!response.ok || !body) {
-    const errorMessage =
-      typeof body?.error?.message === "string"
-        ? body.error.message
-        : "OpenAI live translation failed.";
-    throw new Error(errorMessage);
+    if (!response.ok || !body) {
+      throw new Error(
+        typeof body?.error?.message === "string"
+          ? body.error.message
+          : "OpenAI live translation failed.",
+      );
+    }
+
+    const translatedText = extractOutputText(body);
+
+    if (!translatedText) {
+      throw new Error("OpenAI live translation returned no text.");
+    }
+
+    return translatedText;
+  } catch (error) {
+    console.warn("Low-latency Live translation failed; using the standard translator.", error);
+    return translateText({
+      text: input.text,
+      sourceLanguage: input.sourceLanguage,
+      targetLanguage: input.targetLanguage,
+    });
   }
-
-  const translatedText = extractOutputText(body);
-
-  if (!translatedText) {
-    throw new Error("OpenAI live translation returned no text.");
-  }
-
-  return translatedText;
 }

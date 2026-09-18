@@ -14,6 +14,7 @@ import {
   Pause,
   Phone,
   Play,
+  Radio,
   Search,
   Send,
   Share2,
@@ -39,6 +40,7 @@ import {
   fetchOutputSpeech,
   fetchLessons,
   fetchMessages,
+  processLiveConversationSegment,
   processLiveConversationDraftTranslation,
   processLiveConversationTranscript,
   requestAiPartnerReply,
@@ -71,6 +73,7 @@ import {
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
 import { LearningScreen } from "./components/learning/LearningScreen.jsx";
+import { LiveModeScreen } from "./components/live/LiveModeScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
@@ -82,6 +85,7 @@ const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 const DEFAULT_CONVERSATION_TITLE = "New chat";
 const LIVE_TRANSLATION_DEBOUNCE_MS = 450;
+const LIVE_TRANSLATION_MIN_INTERVAL_MS = 850;
 const DEFAULT_AI_PARTNER_STATE = {
   enabled: false,
   seeded: false,
@@ -100,6 +104,8 @@ const DEFAULT_LIVE_CAPTURE_STATE = {
   sessionStartedAt: null,
   activeSegmentId: null,
   pendingSegmentCount: 0,
+  activeSpeaker: null,
+  activeLanguageCode: "",
   liveMode: "",
   fallbackReason: "",
   lastError: "",
@@ -182,6 +188,7 @@ const MAX_RECORDING_TIME = 30;
 
 const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
+  { id: "live", label: "Live", Icon: Radio },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
   { id: "lesson", label: "Phrasebook", Icon: Bookmark },
@@ -1359,7 +1366,7 @@ function ModeSwitcher({
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
         {VISIBLE_MODE_OPTIONS.map(({ id, label, Icon }) => {
           const modeBlocked =
-            (id === "single" || id === "conversation") &&
+            (id === "live" || id === "single" || id === "conversation") &&
             (sharedChatLocked || textOnlyChatLocked);
           const blockedTitle = sharedChatLocked
             ? `${label} unavailable while shared chat is active`
@@ -2150,6 +2157,7 @@ export default function StringPhoneApp() {
   const [liveCaptureState, setLiveCaptureState] = useState(() => ({
     ...DEFAULT_LIVE_CAPTURE_STATE,
   }));
+  const [liveDrafts, setLiveDrafts] = useState([]);
   const [activeLesson, setActiveLesson] = useState(null);
   const [activeCollectionLanguageCode, setActiveCollectionLanguageCode] = useState(null);
   const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
@@ -2903,6 +2911,58 @@ export default function StringPhoneApp() {
     }));
   };
 
+  const addLiveDraft = (draft) => {
+    setLiveDrafts((previousDrafts) => {
+      const nextDrafts = [
+        ...previousDrafts.filter(
+          (previousDraft) => previousDraft.utteranceId !== draft.utteranceId,
+        ),
+        draft,
+      ];
+      return nextDrafts;
+    });
+  };
+
+  const updateLiveDraft = (utteranceId, patch) => {
+    setLiveDrafts((previousDrafts) => {
+      let changed = false;
+      const nextDrafts = previousDrafts.map((draft) => {
+        if (draft.utteranceId !== utteranceId) {
+          return draft;
+        }
+
+        changed = true;
+        const nextPatch =
+          typeof patch === "function" ? patch(draft) : patch;
+        return { ...draft, ...nextPatch };
+      });
+
+      if (!changed) {
+        return previousDrafts;
+      }
+
+      return nextDrafts;
+    });
+  };
+
+  const removeLiveDraft = (utteranceId) => {
+    setLiveDrafts((previousDrafts) => {
+      const nextDrafts = previousDrafts.filter(
+        (draft) => draft.utteranceId !== utteranceId,
+      );
+
+      if (nextDrafts.length === previousDrafts.length) {
+        return previousDrafts;
+      }
+
+      return nextDrafts;
+    });
+  };
+
+  const clearLiveDrafts = () => {
+    setLiveDrafts([]);
+  };
+
   const clearLiveTranscriptDrafts = () => {
     liveTranscriptDraftsRef.current.forEach((draft) => {
       if (draft.translationTimerId) {
@@ -2910,6 +2970,7 @@ export default function StringPhoneApp() {
       }
     });
     liveTranscriptDraftsRef.current.clear();
+    clearLiveDrafts();
   };
 
   const resetLiveCaptureState = () => {
@@ -3583,42 +3644,34 @@ export default function StringPhoneApp() {
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
-    const messageId =
-      existingMessageId ??
-      appendMessage({
-        kind: "text",
-        originMode: "live",
-        sender: "self",
-        messageOrigin: "human",
-        status: "transcribing",
-        originalText: "",
-        originalPronunciation: "",
-        translatedText: "",
-        translatedPronunciation: "",
-        transcript: "",
-        audioUrl: "",
-        errorMessage: "",
-        sourceLanguageCode: sourceSnapshot.code,
-        sourceLanguageLabel: sourceSnapshot.label,
-        sourceLanguageFlag: sourceSnapshot.flag,
-        targetLanguageCode: targetSnapshot.code,
-        targetLanguageLabel: targetSnapshot.label,
-        targetLanguageFlag: targetSnapshot.flag,
-      });
     const draft = {
       utteranceId,
-      messageId,
+      messageId: existingMessageId,
+      createdAt: new Date().toISOString(),
+      sender: "self",
       sourceLanguage,
       targetLanguage,
+      myLanguage: sourceLanguage,
+      theirLanguage: targetLanguage,
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
       transcript: "",
       translatedText: "",
       revision: 0,
       finalized: false,
       translationTimerId: 0,
+      translationInFlight: false,
+      lastTranslationRequestedAt: 0,
       liveMode,
+      status: "transcribing",
     };
 
     liveTranscriptDraftsRef.current.set(utteranceId, draft);
+    addLiveDraft(draft);
     return draft;
   };
 
@@ -3640,7 +3693,9 @@ export default function StringPhoneApp() {
       return;
     }
 
-    updateMessage(draft.messageId, { status: "translating", errorMessage: "" });
+    draft.translationInFlight = true;
+    draft.lastTranslationRequestedAt = performance.now();
+    updateLiveDraft(utteranceId, { status: "translating" });
 
     try {
       const data = await processLiveConversationDraftTranslation({
@@ -3656,8 +3711,6 @@ export default function StringPhoneApp() {
       if (
         !currentDraft ||
         currentDraft.finalized ||
-        currentDraft.revision !== revision ||
-        currentDraft.transcript !== transcript ||
         data.utteranceId !== utteranceId ||
         Number(data.revision) !== revision
       ) {
@@ -3675,55 +3728,88 @@ export default function StringPhoneApp() {
       const detectedTargetSnapshot =
         buildLanguageSnapshot(detectedTargetLanguage);
 
-      updateMessage(currentDraft.messageId, {
+      currentDraft.translatedText =
+        data.translatedText ?? currentDraft.translatedText;
+      currentDraft.sourceLanguage = detectedSourceLanguage;
+      currentDraft.targetLanguage = detectedTargetLanguage;
+      currentDraft.sender = data.sender === "partner" ? "partner" : "self";
+
+      updateLiveDraft(utteranceId, {
         status: "transcribing",
-        sender: data.sender === "partner" ? "partner" : "self",
-        originalText: currentDraft.transcript,
-        transcript: currentDraft.transcript,
-        translatedText: data.translatedText ?? "",
-        translatedPronunciation: "",
-        detectedSourceLanguageCode:
+        sender: currentDraft.sender,
+        sourceLanguage: detectedSourceLanguage,
+        targetLanguage: detectedTargetLanguage,
+        sourceLanguageCode:
           data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
-        detectedSourceLanguageConfidence:
-          data.detectedSourceLanguage?.confidence ?? 0,
-        sourceLanguageCode: detectedSourceSnapshot.code,
         sourceLanguageLabel: detectedSourceSnapshot.label,
         sourceLanguageFlag: detectedSourceSnapshot.flag,
         targetLanguageCode: detectedTargetSnapshot.code,
         targetLanguageLabel: detectedTargetSnapshot.label,
         targetLanguageFlag: detectedTargetSnapshot.flag,
-        errorMessage: "",
+        translatedText: currentDraft.translatedText,
+      });
+      setLiveCaptureStateWithPatch({
+        activeSpeaker: currentDraft.sender,
+        activeLanguageCode:
+          data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
       });
     } catch (error) {
       const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
 
-      if (
-        currentDraft &&
-        !currentDraft.finalized &&
-        currentDraft.revision === revision
-      ) {
+      if (currentDraft && !currentDraft.finalized) {
+        updateLiveDraft(utteranceId, { status: "transcribing" });
         console.warn("Live draft translation failed", error);
+      }
+    } finally {
+      const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+      if (!currentDraft) {
+        return;
+      }
+
+      currentDraft.translationInFlight = false;
+
+      if (
+        !currentDraft.finalized &&
+        currentDraft.revision > revision
+      ) {
+        scheduleLiveDraftTranslation(currentDraft);
       }
     }
   };
 
   const scheduleLiveDraftTranslation = (draft) => {
-    if (draft.translationTimerId) {
-      window.clearTimeout(draft.translationTimerId);
+    if (draft.finalized) {
+      return;
     }
 
-    const revision = draft.revision;
-    const transcript = draft.transcript;
+    if (draft.translationInFlight || draft.translationTimerId) {
+      return;
+    }
+
+    const elapsedSinceLastRequest =
+      performance.now() - draft.lastTranslationRequestedAt;
+    const waitMs = Math.max(
+      LIVE_TRANSLATION_DEBOUNCE_MS,
+      LIVE_TRANSLATION_MIN_INTERVAL_MS - elapsedSinceLastRequest,
+    );
+
     draft.translationTimerId = window.setTimeout(() => {
       draft.translationTimerId = 0;
+      const currentDraft = liveTranscriptDraftsRef.current.get(draft.utteranceId);
+
+      if (!currentDraft || currentDraft.finalized || !currentDraft.transcript) {
+        return;
+      }
+
       void requestLiveDraftTranslation({
-        utteranceId: draft.utteranceId,
-        revision,
-        transcript,
-        sourceLanguage: draft.sourceLanguage,
-        targetLanguage: draft.targetLanguage,
+        utteranceId: currentDraft.utteranceId,
+        revision: currentDraft.revision,
+        transcript: currentDraft.transcript,
+        sourceLanguage: currentDraft.myLanguage,
+        targetLanguage: currentDraft.theirLanguage,
       });
-    }, LIVE_TRANSLATION_DEBOUNCE_MS);
+    }, waitMs);
   };
 
   const appendLiveTranscriptDelta = ({
@@ -3755,15 +3841,13 @@ export default function StringPhoneApp() {
     draft.transcript = `${draft.transcript}${transcriptDelta}`;
     draft.translatedText = `${draft.translatedText}${translatedTextDelta}`;
     draft.revision += 1;
-    updateMessage(draft.messageId, {
+    updateLiveDraft(itemId, {
       status:
         draft.liveMode === "realtime-translation"
           ? "translating"
           : "transcribing",
-      originalText: draft.transcript,
       transcript: draft.transcript,
       translatedText: draft.translatedText,
-      errorMessage: "",
     });
 
     if (draft.liveMode !== "realtime-translation" && transcriptDelta) {
@@ -3806,8 +3890,6 @@ export default function StringPhoneApp() {
     draft.revision = Math.max(1, draft.revision + 1);
     draft.finalized = true;
     const finalRevision = draft.revision;
-    const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
-    const targetSnapshot = buildLanguageSnapshot(targetLanguage);
     const retryPayload = {
       kind: "live-transcript",
       originMode: "live",
@@ -3820,38 +3902,17 @@ export default function StringPhoneApp() {
       liveMode: draft.liveMode,
       realtimeItemId: utteranceId,
     };
-    const currentMessage = messagesRef.current.find(
-      (message) => message.id === draft.messageId,
-    );
-    const pendingMessage = {
-      kind: "text",
-      originMode: "live",
-      sender: currentMessage?.sender ?? "self",
-      messageOrigin: "human",
-      status: "translating",
-      originalText: draft.transcript,
-      originalPronunciation: currentMessage?.originalPronunciation ?? "",
-      translatedText: currentMessage?.translatedText ?? draft.translatedText,
-      translatedPronunciation: currentMessage?.translatedPronunciation ?? "",
+    if (draft.messageId) {
+      updateMessage(draft.messageId, {
+        status: "translating",
+        errorMessage: "",
+      });
+    }
+    updateLiveDraft(utteranceId, {
+      status: "processing",
       transcript: draft.transcript,
-      audioUrl: "",
-      errorMessage: "",
-      sourceLanguageCode:
-        currentMessage?.sourceLanguageCode ?? sourceSnapshot.code,
-      sourceLanguageLabel:
-        currentMessage?.sourceLanguageLabel ?? sourceSnapshot.label,
-      sourceLanguageFlag:
-        currentMessage?.sourceLanguageFlag ?? sourceSnapshot.flag,
-      targetLanguageCode:
-        currentMessage?.targetLanguageCode ?? targetSnapshot.code,
-      targetLanguageLabel:
-        currentMessage?.targetLanguageLabel ?? targetSnapshot.label,
-      targetLanguageFlag:
-        currentMessage?.targetLanguageFlag ?? targetSnapshot.flag,
-      retryPayload,
-    };
-
-    updateMessage(draft.messageId, pendingMessage);
+      translatedText: draft.translatedText,
+    });
     updateLivePendingSegmentCount(1);
 
     liveSegmentQueueRef.current = liveSegmentQueueRef.current
@@ -3911,7 +3972,7 @@ export default function StringPhoneApp() {
           const detectedTargetSnapshot =
             buildLanguageSnapshot(detectedTargetLanguage);
 
-          updateMessage(draft.messageId, {
+          const finalMessage = {
             kind: "text",
             originMode: "live",
             sender: data.sender === "partner" ? "partner" : "self",
@@ -3935,9 +3996,19 @@ export default function StringPhoneApp() {
             targetLanguageLabel: detectedTargetSnapshot.label,
             targetLanguageFlag: detectedTargetSnapshot.flag,
             retryPayload,
-          });
+          };
 
-          setLiveCaptureStateWithPatch({ lastError: "" });
+          if (draft.messageId) {
+            updateMessage(draft.messageId, finalMessage);
+          } else {
+            appendMessage(finalMessage);
+          }
+
+          setLiveCaptureStateWithPatch({
+            activeSpeaker: finalMessage.sender,
+            activeLanguageCode: finalMessage.sourceLanguageCode,
+            lastError: "",
+          });
         } catch (error) {
           const message =
             error instanceof Error && error.message
@@ -3945,15 +4016,19 @@ export default function StringPhoneApp() {
               : "Live transcription failed.";
 
           if (/no speech was detected/i.test(message)) {
-            removeMessage(draft.messageId);
+            if (draft.messageId) {
+              removeMessage(draft.messageId);
+            }
             return;
           }
 
-          updateMessage(draft.messageId, {
-            status: "error",
-            errorMessage: message,
-            retryPayload,
-          });
+          if (draft.messageId) {
+            updateMessage(draft.messageId, {
+              status: "error",
+              errorMessage: message,
+              retryPayload,
+            });
+          }
           setLiveCaptureStateWithPatch({
             lastError: message,
           });
@@ -3964,6 +4039,163 @@ export default function StringPhoneApp() {
             window.clearTimeout(currentDraft.translationTimerId);
           }
           liveTranscriptDraftsRef.current.delete(utteranceId);
+          removeLiveDraft(utteranceId);
+          updateLivePendingSegmentCount(-1);
+        }
+      });
+
+    return liveSegmentQueueRef.current;
+  };
+
+  const submitLiveConversationSegment = ({
+    audioBlob,
+    sourceLanguage,
+    targetLanguage,
+    segmentStartedAt = "",
+    segmentEndedAt = "",
+    existingMessageId = null,
+  }) => {
+    const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
+    const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    const retryPayload = {
+      kind: "live",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      sourceLanguageCode: sourceLanguage.code,
+      targetLanguageCode: targetLanguage.code,
+      recordingBlob: audioBlob,
+      segmentStartedAt,
+      segmentEndedAt,
+    };
+    const pendingMessage = {
+      kind: "text",
+      originMode: "live",
+      sender: "self",
+      messageOrigin: "human",
+      status: "transcribing",
+      originalText: "",
+      originalPronunciation: "",
+      translatedText: "",
+      translatedPronunciation: "",
+      transcript: "",
+      audioUrl: "",
+      errorMessage: "",
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
+      segmentStartedAt,
+      segmentEndedAt,
+      retryPayload,
+    };
+    let messageId = existingMessageId ?? appendMessage(pendingMessage);
+
+    if (existingMessageId) {
+      updateMessage(existingMessageId, pendingMessage);
+    }
+
+    updateLivePendingSegmentCount(1);
+
+    liveSegmentQueueRef.current = liveSegmentQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const conversationId =
+          (await ensurePersistedConversationId({
+            sourceLanguage,
+            targetLanguage,
+          }).catch((error) => {
+            console.error(
+              "Failed to create a conversation before saving the live segment",
+              error,
+            );
+            return null;
+          })) ?? currentConversationId;
+
+        try {
+          const data = await processLiveConversationSegment({
+            audioBlob,
+            sourceLanguage,
+            targetLanguage,
+            authFetch: isSignedIn ? authFetch : undefined,
+            conversationId,
+            segmentStartedAt,
+            segmentEndedAt,
+          });
+
+          if (conversationId) {
+            void persistConversationLanguages(
+              conversationId,
+              sourceLanguage,
+              targetLanguage,
+            );
+          }
+
+          const detectedSourceLanguage = getLanguageOption(
+            data.sourceLanguage?.code,
+          );
+          const detectedTargetLanguage = getLanguageOption(
+            data.targetLanguage?.code,
+          );
+          const detectedSourceSnapshot =
+            buildLanguageSnapshot(detectedSourceLanguage);
+          const detectedTargetSnapshot =
+            buildLanguageSnapshot(detectedTargetLanguage);
+
+          const readyMessage = {
+            kind: "text",
+            originMode: "live",
+            sender: data.sender === "partner" ? "partner" : "self",
+            messageOrigin: "human",
+            status: "ready",
+            originalText: data.transcript ?? "",
+            originalPronunciation: data.originalPronunciation ?? "",
+            translatedText: data.translatedText ?? "",
+            translatedPronunciation: data.translatedPronunciation ?? "",
+            transcript: data.transcript ?? "",
+            audioUrl: "",
+            errorMessage: "",
+            detectedSourceLanguageCode:
+              data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
+            detectedSourceLanguageConfidence:
+              data.detectedSourceLanguage?.confidence ?? 0,
+            sourceLanguageCode: detectedSourceSnapshot.code,
+            sourceLanguageLabel: detectedSourceSnapshot.label,
+            sourceLanguageFlag: detectedSourceSnapshot.flag,
+            targetLanguageCode: detectedTargetSnapshot.code,
+            targetLanguageLabel: detectedTargetSnapshot.label,
+            targetLanguageFlag: detectedTargetSnapshot.flag,
+            retryPayload,
+          };
+
+          updateMessage(messageId, readyMessage);
+          setLiveCaptureStateWithPatch({
+            activeSpeaker: readyMessage.sender,
+            activeLanguageCode: readyMessage.sourceLanguageCode,
+            lastError: "",
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Live transcription failed.";
+
+          if (/no speech was detected/i.test(message)) {
+            removeMessage(messageId);
+            return;
+          }
+
+          updateMessage(messageId, {
+            status: "error",
+            errorMessage: message,
+            retryPayload,
+          });
+          setLiveCaptureStateWithPatch({
+            lastError: message,
+          });
+        } finally {
           updateLivePendingSegmentCount(-1);
         }
       });
@@ -4003,6 +4235,18 @@ export default function StringPhoneApp() {
           blob: retryPayload.recordingBlob,
           mimeType: retryPayload.recordingBlob.type,
         },
+        existingMessageId: message.id,
+      });
+      return;
+    }
+
+    if (retryPayload.kind === "live" && retryPayload.recordingBlob) {
+      await submitLiveConversationSegment({
+        audioBlob: retryPayload.recordingBlob,
+        sourceLanguage,
+        targetLanguage,
+        segmentStartedAt: retryPayload.segmentStartedAt,
+        segmentEndedAt: retryPayload.segmentEndedAt,
         existingMessageId: message.id,
       });
       return;
@@ -4368,6 +4612,14 @@ export default function StringPhoneApp() {
     if (visibleNextMode === "lesson") {
       openCollectionsRoot();
       return;
+    }
+
+    if (visibleNextMode !== "live" && appMode === "live") {
+      resetLiveCaptureState();
+    }
+
+    if (visibleNextMode === "live" && appMode !== "live") {
+      setLiveCaptureState({ ...DEFAULT_LIVE_CAPTURE_STATE });
     }
 
     setAppMode(visibleNextMode);
@@ -4755,7 +5007,9 @@ export default function StringPhoneApp() {
           appMode === "lesson" ? "collections" : "chats"
         }
         signedOutContext={
-          appMode === "single" || appMode === "conversation"
+          appMode === "live" ||
+          appMode === "single" ||
+          appMode === "conversation"
             ? "voice"
             : "standard"
         }
@@ -4823,11 +5077,28 @@ export default function StringPhoneApp() {
           onOpenSidebar={() => setIsSidebarOpen(true)}
           aiPartnerState={aiPartnerState}
           onExecuteSlashCommand={executeChatSlashCommand}
+        />
+      ) : null}
+
+      {appMode === "live" ? (
+        <LiveModeScreen
+          myLang={myLang}
+          setMyLang={handleSelectChatMyLanguage}
+          theirLang={theirLang}
+          setTheirLang={handleSelectChatTheirLanguage}
+          onInvertLanguages={handleInvertChatLanguages}
+          messages={chatMessages}
+          liveDrafts={liveDrafts}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}
           onLiveTranscriptDelta={appendLiveTranscriptDelta}
           onLiveTranscript={submitLiveConversationTranscript}
+          onRetry={retryChatMessage}
+          onAudioPlay={handleThreadAudioPlay}
+          onPlayGeneratedSpeech={playGeneratedSpeech}
+          onSaveToCollection={handleSaveMessageToCollection}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
         />
       ) : null}
 
