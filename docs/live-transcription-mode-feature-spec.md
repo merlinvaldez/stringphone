@@ -98,7 +98,7 @@ The local Express handlers in `src/server.ts` and Vercel handlers under `api/cha
 
 ### Deployment parity note
 
-The local Express `/chat/messages/live-transcript` handler parses the multipart form sent by the client and can receive `sourceAudio`. The current Vercel handler at `api/chat/messages/live-transcript.ts` parses JSON instead. Treat deployed finalization and source-audio persistence as a verification gap until that handler accepts the same multipart request shape.
+The local Express and Vercel `/chat/messages/live-transcript` handlers both parse the multipart form sent by the client, including the optional `sourceAudio` file. The Vercel handler also retains JSON parsing for compatibility with older clients.
 
 ## Configuration
 

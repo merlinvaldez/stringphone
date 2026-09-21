@@ -10,6 +10,11 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function getFormString(formData: FormData, name: string) {
+  const value = formData.get(name);
+  return typeof value === "string" ? value : undefined;
+}
+
 export default {
   async fetch(request: Request) {
     if (request.method === "OPTIONS") {
@@ -27,7 +32,41 @@ export default {
     }
 
     try {
-      const body = await request.json().catch(() => null);
+      const contentType = request.headers.get("content-type") ?? "";
+      let body: Record<string, unknown> | null = null;
+      let sourceAudioFile:
+        | {
+            buffer: Buffer;
+            filename: string;
+            mimeType?: string;
+          }
+        | undefined;
+
+      if (contentType.includes("multipart/form-data")) {
+        const formData = await request.formData();
+        body = {
+          utteranceId: getFormString(formData, "utteranceId"),
+          revision: getFormString(formData, "revision"),
+          sourceLanguage: getFormString(formData, "sourceLanguage"),
+          targetLanguage: getFormString(formData, "targetLanguage"),
+          transcript: getFormString(formData, "transcript"),
+          translatedText: getFormString(formData, "translatedText"),
+          liveMode: getFormString(formData, "liveMode"),
+          conversationId: getFormString(formData, "conversationId"),
+        };
+
+        const sourceAudio = formData.get("sourceAudio");
+        if (sourceAudio && typeof sourceAudio !== "string") {
+          sourceAudioFile = {
+            buffer: Buffer.from(await sourceAudio.arrayBuffer()),
+            filename: sourceAudio.name || "stringphone-live-transcript.webm",
+            mimeType: sourceAudio.type || undefined,
+          };
+        }
+      } else {
+        body = await request.json().catch(() => null);
+      }
+
       const authenticatedRequest =
         await getOptionalAuthenticatedVercelAppRequest(request);
       const result = await runLiveConversationTranscript({
@@ -40,6 +79,7 @@ export default {
         liveMode: body?.liveMode,
         conversationId: body?.conversationId,
         userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile,
       });
 
       if (!result.ok) {
