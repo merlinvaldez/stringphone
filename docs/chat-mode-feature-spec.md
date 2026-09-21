@@ -1,621 +1,144 @@
-# StringPhone Chat Mode Feature Spec
+# StringPhone Chat Mode
 
-Status: Draft
-Date: 2026-05-09
-Repo: StringPhone
+**Status:** Implemented on `feat/14-live-text-translation`.
+**Source of truth:** `client/src/StringPhoneApp.jsx`, `client/src/components/chat/*`, `client/src/components/live/*`, and the `/chat/*` handlers.
 
-Primary UI Reference:
+## Purpose
 
-- `/c:/Users/merli/Desktop/repos/stringphone/client/src/StringPhoneApp.jsx`
+Chat is StringPhone's primary bilingual message surface. It supports typed messages, live voice messages, saved conversations, shared rooms, phrasebook saves, and the optional AI partner. The app keeps the original Single and Conversation turn-taking screens instead of replacing them with a generic chat UI.
 
-Primary Backend References:
+## Visible modes
 
-- `/c:/Users/merli/Desktop/repos/stringphone/src/services/translateText.ts`
-- `/c:/Users/merli/Desktop/repos/stringphone/src/services/transcribeAudio.ts`
-- `/c:/Users/merli/Desktop/repos/stringphone/src/services/generateSpeech.ts`
-- `/c:/Users/merli/Desktop/repos/stringphone/src/server.ts`
-- `/c:/Users/merli/Desktop/repos/stringphone/api/speech/translate.ts`
+The floating mode switcher exposes:
 
-## 1. Feature Summary
+- `Chat` — the default mode and canonical message-thread view.
+- `Single` — one-phone Speak/Listen turn-taking.
+- `Conversation` — paired top/bottom or side-by-side turn-taking.
+- `Phrasebook` — lessons and saved phrasebook entries.
 
-StringPhone will gain a new `Chat` mode that presents translated communication inside a formal, WhatsApp-inspired thread UI. A user can send typed text or a voice note. Once sent, each item appears in both languages inside the chat. Voice items also appear as playable audio messages with transcript and translation below the player.
+There is an internal `Live` mode identifier for state cleanup and compatibility, but it is hidden from the mode switcher. Live capture is started from Chat's existing mic button.
 
-`Chat` becomes the default selected mode on app load. Existing `Single` and `Conversation` modes remain, but their translated turns should also be written into the same chat history so that Chat becomes the canonical session record.
+## Chat header
 
-## 2. Product Intent
+The header contains:
 
-- Preserve StringPhone as a human-to-human translation tool.
-- Add a message-thread interface for bilingual communication.
-- Keep the current mode selector pattern and current dark visual language.
-- Continue using Mistral models for text translation.
-- Reuse the existing STT -> translation -> TTS pipeline for voice-generated chat messages.
-- Let users review prior translated text and voice turns in one place.
+- the history button;
+- the `My language` selector;
+- the `Their language` selector;
+- a centered language-invert button.
 
-## 3. Important Clarification
+The invert button swaps both selected languages, persists the active conversation direction, and updates a host-owned shared room when the room is still editable. It is disabled while Chat is busy, while a shared-room update is in progress, for a guest, after the guest has joined, or when both selectors contain the same language.
 
-This feature is a `chat mode`, not an AI chatbot.
+Persian is part of the shared language list and is available in Chat, Single, Conversation, live capture, lessons, and phrasebook flows. There is no Chat-only Persian gate.
 
-That means:
+## Text messages
 
-- The app does not generate its own conversational replies.
-- The app only transforms user input into translated output.
-- The app keeps the current two-language communication model.
-- The chat thread is a bilingual transcript and playback surface.
+1. The user types into the composer and presses `Send` or Enter.
+2. The client creates an optimistic message in the thread.
+3. `POST /chat/messages/text` translates from `my language` to `their language` using the selected pair.
+4. The message is updated in place with the original text, translation, pronunciation guidance where applicable, and ready/error state.
+5. Signed-in messages are saved to the active conversation. A conversation is created on demand when a message needs persistence.
 
-## 4. Goals
+Chat is translation-first, not a general-purpose assistant. The optional AI partner is activated separately with `/aipartner` and is documented in [ai-partner-feature-spec.md](ai-partner-feature-spec.md).
 
-- Add a third mode named `Chat`.
-- Make `Chat` the default selected tab on first load.
-- Let the user send a text message and see the original plus translated version in one message bubble.
-- Let the user send a voice note and see a playable audio bubble plus transcript and translation.
-- Save turns from `Single` and `Conversation` into Chat history.
-- Preserve current color cues and motion cues instead of redesigning the product into a generic messenger clone.
-- Keep the experience mobile-first and safe-area aware.
+## Voice messages: current live path
 
-## 5. Non-Goals For V1
+The Chat mic uses the live capture workflow. It does not call a separate manual voice-note workflow from the active Chat UI, and there is no separate Live recording button.
 
-- No user accounts.
-- No real-time messaging between two separate devices.
-- No backend database for persistent chat history.
-- No contact list, inbox list, or conversation list.
-- No push notifications.
-- No editable pre-send transcript for V1 voice capture.
-- No AI assistant persona or freeform LLM chat.
-- No brand change away from the current StringPhone UI language.
+1. The user leaves the composer empty and presses the mic.
+2. `useLiveTurnFlow` starts `useLiveConversationCapture` with the current language pair.
+3. The browser requests microphone access and opens a WebRTC transcription session using a short-lived credential from `POST /chat/live-transcription/token`.
+4. OpenAI transcription deltas are appended to the normal Chat message bubble as speech arrives.
+5. The client sends partial transcript revisions to `POST /chat/messages/live-translation`. The draft translation updates in the same bubble while speech continues.
+6. Local audio monitoring commits a segment after a short silence. The client also keeps a `MediaRecorder` blob for that utterance.
+7. The final transcript, draft translation, live mode, selected languages, and captured audio are sent to `POST /chat/messages/live-transcript`.
+8. The existing bubble is finalized with the transcript, translation, and captured voice recording. The source audio is playable through the normal voice message player.
 
-## 6. Current Repo Constraints
+The capture session has a 30-second limit. The countdown is visible while the mic is active, and capture also ends when the user presses the square stop button. Multiple speech segments can be committed during one active session. Empty or no-speech segments are discarded without adding a visible message.
 
-The implementation must respect the current repo shape:
+Live drafts render through `ChatThread` and `MessageBubble`; they are not rendered in a separate transcript dashboard. The app does not autoplay captured or generated audio for each live segment.
 
-- `/client/src/StringPhoneApp.jsx` currently owns mode selection, language selection, recording state, and local per-screen history.
-- The current app defaults to `single`, so the initial mode value must change to `chat`.
-- The current `/speech/translate` route is audio-first and expects multipart audio input.
-- Text chat does not currently have a dedicated API path.
-- The current voice flow stores translated results locally inside each screen flow, so shared chat history requires a new top-level session state.
-- The current visual system already uses:
-  - zinc/black background surfaces
-  - white/10 borders
-  - rose for recording
-  - amber for processing
-  - emerald for playback/success-ready
-  - indigo as a secondary accent
-- The current language model and language picker structure should stay intact.
+## Message rendering
 
-## 7. UX Direction
+Every message keeps the selected source and target language snapshots so history remains understandable if the user later changes the selectors.
 
-### 7.1 Overall UI Direction
+Text messages show:
 
-The new mode should feel like a formal messaging surface inspired by WhatsApp, but it should not copy WhatsApp branding or color choices.
+- original text;
+- translated text;
+- pronunciation guidance when the language/script rules require it;
+- timestamp;
+- pending, translating, ready, or error treatment;
+- retry when processing fails;
+- phrasebook save when the message is complete.
 
-The desired feel is:
+Voice messages show:
 
-- clean
-- compact
-- message-first
-- legible on phone
-- obvious send/record actions
-- clear distinction between original text and translated text
-- strong playback affordance for voice notes
+- the captured transcript;
+- a compact voice-message player when captured audio is available;
+- the translated text;
+- pronunciation guidance where applicable;
+- processing/error/retry treatment.
 
-The desired feel is not:
+The message sender controls bubble alignment. Chat-originated user turns use `sender: "self"`; AI partner turns use `messageOrigin: "ai_partner"` and `sender: "partner"`. Shared-room messages are mapped from the room participant who authored them.
 
-- cartoonish
-- overly animated
-- bright green WhatsApp theming
-- purple-on-white AI app styling
-- a generic assistant/chatbot shell
+## Shared history and persistence
 
-### 7.2 Mode Selector
+The root app owns the message list. Chat, Single, Conversation, and live callbacks append to the same list with an `originMode` of `chat`, `single`, `conversation`, or `live` as appropriate. Single and Conversation filter that list for their own voice histories while Chat renders the full current thread.
 
-Keep the existing floating segmented control near the top center.
+For signed-in users, completed messages are saved in the active `public.conversations` / `public.messages` records. Live finalization can save the captured source audio with the message. Signed-out messages remain in the current page session and are cleared on reload.
 
-Changes:
+Opening a saved conversation loads its language pair and messages into Chat. Starting a new conversation clears the active message list and resets the AI partner/live state.
 
-- Expand from 2 choices to 3 choices.
-- Order should be `Chat`, `Single`, `Conversation`.
-- Default selected choice should be `Chat`.
-- Keep the same glassy pill shell, border treatment, blur, and hover/active feel.
-- Add an icon for Chat that fits the current Lucide icon language.
+## Single and Conversation modes
 
-### 7.3 Chat Screen Layout
+The turn-taking screens retain their separate existing UI:
 
-The Chat screen should have three major areas:
-
-1. Header area
-
-- App name or compact session label.
-- My language chip.
-- Their language chip.
-- Optional sender-side toggle if needed for same-device chat simulation.
-
-2. Thread area
-
-- Scrollable message list.
-- Left/right bubble alignment.
-- Text messages and voice messages mixed in chronological order.
-- Inline status for pending or failed messages.
-
-3. Composer area
-
-- Text input.
-- Send button.
-- Mic button.
-- Recording state treatment.
-- Safe-area aware bottom spacing on mobile.
-
-### 7.4 Visual Rules
-
-- Preserve the current dark radial background.
-- Use rounded chat bubbles, but keep them aligned with current StringPhone radii and border softness.
-- Keep current motion subtle and functional.
-- Keep the current top-level blurred floating controls.
-- Use the existing color signals consistently:
-  - rose = recording
-  - amber = translating/processing
-  - emerald = ready/playing audio
-  - zinc + white = idle surfaces
-  - indigo = secondary or alternate-speaker accent if needed
-
-## 8. Core User Flows
-
-### 8.1 Text Message Flow
-
-1. User opens `Chat`.
-2. User selects `My language` and `Their language`.
-3. User types a message in the composer.
-4. User taps `Send`.
-5. App immediately creates an optimistic pending bubble in the thread.
-6. App sends the text to the backend for translation.
-7. Bubble updates to show:
-
-- original text
-- translated text
-- timestamp
-- ready state
-
-### 8.2 Voice Message Flow In Chat
-
-1. User taps the mic in `Chat`.
-2. Recording begins immediately on tap, consistent with current click-to-record behavior.
-3. User taps stop.
-4. App creates a pending voice message in the thread.
-5. Backend transcribes the audio.
-6. Backend translates the transcript.
-7. Backend generates translated audio using the current TTS routing logic.
-8. Thread item updates to show:
-
-- playable audio bar
-- transcript
-- translated text
-- timestamp
-- ready state
-
-### 8.3 Voice Flow In Single And Conversation Modes
-
-- `Single` and `Conversation` continue to function as live capture interfaces.
-- Every successful translated turn from those modes should also append a message item into Chat history.
-- Switching to `Chat` after using those modes should show the full session transcript and playable voice items.
-- Chat becomes the single source of truth for message history display.
-
-## 9. Message Rendering Rules
-
-### 9.1 Text Message Bubble
-
-Each text bubble should show:
-
-- sender side alignment
-- original text first
-- translated text second
-- compact timestamp
-- pending/error state when relevant
-
-Display hierarchy:
-
-- original text is visually primary
-- translated text is visually secondary but always visible
-- translation is not hidden behind an expand action
-
-### 9.2 Voice Message Bubble
-
-Each voice bubble should show:
-
-- play/pause button
-- progress bar or waveform-style progress rail
-- duration label
-- transcript under the player
-- translated text under the transcript
-- compact timestamp
-- pending/error state when relevant
-
-V1 playback decision:
-
-- The default playable audio should be the translated audio output, because the current backend already returns translated audio cleanly.
-- Original source audio playback can be a future enhancement.
-
-### 9.3 Status Treatment
-
-Message status should be local to the message, not only global.
-
-Statuses:
-
-- pending
-- transcribing
-- translating
-- generating_audio
-- ready
-- error
-
-Suggested visual treatment:
-
-- amber micro-label for pending states
-- emerald ready state for playable audio
-- compact retry affordance on error
-- no full-screen blocking spinner for text messages
-
-## 10. Language Handling
-
-The chat feature should reuse the current two-language mental model:
-
-- `My language`
-- `Their language`
-
-Translation direction rules:
-
-- If the sender is `self`, translate from `myLang` into `theirLang`.
-- If the sender is `partner`, translate from `theirLang` into `myLang`.
-
-This means V1 may need a lightweight sender toggle in Chat mode if the app is being used on one device by two people.
-
-Recommended V1 sender model:
-
-- default sender is `self`
-- allow a quick sender toggle in the composer
-- persist the last chosen sender until changed
-- style the toggle to match existing segmented controls
-
-## 11. Functional Requirements
-
-### 11.1 Text Requirements
-
-- User can enter text and send it.
-- Empty messages cannot be sent.
-- Whitespace-only messages cannot be sent.
-- Send action creates an optimistic pending bubble.
-- Successful translation updates the same bubble rather than creating a second bubble.
-- Failed translation keeps the original text visible and offers retry.
-
-### 11.2 Voice Requirements
-
-- User can record a voice note from Chat mode.
-- Recording starts on tap.
-- Recording can be stopped manually.
-- Existing 30-second max recording rule can remain in V1 unless intentionally changed.
-- Successful voice translation produces a playable bubble in Chat.
-- Transcript must be visible below the player.
-- Translation must be visible below the transcript.
-- Audio replay must be user-controlled.
-- One active voice recording at a time is allowed.
-
-### 11.3 Cross-Mode Requirements
-
-- Successful `Single` mode turns append to Chat.
-- Successful `Conversation` mode turns append to Chat.
-- Chat history survives mode switching within the active session.
-- The active thread must not reset when moving between modes unless the user explicitly clears it.
-
-## 12. Data Model
-
-Recommended client-side message shape:
-
-```ts
-type SessionMessage = {
-  id: string;
-  kind: "text" | "voice";
-  originMode: "chat" | "single" | "conversation";
-  sender: "self" | "partner";
-  status:
-    | "pending"
-    | "transcribing"
-    | "translating"
-    | "generating_audio"
-    | "ready"
-    | "error";
-  sourceLanguageCode: string;
-  sourceLanguageLabel: string;
-  targetLanguageCode: string;
-  targetLanguageLabel: string;
-  originalText: string;
-  translatedText: string;
-  transcript?: string;
-  translatedAudio?: {
-    mimeType: string;
-    durationMs?: number;
-    objectUrl?: string;
-  };
-  createdAt: string;
-  errorMessage?: string;
-};
-```
-
-Notes:
-
-- For text messages, `originalText` is the typed message.
-- For voice messages, `originalText` and `transcript` may initially be the same value in V1.
-- Audio should be stored client-side as a `Blob` and converted to an object URL for playback.
-- The app should continue revoking object URLs when items are removed or replaced.
-
-## 13. API Direction
-
-This feature needs a dedicated text path and a clearer voice-message path.
-
-### 13.1 Text Chat Endpoint
-
-Recommended route:
-
-- `POST /chat/messages/text`
-
-Recommended request:
-
-```json
-{
-  "text": "Hello, how are you?",
-  "sourceLanguage": "en",
-  "targetLanguage": "es"
-}
-```
-
-Recommended response:
-
-```json
-{
-  "originalText": "Hello, how are you?",
-  "translatedText": "Hola, como estas?",
-  "sourceLanguage": {
-    "code": "en",
-    "label": "English"
-  },
-  "targetLanguage": {
-    "code": "es",
-    "label": "Espanol"
-  }
-}
-```
-
-Backend behavior:
-
-- Reuse the existing `translateText.ts` service.
-- Keep using Mistral chat completions for text translation.
-- Return plain translated text only, not chatbot commentary.
-
-### 13.2 Voice Chat Endpoint
-
-Recommended route:
-
-- `POST /chat/messages/voice`
-
-Recommended multipart fields:
-
-- `sourceAudio`
-- `voiceSample`
-- `sourceLanguage`
-- `targetLanguage`
-
-Recommended V1 simplification:
-
-- If `voiceSample` is omitted, backend should default it to `sourceAudio`.
-- This matches the current StringPhone same-turn self-reference voice-cloning approach.
-
-Recommended response:
-
-```json
-{
-  "transcript": "Hello, how are you?",
-  "translatedText": "Hola, como estas?",
-  "sourceLanguage": {
-    "code": "en",
-    "label": "English"
-  },
-  "targetLanguage": {
-    "code": "es",
-    "label": "Espanol"
-  },
-  "audio": {
-    "mimeType": "audio/mpeg",
-    "base64": "..."
-  }
-}
-```
-
-Backend behavior:
-
-- Reuse `transcribeAudio.ts`
-- Reuse `translateText.ts`
-- Reuse `prepareVoiceReference.ts`
-- Reuse `generateSpeech.ts`
-
-### 13.3 Express And Vercel Parity
-
-Because the repo currently supports both local Express routes and deployed `/api/...` routes, the final implementation should preserve parity.
-
-Recommended parity plan:
-
-- add Express handlers in `/src/server.ts`
-- add matching serverless handlers in `/api/...`
-- keep payload shape consistent between local dev and deployed runtime
-
-## 14. Frontend Architecture Direction
-
-Recommended structural change:
-
-- move shared session state above the individual screen components
-- keep `StringPhoneApp.jsx` as the orchestration shell
-- split mode-specific UI into dedicated components
-
-Recommended client pieces:
-
-- `ChatScreen.jsx`
-- `ChatHeader.jsx`
-- `ChatThread.jsx`
-- `MessageBubble.jsx`
-- `VoiceMessagePlayer.jsx`
-- `ChatComposer.jsx`
-- `useSessionMessages.js`
-- `chatApi.js`
-
-Important implementation note:
-
-- The current `useTranslationFlow()` is too screen-local to act as the long-term owner of shared message history.
-- V1 should introduce a shared session store and convert the current live modes into producers of message entries.
-
-## 15. UI Components
-
-### 15.1 Reusable Existing Elements To Keep
-
-- `LanguageSelector`
-- `ErrorNotice`
-- top floating mode switch styling
-- current recording/pending/playback color semantics
-- current safe-area spacing approach
-- current dark radial scene background
-
-### 15.2 New Components Needed
-
-- `ChatTabButton` or equivalent chat mode icon entry
-- `ChatScreen`
-- `ChatHeader`
-- `SenderToggle`
-- `ChatComposer`
-- `ChatThread`
-- `TextMessageBubble`
-- `VoiceMessageBubble`
-- `VoiceMessagePlayer`
-
-## 16. Voice Player Requirements
-
-The voice player should feel closer to a messaging app than the current auto-play behavior.
-
-Required controls:
-
-- play/pause
-- progress rail
-- elapsed or remaining duration
-- replay after end
-
-Behavior:
-
-- playback must not auto-start when simply opening Chat history
-- playback should be explicit user action
-- only one voice bubble should actively play at a time
-- active playback should use the existing emerald signal
-
-## 17. Error Handling
-
-### 17.1 Text Errors
-
-- Show original text in the failed bubble.
-- Show a compact error label.
-- Provide retry.
-- Do not erase the failed message.
-
-### 17.2 Voice Errors
-
-- If transcription fails, show the voice bubble in error state.
-- If translation fails, keep the bubble and show retry.
-- If TTS fails, show transcript plus translation if available and label audio generation as failed.
-- If microphone permission is denied, show an immediate inline error near the composer.
-
-### 17.3 Mode-Switch Errors
-
-- Switching tabs during processing must not drop a pending message.
-- Pending work should resolve into Chat even if the user has navigated to another mode.
-- UI should stay stable if a message finishes while another tab is visible.
-
-## 18. Performance And State Notes
-
-- Text sends can be allowed to queue.
-- Voice recording should remain single-active at a time.
-- Avoid global blocking overlays for message send.
-- Keep audio objects cleaned up properly to avoid memory leaks.
-- If temporary local persistence is added later, avoid storing large audio blobs in local storage in V1.
-
-## 19. Accessibility And Mobile Behavior
-
-- Maintain large enough tap targets for mic, send, and playback controls.
-- Preserve current focus-visible behavior.
-- Keep strong text contrast on dark surfaces.
-- Respect `prefers-reduced-motion`.
-- Keep safe-area padding on top and bottom.
-- Ensure the composer remains usable above mobile keyboards.
-
-## 20. Privacy And Product Messaging
-
-Because voice and text are processed by external model providers, Chat mode should include lightweight disclosure copy somewhere appropriate in the product.
-
-Recommended V1 approach:
-
-- short settings/help note
-- no heavy modal interruption
-- clear language that audio and text are processed for translation
-
-## 21. Acceptance Criteria
-
-This feature is complete for V1 when all of the following are true:
-
-- App loads into `Chat` mode by default.
-- Mode switcher contains `Chat`, `Single`, and `Conversation`.
-- User can send text and receive a bilingual text bubble.
-- User can record a voice note and receive a playable bilingual voice bubble.
-- Voice bubbles include a playback bar and transcript below.
-- Successful turns from `Single` appear in Chat.
-- Successful turns from `Conversation` appear in Chat.
-- Switching modes does not clear the active thread.
-- Text translation still uses Mistral text translation.
-- Existing speech translation pipeline still works.
-- UI uses existing StringPhone color signals instead of introducing a new visual system.
-
-## 22. Recommended Build Order
-
-Phase 1
-
-- Add `Chat` mode shell.
-- Change default mode to `chat`.
-- Lift shared message state to the app root.
-
-Phase 2
-
-- Add text-message translation path.
-- Render bilingual text bubbles.
-- Add inline pending/error states.
-
-Phase 3
-
-- Add voice-note capture in Chat.
-- Render voice player bubble with transcript and translation.
-- Make playback explicit instead of auto-play only.
-
-Phase 4
-
-- Append `Single` and `Conversation` results into shared Chat history.
-- Polish switching behavior.
-- Tighten mobile layout and keyboard behavior.
-
-## 23. Open Product Calls
-
-The implementation should be confirmed on these points before coding starts:
-
-- Should Chat mode expose a visible `Self / Partner` sender toggle in V1?
-- Is translated-audio playback the correct default for voice bubbles, or do you want original-audio playback first?
-- Do you want V1 history to live only for the current session, or should refresh persistence be included now?
-
-## 24. Final Recommendation
-
-Build this as a translation-thread mode, not a bot mode.
-
-That means:
-
-- keep Mistral for translation
-- keep current voice pipeline
-- add a proper shared session message model
-- add a WhatsApp-inspired thread UI
-- make Chat the default tab
-- make Chat the canonical history surface for all translated turns
+- `Single` has independent Speak and Listen controls.
+- `Conversation` has one control for each side, with the active side shown in the top or bottom portrait layout and in the left or right landscape layout.
+- An active speaker gets up to 30 seconds.
+- The other action/side is locked until the active capture is stopped or finalized.
+- Both modes use the same live transcription, silence segmentation, final transcript processing, captured-audio handoff, and bilingual message shape as Chat.
+
+Their completed messages are also available in the root message history and can be reviewed from Chat or History when persisted.
+
+## Current API routes
+
+All client URLs are prefixed by `VITE_API_BASE_URL`, which defaults to `/api` in the Vite build.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/chat/messages/text` | Translate a typed message. |
+| `POST` | `/chat/messages/voice` | Retained multipart voice translation path used by compatibility/retry flows. |
+| `POST` | `/chat/live-transcription/token` | Validate the selected pair and mint a short-lived OpenAI browser credential. |
+| `POST` | `/chat/messages/live-translation` | Classify/translate a partial transcript revision for the streaming draft. |
+| `POST` | `/chat/messages/live-transcript` | Finalize a transcript, classify the language side, add pronunciation guidance, and optionally persist the message/audio. |
+| `POST` | `/chat/messages/live-segment` | Process an uploaded live audio segment for compatibility or retry. |
+| `POST` | `/chat/conversations` | Create an authenticated saved conversation. |
+| `GET` | `/chat/conversations/:id/messages` | Load saved messages. |
+| `POST` | `/chat/conversations/:id/messages` | Save a completed message. |
+| `POST` | `/chat/rooms` and `/chat/rooms/:roomId/*` | Create, join, synchronize, and exchange shared-room messages. |
+| `POST` | `/speech/output` | Generate on-demand speech output where a UI path requests it. |
+
+Each deployed handler under `api/` shares orchestration with the Express route in `src/server.ts` where both paths exist.
+
+## Provider responsibilities
+
+- OpenAI: typed Chat translation, live transcription credentials, live draft translation, selected-pair language classification, and pronunciation guidance.
+- Mistral: provider-backed speech paths, conversation title refresh, lesson generation, AI partner generation, and UI translations where those services are used.
+- ElevenLabs: Persian speech and related speech operations.
+- Cartesia: the Cartesia-supported speech languages.
+
+The OpenAI model selectors are configurable through `OPENAI_TRANSLATION_MODEL`, `OPENAI_LIVE_TRANSLATION_MODEL`, `OPENAI_LIVE_LANGUAGE_MODEL`, `OPENAI_PRONUNCIATION_MODEL`, and `OPENAI_TRANSCRIPTION_MODEL`. Their current defaults are documented in the repository README.
+
+## Verification checklist
+
+1. Open the app and confirm Chat is selected by default.
+2. Select two different languages and press the centered invert button. Confirm both selectors swap.
+3. Send a typed message and confirm one bilingual bubble updates in place.
+4. Press the empty-composer mic, speak, pause briefly, and confirm the transcript and translation stream into a voice bubble.
+5. Confirm the captured voice note remains playable after the segment finalizes.
+6. Let capture run or speak until the 30-second timer ends and confirm the session stops.
+7. Confirm Single and Conversation still show their original turn-taking controls and 30-second timers.
+8. Select Persian in Chat and in a voice mode and confirm it is not blocked by a mode gate.
+9. Sign in, send a message, reopen it from History, and confirm its bilingual content and voice playback hydrate.

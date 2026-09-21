@@ -49,7 +49,10 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
+import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscriptionClientSecret.js";
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
+import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
+import { runLiveConversationTranscript } from "./lib/runLiveConversationTranscript.js";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 import { runUiTranslations } from "./lib/runUiTranslations.js";
@@ -1195,6 +1198,86 @@ app.post(
     }
   },
 );
+
+app.post("/chat/live-transcription/token", async (req, res) => {
+  try {
+    const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+    const result = await createLiveTranscriptionClientSecret({
+      sourceLanguage: req.body?.sourceLanguage,
+      targetLanguage: req.body?.targetLanguage,
+      userId: authenticatedRequest?.appUser?.id ?? null,
+      forceFallback: req.body?.forceFallback === true,
+      fallbackReason: req.body?.fallbackReason,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(result.body);
+    }
+
+    return res.status(200).json(result.body);
+  } catch (error) {
+    console.error("Live transcription token creation failed", error);
+    return res.status(502).json({ error: "Unable to start live transcription." });
+  }
+});
+
+app.post(
+  "/chat/messages/live-transcript",
+  upload.single("sourceAudio"),
+  async (req, res) => {
+    try {
+      const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+      const result = await runLiveConversationTranscript({
+        utteranceId: req.body?.utteranceId,
+        revision: req.body?.revision,
+        sourceLanguage: req.body?.sourceLanguage,
+        targetLanguage: req.body?.targetLanguage,
+        transcript: req.body?.transcript,
+        translatedText: req.body?.translatedText,
+        liveMode: req.body?.liveMode,
+        conversationId: req.body?.conversationId,
+        userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile: req.file
+          ? {
+              buffer: req.file.buffer,
+              filename: req.file.originalname,
+              mimeType: req.file.mimetype,
+            }
+          : undefined,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Live transcript processing failed", error);
+      return res.status(502).json({ error: "Live transcription failed." });
+    }
+  },
+);
+
+app.post("/chat/messages/live-translation", async (req, res) => {
+  try {
+    const result = await runLiveConversationTranslation({
+      utteranceId: req.body?.utteranceId,
+      revision: req.body?.revision,
+      sourceLanguage: req.body?.sourceLanguage,
+      targetLanguage: req.body?.targetLanguage,
+      transcript: req.body?.transcript,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(result.body);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Live draft translation failed", error);
+    return res.status(502).json({ error: "Live draft translation failed." });
+  }
+});
 
 app.post(
   "/speech/translate",

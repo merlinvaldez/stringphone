@@ -6,12 +6,18 @@ export function ChatThread({
   messages,
   onRetry,
   onAudioPlay,
-  onPlayGeneratedSpeech,
   onSaveToCollection,
   uiStrings,
   aiPartnerDisplayName,
+  baseLanguageCode,
 }) {
   const threadRef = useRef(null);
+  const messageContentVersion = messages
+    .map(
+      (message) =>
+        `${message.id ?? ""}:${message.status ?? ""}:${message.originalText ?? ""}:${message.translatedText ?? ""}`,
+    )
+    .join("\u0001");
 
   useEffect(() => {
     const container = threadRef.current;
@@ -22,7 +28,7 @@ export function ChatThread({
       top: container.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages.length]);
+  }, [messageContentVersion]);
 
   if (messages.length === 0) {
     return <ChatEmptyState />;
@@ -40,10 +46,10 @@ export function ChatThread({
             message={message}
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
-            onPlayGeneratedSpeech={onPlayGeneratedSpeech}
             onSaveToCollection={onSaveToCollection}
             uiStrings={uiStrings}
             aiPartnerDisplayName={aiPartnerDisplayName}
+            baseLanguageCode={baseLanguageCode}
           />
         ))}
       </div>

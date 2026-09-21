@@ -1,4 +1,4 @@
-import { mistral } from "../lib/mistral.js";
+import { createOpenAiResponse } from "../lib/openai.js";
 import {
   getWritingSystemLabel,
   requiresPhoneticGuide,
@@ -144,20 +144,13 @@ async function generatePronunciationLine(
     return "";
   }
 
-  const response = await mistral.chat.complete({
+  const response = await createOpenAiResponse({
     model:
-      process.env.MISTRAL_PRONUNCIATION_MODEL ??
-      process.env.MISTRAL_TRANSLATION_MODEL ??
-      "mistral-small-latest",
-    responseFormat: { type: "text" },
-    messages: [
-      {
-        role: "system",
-        content: `You write one-line pronunciation guides for chat bubbles. Return only the pronunciation line. Do not translate the meaning. Do not explain. Do not add labels, quotation marks, or parentheses. Do not use IPA unless the user's writing system already uses plain Latin letters. Preserve the original word order. ${getScriptInstruction(input.readerLanguageCode)} ${getDirectionExample(input)}`,
-      },
-      {
-        role: "user",
-        content: `Text language: ${input.textLanguage}
+      process.env.OPENAI_PRONUNCIATION_MODEL?.trim() ||
+      process.env.OPENAI_TRANSLATION_MODEL?.trim() ||
+      "gpt-4o-mini",
+    instructions: `You write one-line pronunciation guides for chat bubbles. Return only the pronunciation line. Do not translate the meaning. Do not explain. Do not add labels, quotation marks, or parentheses. Do not use IPA unless the user's writing system already uses plain Latin letters. Preserve the original word order. ${getScriptInstruction(input.readerLanguageCode)} ${getDirectionExample(input)}`,
+    input: `Text language: ${input.textLanguage}
 Text language code: ${input.textLanguageCode ?? ""}
 Reader language: ${input.readerLanguage}
 Reader language code: ${input.readerLanguageCode ?? ""}
@@ -166,17 +159,9 @@ Text to sound out:
 ${input.text}
 
 Return only the pronunciation line.`,
-      },
-    ],
   });
 
-  const content = response.choices[0]?.message?.content;
-
-  if (typeof content !== "string" || !content.trim()) {
-    return "";
-  }
-
-  return validatePronunciationLine(coercePronunciationValue(content), input);
+  return validatePronunciationLine(coercePronunciationValue(response), input);
 }
 
 export async function generatePronunciationGuidance(

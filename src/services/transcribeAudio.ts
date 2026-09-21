@@ -1,4 +1,3 @@
-import { mistral } from "../lib/mistral.js";
 import {
   ELEVENLABS_API_BASE_URL,
   ELEVENLABS_STT_MODEL_ID,
@@ -12,24 +11,8 @@ export type TranscribeAudioInput = {
   filename: string;
   mimeType?: string;
   sourceLanguage?: SupportedTtsLanguage | null;
-  forceProvider?: "elevenlabs" | "mistral";
+  forceProvider?: "elevenlabs" | "openai";
 };
-
-const MISTRAL_TRANSCRIPTION_LANGUAGE_CODES = new Set([
-  "en",
-  "zh",
-  "hi",
-  "es",
-  "ar",
-  "fr",
-  "pt",
-  "ru",
-  "de",
-  "ja",
-  "ko",
-  "it",
-  "nl",
-]);
 
 function getElevenLabsLanguageCode(input: TranscribeAudioInput) {
   if (input.sourceLanguage?.code === "fa") {
@@ -142,31 +125,53 @@ async function transcribeWithElevenLabs(input: TranscribeAudioInput) {
   return body.text.trim();
 }
 
-async function transcribeWithMistral(input: TranscribeAudioInput) {
-  const request: {
-    model: string;
-    file: {
-      fileName: string;
-      content: Buffer;
-    };
-    language?: string;
-  } = {
-    model: "voxtral-mini-latest",
-    file: {
-      fileName: input.filename,
-      content: input.audioBuffer,
-    },
-  };
+async function transcribeWithOpenAi(input: TranscribeAudioInput) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
 
-  if (
-    input.sourceLanguage &&
-    MISTRAL_TRANSCRIPTION_LANGUAGE_CODES.has(input.sourceLanguage.code)
-  ) {
-    request.language = input.sourceLanguage.code;
+  if (!apiKey) {
+    throw new Error("OpenAI is not configured.");
   }
 
-  const transcription = await mistral.audio.transcriptions.complete(request);
-  return transcription.text;
+  const formData = new FormData();
+  const model = process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "gpt-transcribe";
+
+  formData.append(
+    "file",
+    new Blob([bufferToUint8Array(input.audioBuffer)], {
+      type: getTranscriptionMimeType(input),
+    }),
+    input.filename,
+  );
+  formData.append("model", model);
+
+  if (input.sourceLanguage?.code) {
+    formData.append("languages[]", input.sourceLanguage.code);
+  }
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData,
+  });
+
+  const body = (await response.json().catch(() => null)) as {
+    text?: unknown;
+    error?: { message?: unknown };
+  } | null;
+
+  if (!response.ok) {
+    throw new Error(
+      typeof body?.error?.message === "string"
+        ? body.error.message
+        : "OpenAI transcription failed.",
+    );
+  }
+
+  if (typeof body?.text !== "string" || !body.text.trim()) {
+    throw new Error("OpenAI transcription response did not contain text.");
+  }
+
+  return body.text.trim();
 }
 
 export async function transcribeAudio(input: TranscribeAudioInput) {
@@ -174,13 +179,9 @@ export async function transcribeAudio(input: TranscribeAudioInput) {
     return transcribeWithElevenLabs(input);
   }
 
-  if (input.forceProvider === "mistral") {
-    return transcribeWithMistral(input);
+  if (input.forceProvider === "openai") {
+    return transcribeWithOpenAi(input);
   }
 
-  if (input.sourceLanguage?.code === "fa") {
-    return transcribeWithElevenLabs(input);
-  }
-
-  return transcribeWithMistral(input);
+  return transcribeWithOpenAi(input);
 }

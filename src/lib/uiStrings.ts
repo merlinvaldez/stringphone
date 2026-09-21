@@ -5,6 +5,8 @@ export const ENGLISH_UI_STRINGS = {
   shareInviteMessage:
     "Let's chat on StringPhone so that we can understand each other better.",
   listening: "Listening",
+  liveTranslation: "Live translation",
+  liveTranslationFallback: "Fallback translation — phrase-based updates",
   translating: "Translating",
   speaking: "Speaking",
   partnersTurn: "Partner's turn",

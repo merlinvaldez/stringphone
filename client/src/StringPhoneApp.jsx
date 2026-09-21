@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeftRight,
   ArrowRight,
   Bookmark,
   Copy,
@@ -14,6 +13,7 @@ import {
   Pause,
   Phone,
   Play,
+  Radio,
   Search,
   Send,
   Share2,
@@ -40,6 +40,8 @@ import {
   fetchLessons,
   fetchMessages,
   processLiveConversationSegment,
+  processLiveConversationDraftTranslation,
+  processLiveConversationTranscript,
   requestAiPartnerReply,
   saveMessage,
   saveVoiceSample,
@@ -64,11 +66,11 @@ import {
   SHARED_ROOM_POLL_INTERVAL_MS,
   sendSharedRoomTextMessage,
   updateSharedRoomLanguages,
-  sendSharedRoomVoiceMessage,
   shouldPollSharedRoomUpdates,
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { useLiveTurnFlow } from "./components/live/useLiveTurnFlow.js";
 import { LearningScreen } from "./components/learning/LearningScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
@@ -80,6 +82,8 @@ const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 const DEFAULT_CONVERSATION_TITLE = "New chat";
+const LIVE_TRANSLATION_DEBOUNCE_MS = 450;
+const LIVE_TRANSLATION_MIN_INTERVAL_MS = 850;
 const DEFAULT_AI_PARTNER_STATE = {
   enabled: false,
   seeded: false,
@@ -98,6 +102,10 @@ const DEFAULT_LIVE_CAPTURE_STATE = {
   sessionStartedAt: null,
   activeSegmentId: null,
   pendingSegmentCount: 0,
+  activeSpeaker: null,
+  activeLanguageCode: "",
+  liveMode: "",
+  fallbackReason: "",
   lastError: "",
 };
 
@@ -165,10 +173,7 @@ const LANGUAGES = RAW_LANGUAGES.map((language) => ({
   name: getNativeLanguageName(language.code, language.englishName),
   flag: getFlagCountryCode(language.code, language.flag),
 }));
-const CHAT_ONLY_TEXT_LANGUAGE_CODES = new Set(["fa"]);
-const VOICE_MODE_LANGUAGES = LANGUAGES.filter(
-  (language) => !CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
-);
+const VOICE_MODE_LANGUAGES = LANGUAGES;
 
 const LANGUAGE_BY_CODE = Object.fromEntries(
   LANGUAGES.map((language) => [language.code, language]),
@@ -178,11 +183,14 @@ const MAX_RECORDING_TIME = 30;
 
 const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
+  { id: "live", label: "Live", Icon: Radio },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
   { id: "lesson", label: "Phrasebook", Icon: Bookmark },
 ];
-const HIDDEN_MODE_IDS = new Set(["single", "conversation"]);
+// Live translation stays available from Chat; the legacy turn-taking modes
+// keep their original screens and are intentionally exposed again.
+const HIDDEN_MODE_IDS = new Set(["live"]);
 const VISIBLE_MODE_OPTIONS = MODE_OPTIONS.filter(
   ({ id }) => !HIDDEN_MODE_IDS.has(id),
 );
@@ -499,12 +507,6 @@ function buildLanguageSnapshot(language) {
     label: language.name,
     flag: language.flag,
   };
-}
-
-export function usesChatOnlyTextLanguage(...languages) {
-  return languages.some(
-    (language) => language && CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
-  );
 }
 
 function getInitialJoinToken() {
@@ -955,6 +957,35 @@ export function useCountdown({ active, onExpire }) {
   return recordingTimer;
 }
 
+function useIsLandscape() {
+  const [isLandscape, setIsLandscape] = useState(() =>
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(orientation: landscape)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia("(orientation: landscape)");
+    const handleChange = (event) => {
+      setIsLandscape(event.matches);
+    };
+
+    setIsLandscape(mediaQuery.matches);
+    mediaQuery.addEventListener?.("change", handleChange);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", handleChange);
+    };
+  }, []);
+
+  return isLandscape;
+}
+
 function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -1342,7 +1373,6 @@ function ModeSwitcher({
   appMode,
   setAppMode,
   sharedChatLocked = false,
-  textOnlyChatLocked = false,
   onBlockedModeChange,
   noticeMessage,
   onDismissNotice,
@@ -1355,11 +1385,9 @@ function ModeSwitcher({
       <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1.5 shadow-2xl backdrop-blur-xl">
         {VISIBLE_MODE_OPTIONS.map(({ id, label, Icon }) => {
           const modeBlocked =
-            (id === "single" || id === "conversation") &&
-            (sharedChatLocked || textOnlyChatLocked);
-          const blockedTitle = sharedChatLocked
-            ? `${label} unavailable while shared chat is active`
-            : "Persian is only available in Chat mode right now";
+            (id === "live" || id === "single" || id === "conversation") &&
+            sharedChatLocked;
+          const blockedTitle = `${label} unavailable while shared chat is active`;
 
           return (
             <button
@@ -1403,8 +1431,31 @@ function ModeSwitcher({
 }
 
 const TranscriptCard = React.forwardRef(
-  ({ message, onClick, isActive = false }, ref) => {
+  (
+    {
+      message,
+      onClick,
+      isActive = false,
+      viewerLanguageCode = "",
+      isRotated = false,
+    },
+    ref,
+  ) => {
     const Component = onClick ? "button" : "div";
+    const sourceLine = {
+      label: message.sourceLanguageLabel ?? "Original",
+      text: message.transcript || message.originalText || "",
+    };
+    const translatedLine = {
+      label: message.targetLanguageLabel ?? "Translation",
+      text: message.translatedText || "",
+    };
+    const visualLines =
+      message.sourceLanguageCode === viewerLanguageCode
+        ? [sourceLine, translatedLine]
+        : [translatedLine, sourceLine];
+    const lines = isRotated ? [...visualLines].reverse() : visualLines;
+    const [primaryLine, secondaryLine] = lines;
 
     return (
       <Component
@@ -1422,13 +1473,13 @@ const TranscriptCard = React.forwardRef(
             size={12}
             className={isActive ? "text-emerald-300" : "text-amber-500/50"}
           />
-          <span>{message.targetLanguageLabel}</span>
+          <span>{primaryLine.label}</span>
         </div>
         <p className="mb-1 text-base font-medium leading-snug tracking-tight text-white md:text-2xl sm:mb-2">
-          &ldquo;{message.translatedText}&rdquo;
+          &ldquo;{primaryLine.text}&rdquo;
         </p>
         <p className="text-xs text-zinc-400 md:text-base">
-          &ldquo;{message.transcript || message.originalText}&rdquo;
+          &ldquo;{secondaryLine.text}&rdquo;
         </p>
       </Component>
     );
@@ -1439,6 +1490,8 @@ function TranscriptCarousel({
   history,
   activeMessageId,
   onReplay,
+  viewerLanguageCode = "",
+  isRotated = false,
   className = "",
 }) {
   const lastCardRef = useRef(null);
@@ -1461,7 +1514,12 @@ function TranscriptCarousel({
         behavior: "smooth",
       });
     }, 50);
-  }, [history.length]);
+  }, [
+    history.length,
+    history[history.length - 1]?.id,
+    history[history.length - 1]?.transcript,
+    history[history.length - 1]?.translatedText,
+  ]);
 
   return (
     <div
@@ -1483,6 +1541,8 @@ function TranscriptCarousel({
                 message={message}
                 onClick={() => onReplay(message)}
                 isActive={message.id === activeMessageId}
+                viewerLanguageCode={viewerLanguageCode}
+                isRotated={isRotated}
               />
             );
           })}
@@ -1508,14 +1568,150 @@ function UserSection({
   onReplay,
   onStartInteraction,
   onStopInteraction,
+  captureStatus = "idle",
 }) {
   const uiStrings = useUiStrings(language);
+  const isLandscape = useIsLandscape();
   const recordingTimer = useCountdown({
     active: userState === "recording" && isActiveSpeaker,
     onExpire: onStopInteraction,
   });
   const isTop = position === "top";
   const hasHistory = history.length > 0;
+  const hasStreamingDraft = history.some(
+    (message) => message.status !== "ready",
+  );
+  const isFinalizing = captureStatus === "stopping";
+
+  const interactionBlock = (
+    <div
+      className={`relative flex w-full shrink-0 flex-col items-center justify-center ${
+        isTop ? "order-1 landscape:order-2" : "order-2"
+      }`}
+    >
+      <div className="mb-1 flex h-6 items-center justify-center sm:mb-6 sm:h-10">
+        {isActiveSpeaker && !isFinalizing ? (
+          <span
+            className={`animate-pulse text-[10px] font-medium uppercase tracking-[0.2em] sm:text-xs ${
+              userState === "recording"
+                ? "text-rose-400"
+                : userState === "processing"
+                  ? "text-amber-400"
+                  : "text-emerald-400"
+            }`}
+          >
+            {userState === "recording"
+              ? uiStrings.listening
+              : userState === "processing"
+                ? uiStrings.translating
+                : uiStrings.speaking}
+          </span>
+        ) : null}
+
+        {isLocked && !isActiveSpeaker ? (
+          <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
+            {uiStrings.partnersTurn}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="group relative flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => {
+            if (userState === "idle") {
+              onStartInteraction();
+              return;
+            }
+
+            if (userState === "recording" && isActiveSpeaker) {
+              onStopInteraction();
+            }
+          }}
+          disabled={
+            isLocked ||
+            isFinalizing ||
+            userState === "processing" ||
+            userState === "playing"
+          }
+          className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full transition-all duration-300 sm:h-32 sm:w-32 ${
+            userState === "recording" && isActiveSpeaker && !isFinalizing
+              ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
+              : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
+          } ${userState === "processing" && !isFinalizing ? "cursor-wait bg-zinc-800/80 backdrop-blur-md" : ""} ${
+            userState === "playing"
+              ? "border-emerald-500/30 bg-zinc-800 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+              : ""
+          }`}
+        >
+          {userState === "idle" || isFinalizing ? (
+            <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
+              <Mic
+                size={20}
+                className="mb-0.5 text-zinc-200 sm:mb-2 sm:h-9 sm:w-9"
+                strokeWidth={1.5}
+              />
+              {!isFinalizing ? (
+                <span className="text-[8px] font-semibold tracking-widest text-zinc-400 sm:text-[10px]">
+                  {uiStrings.tap}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {userState === "recording" && isActiveSpeaker && !isFinalizing ? (
+            <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
+          ) : null}
+
+          {userState === "processing" && isActiveSpeaker && !isFinalizing ? (
+            <Loader2
+              size={20}
+              className="animate-spin text-amber-400 sm:h-9 sm:w-9"
+              strokeWidth={1.5}
+            />
+          ) : null}
+
+          {userState === "playing" && isActiveSpeaker ? (
+            <Volume2
+              size={20}
+              className="animate-pulse text-emerald-400 sm:h-9 sm:w-9"
+              strokeWidth={1.5}
+            />
+          ) : null}
+        </button>
+      </div>
+    </div>
+  );
+
+  const transcriptBlock = (
+    <div
+      className={`flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden ${
+        isTop ? "order-2 landscape:order-1" : "order-1"
+      }`}
+    >
+      {(userState === "recording" || userState === "processing") &&
+      !hasStreamingDraft &&
+      !isFinalizing ? (
+        <AudioWave
+          active={userState === "recording" && isActiveSpeaker}
+          colorClass="bg-rose-400"
+        />
+      ) : hasHistory ? (
+        <div className="h-full max-h-[20rem] w-full max-w-sm">
+          <TranscriptCarousel
+            history={history}
+            activeMessageId={activeMessageId}
+            onReplay={onReplay}
+            viewerLanguageCode={language.code}
+            isRotated={isTop && !isLandscape}
+            className="h-full"
+          />
+        </div>
+      ) : (
+        <div className="h-10" />
+      )}
+    </div>
+  );
 
   return (
     <section
@@ -1523,7 +1719,7 @@ function UserSection({
         isTop ? "rotate-180 landscape:rotate-0" : ""
       } ${
         isLocked
-          ? "pointer-events-none opacity-40 grayscale-[0.5]"
+          ? "pointer-events-none"
           : "opacity-100"
       } ${isActiveSpeaker && userState === "playing" ? "bg-zinc-900/50" : "bg-transparent"}`}
     >
@@ -1549,113 +1745,9 @@ function UserSection({
         </div>
       </div>
 
-      <div className="relative flex w-full flex-col items-center justify-center">
-        <div className="mb-1 flex h-6 items-center justify-center sm:mb-6 sm:h-10">
-          {isActiveSpeaker ? (
-            <span
-              className={`animate-pulse text-[10px] font-medium uppercase tracking-[0.2em] sm:text-xs ${
-                userState === "recording"
-                  ? "text-rose-400"
-                  : userState === "processing"
-                    ? "text-amber-400"
-                    : "text-emerald-400"
-              }`}
-            >
-              {userState === "recording"
-                ? uiStrings.listening
-                : userState === "processing"
-                  ? uiStrings.translating
-                  : uiStrings.speaking}
-            </span>
-          ) : null}
-
-          {isLocked && !isActiveSpeaker ? (
-            <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
-              {uiStrings.partnersTurn}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="group relative flex items-center justify-center">
-          <button
-            type="button"
-            onClick={() => {
-              if (userState === "idle") {
-                onStartInteraction();
-                return;
-              }
-
-              if (userState === "recording" && isActiveSpeaker) {
-                onStopInteraction();
-              }
-            }}
-            disabled={
-              isLocked || userState === "processing" || userState === "playing"
-            }
-            className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full transition-all duration-300 sm:h-32 sm:w-32 ${
-              userState === "recording" && isActiveSpeaker
-                ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
-                : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
-            } ${userState === "processing" ? "cursor-wait bg-zinc-800/80 backdrop-blur-md" : ""} ${
-              userState === "playing"
-                ? "border-emerald-500/30 bg-zinc-800 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
-                : ""
-            }`}
-          >
-            {userState === "idle" ? (
-              <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
-                <Mic
-                  size={20}
-                  className="mb-0.5 text-zinc-200 sm:mb-2 sm:h-9 sm:w-9"
-                  strokeWidth={1.5}
-                />
-                <span className="text-[8px] font-semibold tracking-widest text-zinc-400 sm:text-[10px]">
-                  {uiStrings.tap}
-                </span>
-              </div>
-            ) : null}
-
-            {userState === "recording" && isActiveSpeaker ? (
-              <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
-            ) : null}
-
-            {userState === "processing" && isActiveSpeaker ? (
-              <Loader2
-                size={20}
-                className="animate-spin text-amber-400 sm:h-9 sm:w-9"
-                strokeWidth={1.5}
-              />
-            ) : null}
-
-            {userState === "playing" && isActiveSpeaker ? (
-              <Volume2
-                size={20}
-                className="animate-pulse text-emerald-400 sm:h-9 sm:w-9"
-                strokeWidth={1.5}
-              />
-            ) : null}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
-        {userState === "recording" || userState === "processing" ? (
-          <AudioWave
-            active={userState === "recording" && isActiveSpeaker}
-            colorClass="bg-rose-400"
-          />
-        ) : hasHistory ? (
-          <div className="h-full max-h-[20rem] w-full max-w-sm">
-            <TranscriptCarousel
-              history={history}
-              activeMessageId={activeMessageId}
-              onReplay={onReplay}
-              className="h-full"
-            />
-          </div>
-        ) : (
-          <div className="h-10" />
-        )}
+      <div className="relative flex min-h-0 w-full flex-1 flex-col items-center justify-between">
+        {interactionBlock}
+        {transcriptBlock}
       </div>
     </section>
   );
@@ -1671,20 +1763,33 @@ function ConversationScreen({
   submitVoiceMessage,
   replayVoiceMessage,
   onOpenSidebar,
+  liveDrafts = [],
+  captureState,
+  setCaptureState,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
-  const flow = useVoiceModeFlow({
-    autoplayAudioUrl,
-    onSubmit: async ({ recording, run }) =>
-      submitVoiceMessage({
-        originMode: "conversation",
-        sender: run.speaker === "bottom" ? "self" : "partner",
-        sourceLanguage: run.speaker === "bottom" ? myLang : theirLang,
-        targetLanguage: run.speaker === "bottom" ? theirLang : myLang,
-        recording,
-      }),
+  const flow = useLiveTurnFlow({
+    myLang,
+    theirLang,
+    originMode: "conversation",
+    captureState,
+    setCaptureState,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+    onLiveCaptureClosed,
   });
   const activeSpeaker = flow.currentRun?.speaker ?? null;
+  const history = [...voiceHistory, ...liveDrafts.filter(
+    (draft) => draft.originMode === "conversation",
+  )].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
 
   return (
     <div
@@ -1709,19 +1814,27 @@ function ConversationScreen({
         language={theirLang}
         setLanguage={setTheirLang}
         languageOptions={VOICE_MODE_LANGUAGES}
+        captureStatus={captureState?.status}
         languageMenuOpen={openLanguageSelector === "top"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
             nextOpen ? "top" : currentOpen === "top" ? null : currentOpen,
           );
         }}
-        history={voiceHistory}
+        history={history}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
           flow.setActiveMessageId(message.id);
           replayVoiceMessage(message);
         }}
-        onStartInteraction={() => flow.startRecording({ speaker: "top" })}
+        onStartInteraction={() =>
+          flow.startRecording({
+            speaker: "top",
+            sender: "partner",
+            sourceLanguage: theirLang,
+            targetLanguage: myLang,
+          })
+        }
         onStopInteraction={flow.stopRecording}
       />
 
@@ -1742,19 +1855,27 @@ function ConversationScreen({
         language={myLang}
         setLanguage={setMyLang}
         languageOptions={VOICE_MODE_LANGUAGES}
+        captureStatus={captureState?.status}
         languageMenuOpen={openLanguageSelector === "bottom"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
             nextOpen ? "bottom" : currentOpen === "bottom" ? null : currentOpen,
           );
         }}
-        history={voiceHistory}
+        history={history}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
           flow.setActiveMessageId(message.id);
           replayVoiceMessage(message);
         }}
-        onStartInteraction={() => flow.startRecording({ speaker: "bottom" })}
+        onStartInteraction={() =>
+          flow.startRecording({
+            speaker: "bottom",
+            sender: "self",
+            sourceLanguage: myLang,
+            targetLanguage: theirLang,
+          })
+        }
         onStopInteraction={flow.stopRecording}
       />
 
@@ -1777,9 +1898,12 @@ function ActionColumn({
   color,
   onStart,
   onStop,
+  isFinalizing = false,
 }) {
-  const inactive = status !== "idle" && activeAction !== action;
+  const inactive =
+    !isFinalizing && status !== "idle" && activeAction !== action;
   const isActive = activeAction === action;
+  const visualStatus = isFinalizing ? "idle" : status;
   const activeGradient =
     color === "rose"
       ? "from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
@@ -1806,14 +1930,17 @@ function ActionColumn({
               onStop();
             }
           }}
-          disabled={status !== "idle" && !(status === "recording" && isActive)}
+          disabled={
+            isFinalizing ||
+            (status !== "idle" && !(status === "recording" && isActive))
+          }
           className={`relative z-10 flex h-20 w-20 items-center justify-center rounded-full transition-all duration-300 sm:h-28 sm:w-28 md:h-36 md:w-36 ${
-            status === "recording" && isActive
+            visualStatus === "recording" && isActive
               ? `scale-105 bg-gradient-to-tr ${activeGradient}`
               : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
           }`}
         >
-          {status === "idle" ? (
+          {visualStatus === "idle" ? (
             <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
               <Icon
                 size={28}
@@ -1826,11 +1953,11 @@ function ActionColumn({
             </div>
           ) : null}
 
-          {status === "recording" && isActive ? (
+          {visualStatus === "recording" && isActive ? (
             <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
           ) : null}
 
-          {status === "processing" && isActive ? (
+          {visualStatus === "processing" && isActive ? (
             <Loader2
               size={36}
               className="animate-spin text-white"
@@ -1838,7 +1965,7 @@ function ActionColumn({
             />
           ) : null}
 
-          {status === "playing" && isActive ? (
+          {visualStatus === "playing" && isActive ? (
             <Volume2
               size={36}
               className="animate-pulse text-white"
@@ -1853,7 +1980,7 @@ function ActionColumn({
         onSelect={setLanguage}
         options={languageOptions}
         orientation="up"
-        disabled={status !== "idle"}
+        disabled={isFinalizing || status !== "idle"}
         searchPlaceholder={uiStrings.searchLanguages}
         isOpen={languageMenuOpen}
         onOpenChange={onLanguageMenuOpenChange}
@@ -1872,23 +1999,40 @@ function SingleModeScreen({
   submitVoiceMessage,
   replayVoiceMessage,
   onOpenSidebar,
+  liveDrafts = [],
+  captureState,
+  setCaptureState,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
-  const flow = useVoiceModeFlow({
-    autoplayAudioUrl,
-    onSubmit: async ({ recording, run }) =>
-      submitVoiceMessage({
-        originMode: "single",
-        sender: run.action === "speak" ? "self" : "partner",
-        sourceLanguage: run.action === "speak" ? myLang : theirLang,
-        targetLanguage: run.action === "speak" ? theirLang : myLang,
-        recording,
-      }),
+  const flow = useLiveTurnFlow({
+    myLang,
+    theirLang,
+    originMode: "single",
+    captureState,
+    setCaptureState,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+    onLiveCaptureClosed,
   });
   const activeAction = flow.currentRun?.action ?? null;
   const screenLanguage = activeAction === "listen" ? theirLang : myLang;
   const screenUiStrings = useUiStrings(screenLanguage);
-  const hasHistory = voiceHistory.length > 0;
+  const isFinalizing = captureState?.status === "stopping";
+  const history = [...voiceHistory, ...liveDrafts.filter(
+    (draft) => draft.originMode === "single",
+  )].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
+  const hasHistory = history.length > 0;
+  const hasStreamingDraft = history.some(
+    (message) => message.status !== "ready",
+  );
   const recordingTimer = useCountdown({
     active: flow.status === "recording",
     onExpire: flow.stopRecording,
@@ -1925,7 +2069,7 @@ function SingleModeScreen({
               </div>
             ) : null}
 
-            {flow.status === "processing" ? (
+            {flow.status === "processing" && !isFinalizing ? (
               <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
                 {screenUiStrings.translating}
               </span>
@@ -1933,7 +2077,9 @@ function SingleModeScreen({
           </div>
 
           <div className="mt-6 flex h-full w-full flex-col items-center justify-center">
-            {flow.status === "recording" || flow.status === "processing" ? (
+            {(flow.status === "recording" || flow.status === "processing") &&
+            !hasStreamingDraft &&
+            !isFinalizing ? (
               <AudioWave
                 active={flow.status === "recording"}
                 colorClass={
@@ -1944,12 +2090,13 @@ function SingleModeScreen({
               <StringPhoneBrand withLabel className="animate-fade-in" />
             ) : (
               <TranscriptCarousel
-                history={voiceHistory}
+                history={history}
                 activeMessageId={flow.activeMessageId}
                 onReplay={(message) => {
                   flow.setActiveMessageId(message.id);
                   replayVoiceMessage(message);
                 }}
+                viewerLanguageCode={myLang.code}
                 className="h-full min-h-[12rem] max-h-[28rem] sm:min-h-[18rem]"
               />
             )}
@@ -1974,7 +2121,15 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="rose"
-          onStart={() => flow.startRecording({ action: "speak" })}
+          isFinalizing={isFinalizing}
+          onStart={() =>
+            flow.startRecording({
+              action: "speak",
+              sender: "self",
+              sourceLanguage: myLang,
+              targetLanguage: theirLang,
+            })
+          }
           onStop={flow.stopRecording}
         />
         <ActionColumn
@@ -1993,7 +2148,15 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="indigo"
-          onStart={() => flow.startRecording({ action: "listen" })}
+          isFinalizing={isFinalizing}
+          onStart={() =>
+            flow.startRecording({
+              action: "listen",
+              sender: "partner",
+              sourceLanguage: theirLang,
+              targetLanguage: myLang,
+            })
+          }
           onStop={flow.stopRecording}
         />
       </div>
@@ -2146,6 +2309,7 @@ export default function StringPhoneApp() {
   const [liveCaptureState, setLiveCaptureState] = useState(() => ({
     ...DEFAULT_LIVE_CAPTURE_STATE,
   }));
+  const [liveDrafts, setLiveDrafts] = useState([]);
   const [activeLesson, setActiveLesson] = useState(null);
   const [activeCollectionLanguageCode, setActiveCollectionLanguageCode] = useState(null);
   const [lessonBuilderConfig, setLessonBuilderConfig] = useState(null);
@@ -2156,6 +2320,7 @@ export default function StringPhoneApp() {
   const aiPartnerReplyQueueRef = useRef(Promise.resolve());
   const aiPartnerContextVersionRef = useRef(0);
   const liveSegmentQueueRef = useRef(Promise.resolve());
+  const liveTranscriptDraftsRef = useRef(new Map());
   const pendingConversationIdRef = useRef(null);
   const domAudioRef = useRef(null);
   const autoplayAudioRef = useRef(null);
@@ -2194,7 +2359,6 @@ export default function StringPhoneApp() {
   const [sharedRoomError, setSharedRoomError] = useState("");
   const [sharedRoomCopyNotice, setSharedRoomCopyNotice] = useState("");
   const [modeLockNotice, setModeLockNotice] = useState(null);
-  const isFarsiChatOnly = usesChatOnlyTextLanguage(myLang, theirLang);
   const sharedRoomInviteUrl =
     sharedRoomSession?.inviteUrl ??
     (pendingInviteToken ? buildSharedRoomInviteUrl(pendingInviteToken) : "");
@@ -2454,18 +2618,6 @@ export default function StringPhoneApp() {
     };
   }, [modeLockNotice]);
 
-  useEffect(() => {
-    if (appMode === "chat" || !isFarsiChatOnly) {
-      return;
-    }
-
-    setAppMode("chat");
-    setModeLockNotice({
-      id: Date.now(),
-      message: "Persian is only available in Chat mode for now.",
-    });
-  }, [appMode, isFarsiChatOnly]);
-
   applySharedRoomSnapshotRef.current = (roomSnapshot, session = sharedRoomSession) => {
     if (!session) {
       return;
@@ -2501,6 +2653,7 @@ export default function StringPhoneApp() {
       revokeSharedRoomAudioUrls(sharedRoomAudioUrlCacheRef);
       generatedSpeechAbortControllerRef.current?.abort();
       generatedSpeechAbortControllerRef.current = null;
+      clearLiveTranscriptDrafts();
       if (generatedSpeechPlaybackUrlRef.current) {
         URL.revokeObjectURL(generatedSpeechPlaybackUrlRef.current);
         generatedSpeechPlaybackUrlRef.current = null;
@@ -2512,7 +2665,11 @@ export default function StringPhoneApp() {
   const voiceHistory = useMemo(
     () =>
       messages.filter(
-        (message) => message.kind === "voice" && message.status === "ready",
+        (message) =>
+          message.status === "ready" &&
+          (message.kind === "voice" ||
+            message.originMode === "single" ||
+            message.originMode === "conversation"),
       ),
     [messages],
   );
@@ -2897,7 +3054,113 @@ export default function StringPhoneApp() {
     }));
   };
 
+  const buildLiveDraftMessagePatch = (draft) => ({
+    kind:
+      draft.messageKind === "voice" || draft.audioUrl ? "voice" : "text",
+    originMode: draft.originMode,
+    sender: draft.sender,
+    messageOrigin: "human",
+    status: draft.status,
+    originalText: draft.transcript ?? "",
+    originalPronunciation: "",
+    translatedText: draft.translatedText ?? "",
+    translatedPronunciation: "",
+    transcript: draft.transcript ?? "",
+    audioUrl: draft.audioUrl ?? "",
+    errorMessage: "",
+    sourceLanguageCode: draft.sourceLanguageCode ?? "",
+    sourceLanguageLabel: draft.sourceLanguageLabel ?? "",
+    sourceLanguageFlag: draft.sourceLanguageFlag ?? "",
+    targetLanguageCode: draft.targetLanguageCode ?? "",
+    targetLanguageLabel: draft.targetLanguageLabel ?? "",
+    targetLanguageFlag: draft.targetLanguageFlag ?? "",
+  });
+
+  const addLiveDraft = (draft) => {
+    setLiveDrafts((previousDrafts) => {
+      const nextDrafts = [
+        ...previousDrafts.filter(
+          (previousDraft) => previousDraft.utteranceId !== draft.utteranceId,
+        ),
+        draft,
+      ];
+      return nextDrafts;
+    });
+  };
+
+  const updateLiveDraft = (utteranceId, patch) => {
+    const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+    const nextPatch = currentDraft
+      ? typeof patch === "function"
+        ? patch(currentDraft)
+        : patch
+      : null;
+
+    if (!nextPatch) {
+      return;
+    }
+
+    if (currentDraft) {
+      Object.assign(currentDraft, nextPatch);
+
+      if (currentDraft.messageId) {
+        updateMessage(
+          currentDraft.messageId,
+          buildLiveDraftMessagePatch(currentDraft),
+        );
+      }
+    }
+
+    setLiveDrafts((previousDrafts) => {
+      let changed = false;
+      const nextDrafts = previousDrafts.map((draft) => {
+        if (draft.utteranceId !== utteranceId) {
+          return draft;
+        }
+
+        changed = true;
+        return { ...draft, ...nextPatch };
+      });
+
+      if (!changed) {
+        return previousDrafts;
+      }
+
+      return nextDrafts;
+    });
+  };
+
+  const removeLiveDraft = (utteranceId) => {
+    setLiveDrafts((previousDrafts) => {
+      const nextDrafts = previousDrafts.filter(
+        (draft) => draft.utteranceId !== utteranceId,
+      );
+
+      if (nextDrafts.length === previousDrafts.length) {
+        return previousDrafts;
+      }
+
+      return nextDrafts;
+    });
+  };
+
+  const clearLiveDrafts = () => {
+    setLiveDrafts([]);
+  };
+
+  const clearLiveTranscriptDrafts = () => {
+    liveTranscriptDraftsRef.current.forEach((draft) => {
+      if (draft.translationTimerId) {
+        window.clearTimeout(draft.translationTimerId);
+      }
+      revokeObjectUrl(draft.audioUrl);
+    });
+    liveTranscriptDraftsRef.current.clear();
+    clearLiveDrafts();
+  };
+
   const resetLiveCaptureState = () => {
+    clearLiveTranscriptDrafts();
     setLiveCaptureState({ ...DEFAULT_LIVE_CAPTURE_STATE });
   };
 
@@ -3558,6 +3821,470 @@ export default function StringPhoneApp() {
     }
   };
 
+  const createLiveTranscriptDraft = ({
+    utteranceId,
+    sourceLanguage,
+    targetLanguage,
+    existingMessageId = null,
+    liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
+    messageKind = "text",
+  }) => {
+    const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
+    const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    const draft = {
+      utteranceId,
+      id: utteranceId,
+      messageId: existingMessageId,
+      createdAt: new Date().toISOString(),
+      originMode,
+      sender,
+      messageKind,
+      sourceLanguage,
+      targetLanguage,
+      myLanguage: sourceLanguage,
+      theirLanguage: targetLanguage,
+      sourceLanguageCode: sourceSnapshot.code,
+      sourceLanguageLabel: sourceSnapshot.label,
+      sourceLanguageFlag: sourceSnapshot.flag,
+      targetLanguageCode: targetSnapshot.code,
+      targetLanguageLabel: targetSnapshot.label,
+      targetLanguageFlag: targetSnapshot.flag,
+      transcript: "",
+      translatedText: "",
+      audioUrl: "",
+      revision: 0,
+      finalized: false,
+      translationTimerId: 0,
+      translationInFlight: false,
+      lastTranslationRequestedAt: 0,
+      liveMode,
+      status: "transcribing",
+    };
+
+    liveTranscriptDraftsRef.current.set(utteranceId, draft);
+    if (originMode !== "chat") {
+      addLiveDraft(draft);
+    }
+    return draft;
+  };
+
+  const requestLiveDraftTranslation = async ({
+    utteranceId,
+    revision,
+    transcript,
+    sourceLanguage,
+    targetLanguage,
+  }) => {
+    const draft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+    if (
+      !draft ||
+      draft.finalized ||
+      draft.revision !== revision ||
+      draft.transcript !== transcript
+    ) {
+      return;
+    }
+
+    draft.translationInFlight = true;
+    draft.lastTranslationRequestedAt = performance.now();
+    updateLiveDraft(utteranceId, { status: "translating" });
+
+    try {
+      const data = await processLiveConversationDraftTranslation({
+        utteranceId,
+        revision,
+        transcript,
+        sourceLanguage,
+        targetLanguage,
+        authFetch: isSignedIn ? authFetch : undefined,
+      });
+      const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+      if (
+        !currentDraft ||
+        currentDraft.finalized ||
+        data.utteranceId !== utteranceId ||
+        Number(data.revision) !== revision
+      ) {
+        return;
+      }
+
+      const detectedSourceLanguage = getLanguageOption(
+        data.sourceLanguage?.code,
+      );
+      const detectedTargetLanguage = getLanguageOption(
+        data.targetLanguage?.code,
+      );
+      const detectedSourceSnapshot =
+        buildLanguageSnapshot(detectedSourceLanguage);
+      const detectedTargetSnapshot =
+        buildLanguageSnapshot(detectedTargetLanguage);
+
+      currentDraft.translatedText =
+        data.translatedText ?? currentDraft.translatedText;
+      currentDraft.sourceLanguage = detectedSourceLanguage;
+      currentDraft.targetLanguage = detectedTargetLanguage;
+      currentDraft.sender = data.sender === "partner" ? "partner" : "self";
+
+      updateLiveDraft(utteranceId, {
+        status: "transcribing",
+        sender: currentDraft.sender,
+        sourceLanguage: detectedSourceLanguage,
+        targetLanguage: detectedTargetLanguage,
+        sourceLanguageCode:
+          data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
+        sourceLanguageLabel: detectedSourceSnapshot.label,
+        sourceLanguageFlag: detectedSourceSnapshot.flag,
+        targetLanguageCode: detectedTargetSnapshot.code,
+        targetLanguageLabel: detectedTargetSnapshot.label,
+        targetLanguageFlag: detectedTargetSnapshot.flag,
+        translatedText: currentDraft.translatedText,
+      });
+      setLiveCaptureStateWithPatch({
+        activeSpeaker: currentDraft.sender,
+        activeLanguageCode:
+          data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
+      });
+    } catch (error) {
+      const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+      if (currentDraft && !currentDraft.finalized) {
+        updateLiveDraft(utteranceId, { status: "transcribing" });
+        console.warn("Live draft translation failed", error);
+      }
+    } finally {
+      const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+      if (!currentDraft) {
+        return;
+      }
+
+      currentDraft.translationInFlight = false;
+
+      if (
+        !currentDraft.finalized &&
+        currentDraft.revision > revision
+      ) {
+        scheduleLiveDraftTranslation(currentDraft);
+      }
+    }
+  };
+
+  const scheduleLiveDraftTranslation = (draft) => {
+    if (draft.finalized) {
+      return;
+    }
+
+    if (draft.translationInFlight || draft.translationTimerId) {
+      return;
+    }
+
+    const elapsedSinceLastRequest =
+      performance.now() - draft.lastTranslationRequestedAt;
+    const waitMs = Math.max(
+      LIVE_TRANSLATION_DEBOUNCE_MS,
+      LIVE_TRANSLATION_MIN_INTERVAL_MS - elapsedSinceLastRequest,
+    );
+
+    draft.translationTimerId = window.setTimeout(() => {
+      draft.translationTimerId = 0;
+      const currentDraft = liveTranscriptDraftsRef.current.get(draft.utteranceId);
+
+      if (!currentDraft || currentDraft.finalized || !currentDraft.transcript) {
+        return;
+      }
+
+      void requestLiveDraftTranslation({
+        utteranceId: currentDraft.utteranceId,
+        revision: currentDraft.revision,
+        transcript: currentDraft.transcript,
+        sourceLanguage: currentDraft.myLanguage,
+        targetLanguage: currentDraft.theirLanguage,
+      });
+    }, waitMs);
+  };
+
+  const appendLiveTranscriptDelta = ({
+    itemId,
+    transcriptDelta,
+    translatedTextDelta = "",
+    sourceLanguage,
+    targetLanguage,
+    liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
+    messageKind = "text",
+  }) => {
+    if (!itemId || (!transcriptDelta && !translatedTextDelta)) {
+      return;
+    }
+
+    const draft =
+      liveTranscriptDraftsRef.current.get(itemId) ??
+      createLiveTranscriptDraft({
+        utteranceId: itemId,
+        sourceLanguage,
+        targetLanguage,
+        liveMode,
+        originMode,
+        sender,
+        messageKind,
+      });
+
+    if (draft.finalized) {
+      return;
+    }
+
+    draft.originMode = originMode;
+    draft.sender = sender;
+    draft.liveMode = liveMode;
+    draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
+    draft.transcript = `${draft.transcript}${transcriptDelta}`;
+    draft.translatedText = `${draft.translatedText}${translatedTextDelta}`;
+    draft.revision += 1;
+
+    if (originMode === "chat" && !draft.messageId) {
+      draft.messageId = appendMessage(buildLiveDraftMessagePatch(draft));
+    }
+
+    updateLiveDraft(itemId, {
+      status:
+        draft.liveMode === "realtime-translation"
+          ? "translating"
+          : "transcribing",
+      transcript: draft.transcript,
+      translatedText: draft.translatedText,
+      messageKind: draft.messageKind,
+    });
+
+    if (draft.liveMode !== "realtime-translation" && transcriptDelta) {
+      scheduleLiveDraftTranslation(draft);
+    }
+  };
+
+  const submitLiveConversationTranscript = ({
+    itemId = "",
+    transcript,
+    translatedText = "",
+    sourceLanguage,
+    targetLanguage,
+    audioBlob = null,
+    existingMessageId = null,
+    liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
+    messageKind = "text",
+  }) => {
+    const utteranceId = itemId || createId();
+    const draft =
+      liveTranscriptDraftsRef.current.get(utteranceId) ??
+      createLiveTranscriptDraft({
+        utteranceId,
+        sourceLanguage,
+        targetLanguage,
+        existingMessageId,
+        liveMode,
+        originMode,
+        sender,
+        messageKind,
+      });
+
+    if (draft.finalized) {
+      return liveSegmentQueueRef.current;
+    }
+
+    if (draft.translationTimerId) {
+      window.clearTimeout(draft.translationTimerId);
+      draft.translationTimerId = 0;
+    }
+
+    draft.transcript = transcript || draft.transcript;
+    draft.translatedText = translatedText || draft.translatedText;
+    draft.liveMode = liveMode || draft.liveMode;
+    draft.originMode = draft.originMode ?? originMode;
+    draft.sender = draft.sender ?? sender;
+    draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
+    if (audioBlob && typeof audioBlob.size === "number" && !draft.audioUrl) {
+      try {
+        draft.audioUrl = URL.createObjectURL(audioBlob);
+      } catch {
+        draft.audioUrl = "";
+      }
+    }
+    draft.revision = Math.max(1, draft.revision + 1);
+    draft.finalized = true;
+    const finalRevision = draft.revision;
+    const retryPayload = {
+      kind: "live-transcript",
+      originMode: draft.originMode ?? originMode,
+      sender: draft.sender ?? sender,
+      messageOrigin: "human",
+      sourceLanguageCode: sourceLanguage.code,
+      targetLanguageCode: targetLanguage.code,
+      transcript: draft.transcript,
+      translatedText: draft.translatedText,
+      liveMode: draft.liveMode,
+      messageKind: draft.messageKind,
+      realtimeItemId: utteranceId,
+      recordingBlob: audioBlob,
+    };
+    if (draft.messageId) {
+      updateMessage(draft.messageId, {
+        status: "translating",
+        errorMessage: "",
+      });
+    }
+    updateLiveDraft(utteranceId, {
+      status: "processing",
+      transcript: draft.transcript,
+      translatedText: draft.translatedText,
+      audioUrl: draft.audioUrl,
+    });
+    updateLivePendingSegmentCount(1);
+
+    liveSegmentQueueRef.current = liveSegmentQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const conversationId =
+          (await ensurePersistedConversationId({
+            sourceLanguage,
+            targetLanguage,
+          }).catch((error) => {
+            console.error(
+              "Failed to create a conversation before saving the live transcript",
+              error,
+            );
+            return null;
+          })) ?? currentConversationId;
+
+        try {
+          const data = await processLiveConversationTranscript({
+            utteranceId,
+            revision: finalRevision,
+            transcript: draft.transcript,
+            sourceLanguage,
+            targetLanguage,
+            liveMode: draft.liveMode,
+            translatedText:
+              draft.liveMode === "realtime-translation"
+                ? draft.translatedText
+                : undefined,
+            audioBlob,
+            authFetch: isSignedIn ? authFetch : undefined,
+            conversationId,
+          });
+
+          if (
+            data.utteranceId !== utteranceId ||
+            Number(data.revision) !== finalRevision
+          ) {
+            throw new Error("Live translation revision mismatch.");
+          }
+
+          if (conversationId) {
+            void persistConversationLanguages(
+              conversationId,
+              sourceLanguage,
+              targetLanguage,
+            );
+          }
+
+          const detectedSourceLanguage = getLanguageOption(
+            data.sourceLanguage?.code,
+          );
+          const detectedTargetLanguage = getLanguageOption(
+            data.targetLanguage?.code,
+          );
+          const detectedSourceSnapshot =
+            buildLanguageSnapshot(detectedSourceLanguage);
+          const detectedTargetSnapshot =
+            buildLanguageSnapshot(detectedTargetLanguage);
+
+          const finalMessage = {
+            kind:
+              draft.messageKind === "voice" || draft.audioUrl
+                ? "voice"
+                : "text",
+            originMode: draft.originMode ?? originMode,
+            sender: data.sender === "partner" ? "partner" : "self",
+            messageOrigin: "human",
+            status: "ready",
+            originalText: data.transcript ?? draft.transcript,
+            originalPronunciation: data.originalPronunciation ?? "",
+            translatedText: data.translatedText ?? "",
+            translatedPronunciation: data.translatedPronunciation ?? "",
+            transcript: data.transcript ?? draft.transcript,
+            audioUrl: draft.audioUrl,
+            errorMessage: "",
+            detectedSourceLanguageCode:
+              data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
+            detectedSourceLanguageConfidence:
+              data.detectedSourceLanguage?.confidence ?? 0,
+            sourceLanguageCode: detectedSourceSnapshot.code,
+            sourceLanguageLabel: detectedSourceSnapshot.label,
+            sourceLanguageFlag: detectedSourceSnapshot.flag,
+            targetLanguageCode: detectedTargetSnapshot.code,
+            targetLanguageLabel: detectedTargetSnapshot.label,
+            targetLanguageFlag: detectedTargetSnapshot.flag,
+            retryPayload,
+          };
+
+          if (draft.messageId) {
+            updateMessage(draft.messageId, finalMessage);
+          } else {
+            appendMessage(finalMessage);
+          }
+          draft.audioUrlTransferred = Boolean(draft.audioUrl);
+
+          setLiveCaptureStateWithPatch({
+            activeSpeaker: finalMessage.sender,
+            activeLanguageCode: finalMessage.sourceLanguageCode,
+            lastError: "",
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : "Live transcription failed.";
+
+          if (/no speech was detected/i.test(message)) {
+            if (draft.messageId) {
+              removeMessage(draft.messageId);
+            }
+            return;
+          }
+
+          if (draft.messageId) {
+            updateMessage(draft.messageId, {
+              status: "error",
+              errorMessage: message,
+              retryPayload,
+            });
+          }
+          setLiveCaptureStateWithPatch({
+            lastError: message,
+          });
+        } finally {
+          const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+
+          if (currentDraft?.translationTimerId) {
+            window.clearTimeout(currentDraft.translationTimerId);
+          }
+          if (currentDraft?.audioUrl && !currentDraft.audioUrlTransferred) {
+            revokeObjectUrl(currentDraft.audioUrl);
+          }
+          liveTranscriptDraftsRef.current.delete(utteranceId);
+          removeLiveDraft(utteranceId);
+          updateLivePendingSegmentCount(-1);
+        }
+      });
+
+    return liveSegmentQueueRef.current;
+  };
+
   const submitLiveConversationSegment = ({
     audioBlob,
     sourceLanguage,
@@ -3568,6 +4295,13 @@ export default function StringPhoneApp() {
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    let audioUrl = "";
+
+    try {
+      audioUrl = URL.createObjectURL(audioBlob);
+    } catch {
+      audioUrl = "";
+    }
     const retryPayload = {
       kind: "live",
       originMode: "live",
@@ -3580,7 +4314,7 @@ export default function StringPhoneApp() {
       segmentEndedAt,
     };
     const pendingMessage = {
-      kind: "text",
+      kind: "voice",
       originMode: "live",
       sender: "self",
       messageOrigin: "human",
@@ -3590,7 +4324,7 @@ export default function StringPhoneApp() {
       translatedText: "",
       translatedPronunciation: "",
       transcript: "",
-      audioUrl: "",
+      audioUrl,
       errorMessage: "",
       sourceLanguageCode: sourceSnapshot.code,
       sourceLanguageLabel: sourceSnapshot.label,
@@ -3602,7 +4336,7 @@ export default function StringPhoneApp() {
       segmentEndedAt,
       retryPayload,
     };
-    let messageId = existingMessageId;
+    let messageId = existingMessageId ?? appendMessage(pendingMessage);
 
     if (existingMessageId) {
       updateMessage(existingMessageId, pendingMessage);
@@ -3656,7 +4390,7 @@ export default function StringPhoneApp() {
             buildLanguageSnapshot(detectedTargetLanguage);
 
           const readyMessage = {
-            kind: "text",
+            kind: "voice",
             originMode: "live",
             sender: data.sender === "partner" ? "partner" : "self",
             messageOrigin: "human",
@@ -3666,7 +4400,7 @@ export default function StringPhoneApp() {
             translatedText: data.translatedText ?? "",
             translatedPronunciation: data.translatedPronunciation ?? "",
             transcript: data.transcript ?? "",
-            audioUrl: "",
+            audioUrl,
             errorMessage: "",
             detectedSourceLanguageCode:
               data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
@@ -3681,13 +4415,12 @@ export default function StringPhoneApp() {
             retryPayload,
           };
 
-          if (messageId) {
-            updateMessage(messageId, readyMessage);
-          } else {
-            messageId = appendMessage(readyMessage);
-          }
-
-          setLiveCaptureStateWithPatch({ lastError: "" });
+          updateMessage(messageId, readyMessage);
+          setLiveCaptureStateWithPatch({
+            activeSpeaker: readyMessage.sender,
+            activeLanguageCode: readyMessage.sourceLanguageCode,
+            lastError: "",
+          });
         } catch (error) {
           const message =
             error instanceof Error && error.message
@@ -3695,25 +4428,15 @@ export default function StringPhoneApp() {
               : "Live transcription failed.";
 
           if (/no speech was detected/i.test(message)) {
-            if (messageId) {
-              removeMessage(messageId);
-            }
+            removeMessage(messageId);
             return;
           }
 
-          if (messageId) {
-            updateMessage(messageId, {
-              status: "error",
-              errorMessage: message,
-              retryPayload,
-            });
-          } else {
-            appendMessage({
-              ...pendingMessage,
-              status: "error",
-              errorMessage: message,
-            });
-          }
+          updateMessage(messageId, {
+            status: "error",
+            errorMessage: message,
+            retryPayload,
+          });
           setLiveCaptureStateWithPatch({
             lastError: message,
           });
@@ -3774,6 +4497,23 @@ export default function StringPhoneApp() {
       return;
     }
 
+    if (retryPayload.kind === "live-transcript" && retryPayload.transcript) {
+      await submitLiveConversationTranscript({
+        itemId: retryPayload.realtimeItemId || message.id,
+        transcript: retryPayload.transcript,
+        translatedText: retryPayload.translatedText,
+        sourceLanguage,
+        targetLanguage,
+        audioBlob: retryPayload.recordingBlob,
+        existingMessageId: message.id,
+        liveMode: retryPayload.liveMode,
+        originMode: retryPayload.originMode,
+        sender: retryPayload.sender,
+        messageKind: retryPayload.messageKind,
+      });
+      return;
+    }
+
     if (retryPayload.kind === "ai_partner") {
       await queueAiPartnerReply({
         conversationId: currentConversationId,
@@ -3805,41 +4545,6 @@ export default function StringPhoneApp() {
       sourceLanguage,
       targetLanguage,
       text,
-    });
-  };
-
-  const submitChatVoiceMessage = async ({
-    originMode,
-    sender,
-    sourceLanguage,
-    targetLanguage,
-    recording,
-  }) => {
-    if (sharedRoomSession) {
-      const result = await sendSharedRoomVoiceMessage({
-        roomId: sharedRoomSession.roomId,
-        participantSessionToken: sharedRoomSession.participantSessionToken,
-        recording,
-      });
-
-      if (isSignedIn && sender === "self") {
-        saveVoiceSample(authFetch, {
-          recording,
-          conversationId: null,
-        }).catch((error) => {
-          console.error("Failed to save shared-room voice sample", error);
-        });
-      }
-
-      return result;
-    }
-
-    return sendVoiceMessage({
-      originMode,
-      sender,
-      sourceLanguage,
-      targetLanguage,
-      recording,
     });
   };
 
@@ -4121,6 +4826,14 @@ export default function StringPhoneApp() {
     if (visibleNextMode === "lesson") {
       openCollectionsRoot();
       return;
+    }
+
+    if (visibleNextMode !== "live" && appMode === "live") {
+      resetLiveCaptureState();
+    }
+
+    if (visibleNextMode === "live" && appMode !== "live") {
+      setLiveCaptureState({ ...DEFAULT_LIVE_CAPTURE_STATE });
     }
 
     setAppMode(visibleNextMode);
@@ -4435,11 +5148,7 @@ export default function StringPhoneApp() {
   const handleBlockedModeChange = () => {
     const message = sharedRoomSession?.role === "guest"
       ? "This shared chat invite only works in Chat mode."
-      : sharedRoomSession
-        ? "Please untoggle shared chat to use live conversation modes."
-        : isFarsiChatOnly
-          ? "Persian is only available in Chat mode for now."
-          : "Please untoggle shared chat to use live conversation modes.";
+      : "Please untoggle shared chat to use live conversation modes.";
 
     setModeLockNotice({
       id: Date.now(),
@@ -4494,10 +5203,9 @@ export default function StringPhoneApp() {
       />
       <ModeSwitcher
         appMode={appMode}
-        setAppMode={handleSelectAppMode}
-        sharedChatLocked={Boolean(sharedRoomSession)}
-        textOnlyChatLocked={isFarsiChatOnly}
-        onBlockedModeChange={handleBlockedModeChange}
+          setAppMode={handleSelectAppMode}
+          sharedChatLocked={Boolean(sharedRoomSession)}
+          onBlockedModeChange={handleBlockedModeChange}
         noticeMessage={modeLockNotice?.message ?? ""}
         onDismissNotice={() => setModeLockNotice(null)}
       />
@@ -4508,7 +5216,9 @@ export default function StringPhoneApp() {
           appMode === "lesson" ? "collections" : "chats"
         }
         signedOutContext={
-          appMode === "single" || appMode === "conversation"
+          appMode === "live" ||
+          appMode === "single" ||
+          appMode === "conversation"
             ? "voice"
             : "standard"
         }
@@ -4558,10 +5268,8 @@ export default function StringPhoneApp() {
           onInvertLanguages={handleInvertChatLanguages}
           messages={chatMessages}
           submitTextMessage={submitChatTextMessage}
-          submitVoiceMessage={submitChatVoiceMessage}
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
-          onPlayGeneratedSpeech={playGeneratedSpeech}
           onSaveToCollection={handleSaveMessageToCollection}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
@@ -4578,7 +5286,10 @@ export default function StringPhoneApp() {
           onExecuteSlashCommand={executeChatSlashCommand}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
-          onLiveSegment={submitLiveConversationSegment}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
 
@@ -4590,9 +5301,15 @@ export default function StringPhoneApp() {
           setTheirLang={setTheirLang}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
-          submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          liveDrafts={liveDrafts}
+          captureState={liveCaptureState}
+          setCaptureState={setLiveCaptureState}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
 
@@ -4627,9 +5344,15 @@ export default function StringPhoneApp() {
           setTheirLang={setTheirLang}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
-          submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          liveDrafts={liveDrafts}
+          captureState={liveCaptureState}
+          setCaptureState={setLiveCaptureState}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
     </main>

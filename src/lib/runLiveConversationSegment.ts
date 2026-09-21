@@ -200,7 +200,7 @@ export async function runLiveConversationSegment(input: {
         translatedText,
         translatedPronunciation,
         transcript,
-        audioUrl: null,
+        audioUrl: `data:${input.sourceAudioFile.mimeType ?? "audio/webm"};base64,${input.sourceAudioFile.buffer.toString("base64")}`,
       });
 
       savedMessageId = typeof message?.id === "string" ? message.id : "";

@@ -2,16 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { ChatHeader } from "./ChatHeader.jsx";
 import { ChatThread } from "./ChatThread.jsx";
 import { ChatComposer } from "./ChatComposer.jsx";
-import { useLiveConversationCapture } from "../live/useLiveConversationCapture.js";
+import { useLiveTurnFlow } from "../live/useLiveTurnFlow.js";
 import {
   getChatCommandOptions,
   resolveChatSlashSubmission,
 } from "./chatCommands.js";
 import {
-  useRecorder,
   useCountdown,
   ErrorNotice,
-  usesChatOnlyTextLanguage,
 } from "../../StringPhoneApp.jsx";
 import { useUiStrings } from "../../uiStrings.js";
 
@@ -23,10 +21,8 @@ export function ChatScreen({
   onInvertLanguages,
   messages,
   submitTextMessage,
-  submitVoiceMessage,
   retryMessage,
   onAudioPlay,
-  onPlayGeneratedSpeech,
   onSaveToCollection,
   sharedRoomSession,
   sharedRoom,
@@ -43,9 +39,11 @@ export function ChatScreen({
   onExecuteSlashCommand,
   liveCaptureState,
   setLiveCaptureState,
-  onLiveSegment,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
-  const recorder = useRecorder();
   const mountedRef = useRef(true);
   const [composerText, setComposerText] = useState("");
   const [status, setStatus] = useState("idle");
@@ -63,7 +61,6 @@ export function ChatScreen({
 
   const sourceLanguage = myLang;
   const targetLanguage = theirLang;
-  const textOnlyChat = usesChatOnlyTextLanguage(sourceLanguage, targetLanguage);
   const screenUiStrings = useUiStrings(sourceLanguage);
   const waitingForSharedRoomAutoJoin =
     Boolean(pendingInviteToken) && !sharedRoomSession && !sharedRoomError;
@@ -75,11 +72,6 @@ export function ChatScreen({
   const composerDisabled =
     waitingForSharedRoomAutoJoin ||
     (Boolean(sharedRoomSession) && sharedRoomStatus !== "active");
-  const liveCaptureBusy =
-    liveCaptureState?.status === "starting" ||
-    liveCaptureState?.status === "listening" ||
-    liveCaptureState?.status === "processing" ||
-    liveCaptureState?.status === "stopping";
   const composerDisabledPlaceholder = waitingForSharedRoomAutoJoin
     ? "Joining shared chat..."
     : sharedRoomStatus === "connecting"
@@ -94,21 +86,49 @@ export function ChatScreen({
   const partnerStatusLabel = aiPartnerState?.displayName
     ? aiPartnerState.displayName
     : "Partner";
-  const { startListening, stopListening } = useLiveConversationCapture({
+  const addCaptureContext = (payload) => ({
+    ...payload,
+    messageKind: "voice",
+  });
+  const flow = useLiveTurnFlow({
     myLang,
     theirLang,
+    originMode: "chat",
     captureState: liveCaptureState,
     setCaptureState: setLiveCaptureState,
-    onLiveSegment,
+    authFetch,
+    onLiveTranscriptDelta: (payload) =>
+      onLiveTranscriptDelta?.(addCaptureContext(payload)),
+    onLiveTranscript: (payload) =>
+      onLiveTranscript?.(addCaptureContext(payload)),
+    onLiveCaptureClosed,
   });
+  const liveStatus = liveCaptureState?.status ?? "idle";
+  const liveIsActive =
+    liveStatus === "starting" ||
+    liveStatus === "listening" ||
+    liveStatus === "processing" ||
+    liveStatus === "stopping";
+  useEffect(() => {
+    if (liveStatus === "error") {
+      setStatus("idle");
+      setError(liveCaptureState?.lastError || "Live transcription failed.");
+      return;
+    }
 
+    if (
+      liveStatus === "idle" &&
+      (status === "recording" || status === "processing")
+    ) {
+      setStatus("idle");
+    }
+  }, [liveCaptureState?.lastError, liveStatus, status]);
   useEffect(
     () => {
       mountedRef.current = true;
 
       return () => {
         mountedRef.current = false;
-        recorder.cancel();
       };
     },
     [],
@@ -231,15 +251,16 @@ export function ChatScreen({
   };
 
   const handleStartRecording = async () => {
-    if (status !== "idle") return;
+    if (status !== "idle" || liveIsActive) return;
 
     try {
       setError("");
-      await recorder.start();
-
-      if (mountedRef.current) {
-        setStatus("recording");
-      }
+      setStatus("recording");
+      await flow.startRecording({
+        sender: "self",
+        sourceLanguage,
+        targetLanguage,
+      });
     } catch (recordingError) {
       if (!mountedRef.current) return;
       setStatus("idle");
@@ -255,22 +276,8 @@ export function ChatScreen({
     }
 
     try {
-      const recording = await recorder.stop();
-
-      await submitVoiceMessage({
-        sourceLanguage,
-        targetLanguage,
-        recording,
-        originMode: "chat",
-        sender: "self",
-      });
-
-      if (mountedRef.current) {
-        setStatus("idle");
-      }
+      flow.stopRecording();
     } catch (recordingError) {
-      recorder.cancel();
-
       if (!mountedRef.current) {
         return;
       }
@@ -297,8 +304,7 @@ export function ChatScreen({
         disabled={
           status !== "idle" ||
           liveRoomBusy ||
-          waitingForSharedRoomAutoJoin ||
-          liveCaptureBusy
+          waitingForSharedRoomAutoJoin
         }
         uiStrings={screenUiStrings}
         sharedRoomSession={sharedRoomSession}
@@ -341,10 +347,10 @@ export function ChatScreen({
           messages={messages}
           onRetry={retryMessage}
           onAudioPlay={onAudioPlay}
-          onPlayGeneratedSpeech={onPlayGeneratedSpeech}
           onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
           aiPartnerDisplayName={aiPartnerState?.displayName}
+          baseLanguageCode={myLang.code}
         />
       </div>
 
@@ -356,15 +362,9 @@ export function ChatScreen({
         sourceLanguage={sourceLanguage}
         uiStrings={screenUiStrings}
         onSendText={handleSendText}
-        onInvertLanguages={onInvertLanguages}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        liveCaptureState={liveCaptureState}
-        onStartLiveCapture={() => void startListening()}
-        onStopLiveCapture={() => void stopListening()}
-        supportsVoiceInput
-        supportsLiveCapture={!sharedRoomSession && !textOnlyChat}
-        showInvertLanguages={textOnlyChat}
+        supportsVoiceInput={!liveIsActive}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}
         commandNotice={commandNotice}
