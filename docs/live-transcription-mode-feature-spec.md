@@ -1,549 +1,140 @@
-# StringPhone Live Transcription Mode
+# StringPhone Live Speech Capture
 
-**Status:** Implemented on `feat/14-live-text-translation` on 2026-09-18.
-**Product:** StringPhone  
-**Audience:** people using StringPhone in an in-person conversation who want a passive bilingual transcript while continuing to read and use Chat.
+**Status:** Implemented on `feat/14-live-text-translation`.
+**Current entry point:** the existing mic button in Chat, Single, and Conversation.
 
-## Outcome
+## What Live means in the current app
 
-StringPhone adds Live capture as a dock inside Chat. The dock is collapsed and secondary by default, and can expand in place when the user needs to focus on the active bilingual text.
+Live is a backend and capture workflow, not a separate visible mode. The user presses the normal mic control for a turn. The app opens a streaming transcription session, shows the partial transcript and translation in the normal message surface, and finalizes each utterance as a bilingual voice message.
 
-When Live listening is started, the app streams speech transcription continuously, shows a translated preview while the speaker is still talking, and uses short silence windows only to commit utterances. Each committed utterance is classified as one of the selected two languages, translated into the opposite selected language, and appended to the existing bilingual thread pattern.
+The current Chat layout does not render a separate Live button, Live dashboard, or `LiveTranslationDock`. `client/src/components/live/LiveTranslationDock.jsx` remains an available component, but it is not part of the active Chat render path. This preserves the existing Chat, Single, and Conversation UIs.
 
-Live conversation segments use the same playback pattern as typed Chat messages: the compact sound button appears only on the second-language side of the message.
+## User flow
 
-The feature should feel like Chat gaining a passive listening surface. It reuses the existing zinc/glass dock, rounded geometry, spacing, Radio state marker, and icon-only expand/minimize affordances without introducing a new route, full-screen interruption, prose help card, or one-line preview.
+1. The user selects `my language` and `their language`.
+2. The user presses the existing mic control.
+3. The browser requests microphone access and opens a WebRTC connection to OpenAI's realtime transcription endpoint using a short-lived server-minted credential.
+4. Transcript delta events immediately update the active message bubble.
+5. The client sends partial transcript revisions to the live-translation route. The translated preview updates in the same bubble while speech continues.
+6. Client-side audio monitoring starts a segment when speech is detected and commits it after roughly one second of silence.
+7. The segment's transcript and recorded audio blob are sent to final transcript processing.
+8. The existing draft becomes a ready voice message with the captured audio, transcript, translation, and pronunciation guidance where required.
 
-## Product Intent
+Live capture stops when the user presses the square stop control, when the screen changes/unmounts, when the connection fails, or when the 30-second turn timer expires. A single active capture is allowed. Multiple speech segments can be committed during one active 30-second turn.
 
-- Let people put the phone down during an in-person bilingual conversation and get a running transcript in both selected languages.
-- Let people keep reading the normal Chat thread while Live runs.
-- Keep the app's two-language model: `my language` and `their language`.
-- Reuse the current Chat thread, composer safe area, language controls, history, and playback components wherever possible.
-- Keep Live state separate from persisted Chat messages so partial text never enters the normal `MessageBubble` list.
-- Make every captured utterance playable through the existing second-language sound button.
-- Preserve current typed chat, single voice, conversation voice, learning, shared chat, AI partner, saved history, and phrasebook behavior.
+## UI behavior
 
-## V1 Principles
+- Chat continues to show its existing header, thread, and composer.
+- The empty Chat composer shows the mic button; it does not show a separate Live/Radio recording button.
+- While capture is active, the composer shows the remaining seconds and an audio-wave/processing state.
+- Partial transcript and translation are rendered through `ChatThread` and `MessageBubble`.
+- A final live message uses the normal voice-message player and keeps the transcript and translation visible.
+- Live audio is not autoplayed.
+- The language selectors and invert button are disabled while capture is active or while a shared-room update is busy.
+- The active Single/Conversation speaker receives the same 30-second limit and the other turn is locked.
 
-### Passive After Start
+## Language behavior
 
-Live mode should require one intentional user action to satisfy browser microphone permissions and user consent. After that action, it listens continuously until the user stops it, leaves the mode, or microphone capture fails.
+Live processing is constrained to the selected pair. The server classifies each transcript as `my language` or `their language`; it does not expose a third language in the message model.
 
-V1 must not require the user to hold the mic button or manually stop after every turn.
+- Speech classified as `my language` becomes a `self` message translated into `their language`.
+- Speech classified as `their language` becomes a `partner` message translated into `my language`.
+- Low-confidence classifications are clamped to the selected pair and marked ambiguous in the server result; model reasoning is not sent to the client.
+- Persian (`fa`) is supported in the same language list as the other modes. It is not restricted to Chat.
 
-### Chat Surface First
+## Client implementation
 
-Live should remain secondary to the existing Chat surface. The dock belongs above the composer, keeps the newest active text visible, and never covers the composer or obscures the newest finalized message.
-
-### No Unnecessary UI
-
-The only new visible surface should be the dock and its compact composer control. Everything else should reuse existing patterns:
-
-- `LiveTranslationDock` and its compact Radio control;
-- the existing Chat thread and composer safe area;
-- the existing bilingual text hierarchy and compact circular playback controls;
-- existing amber, emerald, rose, zinc, and white state colors;
-- History sidebar access.
-
-### Existing Sound Button Only
-
-Each live segment must be playable from the existing compact sound button, like a normal typed Chat message. The full message bubble should not become a separate playback target.
-
-### Streaming Preview, Bounded Finalization
-
-The client uses the realtime transcription provider over WebRTC for partial transcript deltas. Those deltas render into a draft row immediately, and low-latency translation requests update the opposite-language preview while speech continues. Silence commits the current utterance for final selected-language classification, pronunciation, persistence, and retry behavior.
-
-The UI does not wait for silence before showing speech. True provider-generated translated audio remains a non-goal; Live renders translated text and keeps the existing manual text-to-speech button.
-
-## Non-Goals For V1
-
-- No new AI partner behavior.
-- No chatbot replies.
-- No new landing page or onboarding screen.
-- No speaker diarization beyond language-side inference.
-- No arbitrary-language detection outside the selected two-language pair.
-- No multi-person contact list or call room.
-- No separate transcript editor.
-- No mandatory transcript export.
-- No pronunciation scoring.
-- No autoplay of every captured segment.
-- No background microphone capture before user consent.
-- No separate top-level Live route or full-screen Live interruption.
-- No deletion of the dormant Single or Conversation implementations.
-
-## Current Repo Constraints
-
-The implementation should fit the current StringPhone code paths.
-
-- Top-level mode selection remains in `client/src/StringPhoneApp.jsx`; Live is not a visible top-level mode. The dormant turn-based Single and Conversation modes remain hidden from the switcher.
-- Chat UI composition lives in `client/src/components/chat/ChatScreen.jsx`.
-- Live dock composition lives in `client/src/components/live/LiveTranslationDock.jsx`; Chat thread rendering remains in `client/src/components/chat/ChatThread.jsx` and `MessageBubble.jsx`.
-- Text playback already uses `client/src/components/audio/TextToSpeechButton.jsx` plus `POST /api/speech/output`.
-- Voice bubble playback already uses `VoiceMessagePlayer.jsx`.
-- Turn-based voice chat uses `translateVoiceMessage()` in `client/src/chatApi.js` and `POST /api/chat/messages/voice`.
-- Backend voice translation uses `src/lib/runVoiceChatMessage.ts`, `src/lib/runSpeechTranslation.ts`, `src/services/transcribeAudio.ts`, `src/services/translateText.ts`, and `src/services/generateSpeech.ts`.
-- Saved conversation persistence uses `public.conversations` and `public.messages` through `src/db/queries/conversations.ts`.
-- AI partner state and `/aipartner` command handling already exist and must remain separate from Live mode.
-- Shared-room chat currently disables the Live capture control unless shared-room compatibility is intentionally designed later.
-- `MAX_RECORDING_TIME` currently applies to turn-based recording. Live mode needs chunk-level limits instead of a 30-second whole-session limit.
-
-## User Experience
-
-### Entry Point
-
-Expose Live from the Chat composer with an icon-only `Radio` control. Chat remains the primary screen.
-
-Recommended icon: use a Lucide icon that communicates live capture, such as `Radio`, placed beside the existing send/mic composer controls.
-
-### First Open
-
-When the user starts Live from Chat:
-
-- keep the existing Chat header, thread, and composer visible;
-- open a bounded dock directly above the composer;
-- show the complete active source and translated text in the dock;
-- keep the newest active text visible with internal scrolling;
-- show an icon-only expand affordance; the default dock remains secondary.
-
-Browser microphone capture usually requires a user gesture, so Live listening should not silently start on page render. The visible start control should use the current mic/recording pattern and then transition into the continuous listening state.
-
-### Active Listening
-
-After the user starts Live listening:
-
-- the composer Radio control shows listening state using the existing rose/recording treatment;
-- the app keeps listening until stopped;
-- Chat's text input remains usable while Live runs;
-- language selectors are disabled while processing active audio;
-- partial transcript and translation previews appear while the speaker is talking;
-- the normal thread promotes a draft to a saved message after the utterance is committed and final translation returns;
-- long silence should not create empty messages;
-- short non-speech sounds and provider no-speech responses should be ignored quietly with no visible error row.
-
-### Live Segment Rendering
-
-A resolved live segment should render through the existing normal Chat thread and `MessageBubble` path.
-
-Recommended segment shape:
-
-- `kind: "text"` so live rows use the same second-language generated-speech button as typed Chat messages;
-- `sender: "self"` when the dominant detected language is `my language`;
-- `sender: "partner"` when the dominant detected language is `their language`;
-- `originalText` is the transcript in the detected spoken language;
-- `translatedText` is the translation into the other selected language;
-- `transcript` mirrors `originalText`;
-- pronunciation guidance follows the existing cross-script rules;
-- `messageOrigin: "human"` remains unchanged.
-
-If language detection is ambiguous, V1 should still show the transcript and translation, but it must choose one of the two selected language sides with low confidence. The row should not introduce a third neutral bubble style or any language outside the active L1/L2 pair unless a later design explicitly adds that pattern.
-
-### Sound Button Behavior
-
-The user request is that playback should feel like Chat. V1 should implement this through the existing sound button, not by making the full message clickable.
-
-Recommended behavior:
-
-- live rows render as normal Chat text bubbles;
-- self-side live rows show the sound button on the translated second-language line;
-- partner-side live rows show the sound button on the original second-language line;
-- clicking the bubble body does not play audio;
-- source captured audio is not exposed as a separate playback target in V1;
-- only one segment should play at a time;
-- playback must work on desktop click, mobile tap, keyboard activation, and screen-reader accessible controls through the existing button.
-
-Playback is manual. Live should not auto-play every segment as it appears in V1.
-
-### Stopping Live
-
-When the user stops Live listening:
-
-- the current in-flight chunk should be finalized when possible;
-- incomplete silence-only chunks should be discarded;
-- pending rows should resolve, fail softly, or be removed if they contain no transcript;
-- Chat remains open so the user can review and tap previous segments;
-- the stop action should use the existing square stop icon and recording color treatment.
-
-### Mode Switching
-
-When leaving Chat or switching modes while Live listening:
-
-- stop microphone capture cleanly;
-- finalize or cancel the in-flight segment;
-- keep resolved messages in the current conversation thread;
-- do not leave background recording running;
-- do not clear the active Chat thread unless the user explicitly starts a new conversation or returns home.
-
-## Language And Segmentation Rules
-
-### Selected Pair Only
-
-Live mode is scoped to the currently selected `my language` and `their language` pair.
-
-Each captured utterance should be treated as one of:
-
-- spoken mostly in `my language`;
-- spoken mostly in `their language`;
-- ambiguous, with a fallback and a compact error/notice only if translation quality is blocked.
-
-V1 should not claim support for detecting every possible spoken language in the room.
-
-### Utterance Segmentation
-
-Recommended V1 segmentation:
-
-1. Stream microphone audio over the realtime transcription connection.
-2. Use Web Audio amplitude analysis to detect speech end and commit after a short silence window, for example 700 to 1200 ms.
-3. Render partial transcript and throttled translation updates before the silence commit.
-4. Queue final utterance processing in chronological order.
-
-The exact thresholds should be tuned with browser testing rather than hard-coded from this spec without verification.
-
-### Overlapping Speech
-
-If both people speak at the same time, V1 should prefer a clear transcript over false diarization.
-
-Acceptable V1 behavior:
-
-- transcribe the dominant speech;
-- mark the segment ambiguous if confidence is low;
-- avoid inventing two separate speakers from one mixed chunk.
-
-## Client Architecture
-
-### Chat-Owned Live Capture
-
-Recommended file:
-
-- `client/src/components/live/useLiveConversationCapture.js`
-
-This hook is owned by `ChatScreen`, which keeps continuous microphone capture available without replacing Chat.
-
-Recommended composition:
-
-- render the active draft in `LiveTranslationDock` above `ChatComposer`;
-- keep the final-message thread and active dock separate;
-- reuse the existing compact text-to-speech button for resolved translated lines in `MessageBubble`;
-- use the existing stop icon, processing spinner, and color semantics;
-- keep ChatComposer free of Live controls.
-
-### App State
-
-Add live capture state at the `StringPhoneApp.jsx` level because it affects mode switching, message appending, audio cleanup, saved conversation persistence, and shared-room locks.
-
-Recommended state shape:
-
-```ts
-type LiveCaptureState = {
-  status: "idle" | "starting" | "listening" | "processing" | "stopping" | "error";
-  sessionStartedAt: string | null;
-  activeSegmentId: string | null;
-  pendingSegmentCount: number;
-  lastError: string;
-};
-```
-
-Use refs for the WebRTC peer connection, data channel, Web Audio analyser, live drafts, and the segment processing queue so React renders stay stable.
-
-### Segment Message Shape
-
-Use the existing client message shape with small additions only where needed.
-
-Recommended live message fields:
-
-```ts
-type LiveSegmentMessage = SessionMessage & {
-  originMode: "live";
-  detectedSourceLanguageCode: string;
-  detectedSourceLanguageConfidence?: number;
-  segmentStartedAt?: string;
-  segmentEndedAt?: string;
-};
-```
-
-These fields can remain client-side for V1 unless persistence requires them later.
-
-### Audio Cleanup
-
-Live mode can create temporary audio blobs for retrying failed processing. The implementation must clean up any object URLs if future revisions add them and must avoid exposing captured source audio as a playback target in V1.
-
-## API And Services
-
-### Realtime transcription and draft translation
-
-Live starts by requesting a short-lived credential from `POST /api/chat/live-transcription/token`, then streams microphone audio over WebRTC to the realtime transcription service. Partial `conversation.item.input_audio_transcription.delta` events update the visible draft row.
-
-While a draft grows, the client throttles requests to `POST /api/chat/messages/live-translation`. That route classifies the partial transcript against exactly the selected two languages and returns the opposite-language preview. The client ignores stale revisions and keeps listening while a translation request is in flight.
-
-When local silence detection commits the utterance, the client sends the final transcript to `POST /api/chat/messages/live-transcript` for final classification, pronunciation guidance, optional persistence, and promotion from draft to saved message.
-
-### `POST /api/chat/messages/live-segment`
-
-Purpose: process one finalized uploaded audio segment for compatibility or future non-streaming fallback. The active Live UI uses the realtime transcription and transcript-processing routes above.
-
-Recommended multipart fields:
-
-- `sourceAudio`: required audio chunk;
-- `sourceLanguage`: current `my language` code;
-- `targetLanguage`: current `their language` code;
-- `conversationId`: optional owned conversation id;
-- `segmentStartedAt`: optional client timestamp;
-- `segmentEndedAt`: optional client timestamp.
-
-Recommended response:
-
-```json
-{
-  "detectedSourceLanguage": {
-    "code": "es",
-    "label": "Espanol",
-    "confidence": 0.86
-  },
-  "sourceLanguage": {
-    "code": "es",
-    "label": "Espanol"
-  },
-  "targetLanguage": {
-    "code": "en",
-    "label": "English"
-  },
-  "sender": "partner",
-  "transcript": "Podemos encontrarnos en la entrada.",
-  "translatedText": "We can meet at the entrance.",
-  "originalPronunciation": "",
-  "translatedPronunciation": "",
-  "savedMessage": {
-    "id": "optional saved message id"
-  }
-}
-```
-
-The route should not return chatbot content. It only transcribes, classifies, translates, and optionally persists a human speech segment. If no speech is detected, it should return a no-speech response that the client treats as a quiet drop, not a visible message failure.
-
-### Express And Vercel Parity
-
-As with existing chat routes, add both:
-
-- Express route in `src/server.ts`;
-- file-backed serverless handler under `api/chat/messages/live-segment.ts`.
-
-Both paths must share orchestration code to avoid drift.
-
-### New Orchestration Helper
-
-Recommended file:
-
-- `src/lib/runLiveConversationSegment.ts`
-
-Responsibilities:
-
-1. validate both selected languages against current supported voice/transcription language rules;
-2. transcribe the uploaded audio through `transcribeAudio()`;
-3. classify the transcript as one of the selected two languages;
-4. translate into the other selected language through `translateText()`;
-5. add pronunciation guidance through `generatePronunciationGuidance()` when current cross-script rules require it;
-6. determine `sender` using the detected language side;
-7. persist through `createMessage()` when an owned `conversationId` is supplied;
-8. return a client-ready message payload.
-
-### Language Classification
-
-Recommended helper:
-
-- `src/services/classifyLiveSegmentLanguage.ts`
-
-Input:
-
-- transcript;
-- `my language` code and label;
-- `their language` code and label.
-
-Output:
-
-```json
-{
-  "languageCode": "es",
-  "confidence": 0.86,
-  "reason": "short optional diagnostic for logs only"
-}
-```
-
-Implementation should prefer provider metadata if available only when it maps cleanly to one of the two selected languages. If transcription providers do not return reliable selected-pair metadata, use a compact model classification call constrained to exactly the two selected languages. Any third-language or uncertain result must be clamped back to the active L1/L2 pair.
-
-Do not expose model reasoning to the client.
-
-### Playback Reuse
-
-Live mode should use the existing `fetchOutputSpeech()` client helper and `POST /api/speech/output` server path for generated playback.
-
-Rules:
-
-- translated or second-language TTS can be generated on demand and cached in the current client session;
-- saved user voice samples may be used by `/api/speech/output` exactly as they are today;
-- Live mode should not create a new TTS provider path.
-
-## Persistence Model
-
-### Signed-In Use
-
-When the user is signed in:
-
-- ensure a conversation id exists before saving processed live segments;
-- save each resolved live segment as a normal `public.messages` row;
-- keep `message_origin = 'human'`;
-- set `sender` from the detected language side;
-- set `original_text`, `translated_text`, `transcript`, pronunciation columns, and optional `audio_url` according to current message conventions;
-- refresh conversation title using the existing title refresh path when appropriate.
-
-V1 does not require a new live session table unless implementation testing shows that resume/replay needs durable segment metadata beyond current messages.
-
-### Signed-Out Use
-
-When the user is signed out:
-
-- live segments exist only in memory for the current page session;
-- captured source audio object URLs are temporary;
-- generated TTS cache is temporary;
-- reload clears the transcript.
-
-This matches current guest chat behavior and avoids storing long passive recordings without an account.
-
-### Audio Retention
-
-Live mode should not persist raw continuous microphone audio as a long recording in V1.
-
-For saved messages, persist only the minimum audio already needed for existing message playback behavior. If original captured source-audio replay after reload is required later, that should be a separate product decision because it changes storage cost and privacy expectations.
-
-## Privacy And Consent
-
-Live mode records the environment continuously after the user starts it. The UI must make the listening state visible the entire time.
-
-Requirements:
-
-- show an unmistakable listening state while microphone capture is active;
-- stop capture immediately when the user stops Live, leaves the mode, returns home, or the app unmounts;
-- do not start microphone capture without a user action;
-- do not upload silence-only chunks;
-- do not store raw continuous session audio;
-- keep errors explicit when microphone permission is denied;
-- avoid claiming complete transcript accuracy.
-
-A lightweight privacy note can appear in the same compact style already used for inline notices, but V1 should not add a blocking modal unless legal/product review requires it.
-
-## Failure Handling
-
-### Microphone Failure
-
-If microphone permission is denied or capture fails:
-
-- keep the user in Live mode;
-- show a compact inline error;
-- return to idle state;
-- do not create transcript rows.
-
-### Segment Failure
-
-If one segment fails:
-
-- mark only that segment as failed;
-- keep listening if capture is still active;
-- offer retry if the source audio chunk is still available;
-- do not clear successful prior segments.
-
-### Transcription Empty Result
-
-If a segment produces no transcript:
-
-- discard it silently if it was likely silence;
-- discard it silently if the provider returns no speech;
-- do not append or retain a visible message row for no-speech cases.
-
-### Translation Failure
-
-If transcription succeeds but translation fails:
-
-- show the transcript;
-- mark translation as failed;
-- offer retry for translation;
-- keep listening active.
-
-### Playback Failure
-
-If generated TTS fails:
-
-- keep the text visible;
-- show a compact playback error;
-- allow retry on the same segment;
-- avoid adding duplicate playback buttons or duplicate rows.
-
-## File Map
-
-Recommended file additions and changes:
-
-| Area | Files |
+| File | Responsibility |
 | --- | --- |
-| Chat-owned Live orchestration | `client/src/StringPhoneApp.jsx`, `client/src/components/chat/ChatScreen.jsx` |
-| Live capture hook | `client/src/components/live/useLiveConversationCapture.js` |
-| Live dock and control | `client/src/components/live/LiveTranslationDock.jsx`, `client/src/components/chat/ChatComposer.jsx` |
-| Existing Chat-surface reuse | `ChatThread.jsx`, `MessageBubble.jsx`, `ChatComposer.jsx`, plus `TextToSpeechButton.jsx` |
-| Client API | `client/src/chatApi.js` |
-| Streaming Live routes | `api/chat/live-transcription/token.ts`, `api/chat/messages/live-translation.ts`, `api/chat/messages/live-transcript.ts` |
-| Uploaded-segment compatibility route | `api/chat/messages/live-segment.ts` |
-| Express route parity | `src/server.ts` |
-| Live segment orchestration | `src/lib/runLiveConversationSegment.ts` |
-| Language classification | `src/services/classifyLiveSegmentLanguage.ts` |
-| Existing speech services reused | `src/services/transcribeAudio.ts`, `translateText.ts`, `generatePronunciationGuidance.ts`, `src/lib/runOutputTextToSpeech.ts` |
-| Persistence reuse | `src/db/queries/conversations.ts` |
+| `client/src/components/live/useLiveConversationCapture.js` | Requests the microphone, opens WebRTC, receives transcript deltas/completions, monitors speech/silence, records per-utterance audio blobs, and closes the connection. |
+| `client/src/components/live/useLiveTurnFlow.js` | Maps capture status into recording/processing state and tags callbacks with `chat`, `single`, or `conversation`. |
+| `client/src/components/chat/ChatScreen.jsx` | Starts the live flow from the existing Chat mic and passes live callbacks to the app root. |
+| `client/src/StringPhoneApp.jsx` | Owns live drafts, pending segment processing, message promotion, audio URL cleanup, persistence, retry payloads, and mode-switch cleanup. |
+| `client/src/components/chat/MessageBubble.jsx` | Renders the live message as a normal text/voice bubble. |
 
-## Acceptance Criteria
+The app creates the live draft in the root message list as soon as transcript deltas arrive. Later revisions update that same message id rather than appending duplicate bubbles. A final callback marks the draft complete and attaches the recorded source audio. Failed finalization keeps a retry payload containing the transcript and audio blob when available.
 
-- [ ] Live starts from an icon-only control inside Chat; no top-level Live route is required.
-- [ ] Chat continues to show the existing language selector/header and thread layout.
-- [ ] Starting Live requires one user action and then listens continuously until stopped.
-- [ ] Live mode does not require manual start/stop per utterance.
-- [ ] Partial speech appears in a draft row before silence finalizes the utterance.
-- [ ] Speech is split into short utterance segments and finalized in chronological order.
-- [ ] Each valid spoken segment resolves from its live draft into a final bilingual message.
-- [ ] The app renders every resolved segment in both selected languages.
-- [ ] Segment language detection maps utterances strictly to `my language` or `their language`; no third language appears in Live rows.
-- [ ] No-speech chunks do not append or retain visible message rows.
-- [ ] Live rows use the same compact sound button as typed Chat messages.
-- [ ] The sound button appears only on the second-language side of each live row.
-- [ ] Clicking or tapping the bubble body does not play audio.
-- [ ] Only one segment plays at a time.
-- [ ] Existing explicit playback buttons still work and remain accessible.
-- [ ] Live listening uses a bounded dock above the composer without adding a separate transcript dashboard.
-- [ ] Leaving Chat stops microphone capture.
-- [ ] Returning home stops microphone capture and clears transient live state as appropriate.
-- [ ] Signed-in live segments save to the current conversation as normal messages.
-- [ ] Reopening a saved conversation shows saved live segments as normal bilingual messages.
-- [ ] Signed-out live segments remain temporary and clear on reload.
-- [ ] Shared-room active state blocks Live mode with the existing lock-notice pattern unless shared compatibility is intentionally added.
-- [ ] Existing Chat, Phrasebook, AI partner, shared chat, phrasebook saves, and text playback still work; dormant Single, Conversation, and lesson-building code paths remain available for a future switcher restore.
+## Backend flow
 
-## Verification Plan
+### 1. Credential creation
 
-1. Start the dev server and open StringPhone in a desktop browser.
-2. Open Chat and verify no microphone capture starts before the user presses the composer Radio control.
-3. Press start, grant microphone permission, and verify the bounded dock appears above the composer.
-4. Speak continuously in `my language`; verify the transcript draft appears before pausing and the opposite-language preview updates before the utterance ends.
-5. Respond immediately in `their language`; verify a new draft can appear after the first silence boundary and resolves in the opposite direction.
-6. Pause between utterances and verify silence commits drafts without creating empty rows.
-7. Speak for longer than the maximum chunk length and verify the app force-finalizes bounded chunks without freezing the UI.
-8. Verify no-speech silence does not leave a pending or error row.
-9. Tap the live segment bubble body and verify it does not play audio.
-10. Tap the compact sound button on the second-language side and verify generated speech plays.
-11. Stop Live and verify microphone capture ends while the dock closes and existing rows remain reviewable.
-12. Leave Chat during active capture and verify background recording stops.
-13. Sign in, start Live in a saved conversation, speak two segments, then reopen the conversation from History and verify the saved bilingual rows hydrate.
-14. Try the Live control while shared chat is active and verify it is disabled by the existing lock behavior.
-15. Deny microphone permission and verify Live returns to idle with a compact inline error.
-16. Force a segment transcription or translation failure and verify only that segment fails while capture can continue.
-17. Run the existing build and targeted chat/audio verification scripts after implementation.
-18. Use browser testing at mobile and desktop widths to confirm the dock stays above the composer, keeps the newest active text visible, and expands/minimizes without obscuring Chat.
+`POST /chat/live-transcription/token` validates both selected languages and calls `createLiveTranscriptionClientSecret` with the server-only `OPENAI_API_KEY`. The active client requests the transcription fallback session explicitly, which uses the OpenAI transcription client-secret endpoint and the `gpt-live-transcribe` transcription model. The API key is never sent to the browser.
 
-## Open Product Calls
+The browser then posts its WebRTC offer to `https://api.openai.com/v1/realtime/calls` with the short-lived credential. Provider audio output is disabled; the app displays text and keeps playback under the user's control.
 
-- Should the Live listening control evolve into a denser tray if future Live controls compete for space?
-- Should signed-in users have an optional setting to persist original source audio for later replay, or should V1 keep source audio ephemeral for privacy and storage reasons?
-- Should V1 expose any speaker labels beyond language-side alignment, or should true diarization wait for a later provider-supported version?
+### 2. Draft translation
+
+`POST /chat/messages/live-translation` receives `utteranceId`, `revision`, `transcript`, `sourceLanguage`, and `targetLanguage`. `runLiveConversationTranslation` classifies the transcript against exactly the selected pair and calls `translateLiveDraft` for the opposite-language preview.
+
+Draft translation uses the OpenAI Responses API with `OPENAI_LIVE_TRANSLATION_MODEL` and defaults to `gpt-4o-mini`. The standard `translateText` path is used if the low-latency request cannot produce a result. The client ignores stale revisions so an older response cannot overwrite newer speech.
+
+### 3. Final transcript processing
+
+`POST /chat/messages/live-transcript` sends the final utterance through `runLiveConversationTranscript`. It:
+
+1. validates the selected pair;
+2. classifies the spoken side;
+3. finalizes the translation;
+4. generates pronunciation guidance when cross-script rules require it;
+5. saves the message and captured source audio when an authenticated conversation id is available;
+6. returns the final bilingual message payload and saved message id when applicable.
+
+The saved message uses the existing `public.messages` shape with `message_origin: "human"`. Raw source audio is not stored for anonymous sessions; anonymous live messages remain in the current page session.
+
+### Compatibility route
+
+`POST /chat/messages/live-segment` remains available for an uploaded finalized audio segment and compatibility/retry flows. The active streaming UI uses the token, live-translation, and live-transcript routes above.
+
+## API route summary
+
+| Method | Route | Active role |
+| --- | --- | --- |
+| `POST` | `/chat/live-transcription/token` | Mint the short-lived OpenAI browser credential. |
+| `POST` | `/chat/messages/live-translation` | Classify and translate a partial transcript revision. |
+| `POST` | `/chat/messages/live-transcript` | Finalize a transcript, pronunciation, audio handoff, and optional persistence. |
+| `POST` | `/chat/messages/live-segment` | Compatibility path for an uploaded audio segment. |
+
+The local Express handlers in `src/server.ts` and Vercel handlers under `api/chat/` share the corresponding `src/lib/` orchestration helpers where implemented.
+
+### Deployment parity note
+
+The local Express `/chat/messages/live-transcript` handler parses the multipart form sent by the client and can receive `sourceAudio`. The current Vercel handler at `api/chat/messages/live-transcript.ts` parses JSON instead. Treat deployed finalization and source-audio persistence as a verification gap until that handler accepts the same multipart request shape.
+
+## Configuration
+
+Required for the live path:
+
+- `OPENAI_API_KEY` — server-only OpenAI key used to mint the browser credential and call translation/classification/pronunciation services.
+- `DATABASE_URL` — required for signed-in persistence across the app.
+- `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` — required for authenticated persistence.
+
+Optional model overrides:
+
+- `OPENAI_LIVE_LANGUAGE_MODEL`, default `gpt-4o-mini`;
+- `OPENAI_LIVE_TRANSLATION_MODEL`, default `gpt-4o-mini`;
+- `OPENAI_PRONUNCIATION_MODEL`, default `gpt-4o-mini`;
+- `OPENAI_TRANSCRIPTION_MODEL`, default `gpt-transcribe`.
+
+The transcription session itself currently uses the provider model names defined in `createLiveTranscriptionClientSecret.ts`.
+
+## Failure behavior
+
+- Unsupported language pairs return a validation error before the session starts.
+- Missing OpenAI configuration returns `Live translation is not configured.`
+- Microphone/browser/WebRTC failures return the capture state to error/idle and show an inline message.
+- An unexpected connection close stops background capture.
+- No-speech segments are ignored instead of creating empty bubbles.
+- A final processing failure leaves the message available for retry when the transcript/audio payload is still available.
+- A live translation failure does not turn the captured utterance into an AI/chatbot reply; it remains a human message or an explicit message error.
+
+## Verification checklist
+
+1. Open Chat and confirm there is no separate Live recording button.
+2. Press the normal mic with an empty composer and grant microphone permission.
+3. Speak continuously and confirm transcript text appears before the utterance is finalized.
+4. Pause for about a second and confirm the same bubble receives the translation and voice recording.
+5. Speak in the other selected language and confirm the sender side/direction changes according to language classification.
+6. Confirm the 30-second timer stops the active capture.
+7. Stop early and confirm the final in-flight utterance is handled without background recording.
+8. Deny microphone permission and confirm an inline error appears without leaving capture running.
+9. Sign in, complete a live utterance, reopen the conversation from History, and confirm the bilingual message and source audio are restored.

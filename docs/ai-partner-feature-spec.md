@@ -1,6 +1,6 @@
 # StringPhone AI Partner
 
-**Status:** Proposed on `feat/8-ai-partner` for issue [#8](https://github.com/merlinvaldez/stringphone/issues/8) on 2026-07-30.  
+**Status:** Implemented in the current Chat surface. The original design was introduced on `feat/8-ai-partner` for issue [#8](https://github.com/merlinvaldez/stringphone/issues/8) on 2026-07-30.
 **Product:** StringPhone  
 **Audience:** people using StringPhone chat alone who want a conversational practice partner that behaves like a local speaker of the interlocutor language.
 
