@@ -32,6 +32,10 @@ export default {
     }
 
     try {
+      // Clerk authentication clones the request, so it must run before the
+      // multipart or JSON body is consumed below.
+      const authenticatedRequest =
+        await getOptionalAuthenticatedVercelAppRequest(request);
       const contentType = request.headers.get("content-type") ?? "";
       let body: Record<string, unknown> | null = null;
       let sourceAudioFile:
@@ -67,8 +71,6 @@ export default {
         body = await request.json().catch(() => null);
       }
 
-      const authenticatedRequest =
-        await getOptionalAuthenticatedVercelAppRequest(request);
       const result = await runLiveConversationTranscript({
         utteranceId: body?.utteranceId,
         revision: body?.revision,
