@@ -968,6 +968,35 @@ export function useCountdown({ active, onExpire }) {
   return recordingTimer;
 }
 
+function useIsLandscape() {
+  const [isLandscape, setIsLandscape] = useState(() =>
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(orientation: landscape)").matches
+      : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia("(orientation: landscape)");
+    const handleChange = (event) => {
+      setIsLandscape(event.matches);
+    };
+
+    setIsLandscape(mediaQuery.matches);
+    mediaQuery.addEventListener?.("change", handleChange);
+
+    return () => {
+      mediaQuery.removeEventListener?.("change", handleChange);
+    };
+  }, []);
+
+  return isLandscape;
+}
+
 function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
   const recorder = useRecorder();
   const mountedRef = useRef(true);
@@ -1416,8 +1445,31 @@ function ModeSwitcher({
 }
 
 const TranscriptCard = React.forwardRef(
-  ({ message, onClick, isActive = false }, ref) => {
+  (
+    {
+      message,
+      onClick,
+      isActive = false,
+      viewerLanguageCode = "",
+      isRotated = false,
+    },
+    ref,
+  ) => {
     const Component = onClick ? "button" : "div";
+    const sourceLine = {
+      label: message.sourceLanguageLabel ?? "Original",
+      text: message.transcript || message.originalText || "",
+    };
+    const translatedLine = {
+      label: message.targetLanguageLabel ?? "Translation",
+      text: message.translatedText || "",
+    };
+    const visualLines =
+      message.sourceLanguageCode === viewerLanguageCode
+        ? [sourceLine, translatedLine]
+        : [translatedLine, sourceLine];
+    const lines = isRotated ? [...visualLines].reverse() : visualLines;
+    const [primaryLine, secondaryLine] = lines;
 
     return (
       <Component
@@ -1435,13 +1487,13 @@ const TranscriptCard = React.forwardRef(
             size={12}
             className={isActive ? "text-emerald-300" : "text-amber-500/50"}
           />
-          <span>{message.targetLanguageLabel}</span>
+          <span>{primaryLine.label}</span>
         </div>
         <p className="mb-1 text-base font-medium leading-snug tracking-tight text-white md:text-2xl sm:mb-2">
-          &ldquo;{message.translatedText}&rdquo;
+          &ldquo;{primaryLine.text}&rdquo;
         </p>
         <p className="text-xs text-zinc-400 md:text-base">
-          &ldquo;{message.transcript || message.originalText}&rdquo;
+          &ldquo;{secondaryLine.text}&rdquo;
         </p>
       </Component>
     );
@@ -1452,6 +1504,8 @@ function TranscriptCarousel({
   history,
   activeMessageId,
   onReplay,
+  viewerLanguageCode = "",
+  isRotated = false,
   className = "",
 }) {
   const lastCardRef = useRef(null);
@@ -1501,6 +1555,8 @@ function TranscriptCarousel({
                 message={message}
                 onClick={() => onReplay(message)}
                 isActive={message.id === activeMessageId}
+                viewerLanguageCode={viewerLanguageCode}
+                isRotated={isRotated}
               />
             );
           })}
@@ -1526,8 +1582,10 @@ function UserSection({
   onReplay,
   onStartInteraction,
   onStopInteraction,
+  captureStatus = "idle",
 }) {
   const uiStrings = useUiStrings(language);
+  const isLandscape = useIsLandscape();
   const recordingTimer = useCountdown({
     active: userState === "recording" && isActiveSpeaker,
     onExpire: onStopInteraction,
@@ -1537,6 +1595,137 @@ function UserSection({
   const hasStreamingDraft = history.some(
     (message) => message.status !== "ready",
   );
+  const isFinalizing = captureStatus === "stopping";
+
+  const interactionBlock = (
+    <div
+      className={`relative flex w-full shrink-0 flex-col items-center justify-center ${
+        isTop ? "order-1 landscape:order-2" : "order-2"
+      }`}
+    >
+      <div className="mb-1 flex h-6 items-center justify-center sm:mb-6 sm:h-10">
+        {isActiveSpeaker && !isFinalizing ? (
+          <span
+            className={`animate-pulse text-[10px] font-medium uppercase tracking-[0.2em] sm:text-xs ${
+              userState === "recording"
+                ? "text-rose-400"
+                : userState === "processing"
+                  ? "text-amber-400"
+                  : "text-emerald-400"
+            }`}
+          >
+            {userState === "recording"
+              ? uiStrings.listening
+              : userState === "processing"
+                ? uiStrings.translating
+                : uiStrings.speaking}
+          </span>
+        ) : null}
+
+        {isLocked && !isActiveSpeaker ? (
+          <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
+            {uiStrings.partnersTurn}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="group relative flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => {
+            if (userState === "idle") {
+              onStartInteraction();
+              return;
+            }
+
+            if (userState === "recording" && isActiveSpeaker) {
+              onStopInteraction();
+            }
+          }}
+          disabled={
+            isLocked ||
+            isFinalizing ||
+            userState === "processing" ||
+            userState === "playing"
+          }
+          className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full transition-all duration-300 sm:h-32 sm:w-32 ${
+            userState === "recording" && isActiveSpeaker && !isFinalizing
+              ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
+              : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
+          } ${userState === "processing" && !isFinalizing ? "cursor-wait bg-zinc-800/80 backdrop-blur-md" : ""} ${
+            userState === "playing"
+              ? "border-emerald-500/30 bg-zinc-800 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
+              : ""
+          }`}
+        >
+          {userState === "idle" || isFinalizing ? (
+            <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
+              <Mic
+                size={20}
+                className="mb-0.5 text-zinc-200 sm:mb-2 sm:h-9 sm:w-9"
+                strokeWidth={1.5}
+              />
+              {!isFinalizing ? (
+                <span className="text-[8px] font-semibold tracking-widest text-zinc-400 sm:text-[10px]">
+                  {uiStrings.tap}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {userState === "recording" && isActiveSpeaker && !isFinalizing ? (
+            <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
+          ) : null}
+
+          {userState === "processing" && isActiveSpeaker && !isFinalizing ? (
+            <Loader2
+              size={20}
+              className="animate-spin text-amber-400 sm:h-9 sm:w-9"
+              strokeWidth={1.5}
+            />
+          ) : null}
+
+          {userState === "playing" && isActiveSpeaker ? (
+            <Volume2
+              size={20}
+              className="animate-pulse text-emerald-400 sm:h-9 sm:w-9"
+              strokeWidth={1.5}
+            />
+          ) : null}
+        </button>
+      </div>
+    </div>
+  );
+
+  const transcriptBlock = (
+    <div
+      className={`flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden ${
+        isTop ? "order-2 landscape:order-1" : "order-1"
+      }`}
+    >
+      {(userState === "recording" || userState === "processing") &&
+      !hasStreamingDraft &&
+      !isFinalizing ? (
+        <AudioWave
+          active={userState === "recording" && isActiveSpeaker}
+          colorClass="bg-rose-400"
+        />
+      ) : hasHistory ? (
+        <div className="h-full max-h-[20rem] w-full max-w-sm">
+          <TranscriptCarousel
+            history={history}
+            activeMessageId={activeMessageId}
+            onReplay={onReplay}
+            viewerLanguageCode={language.code}
+            isRotated={isTop && !isLandscape}
+            className="h-full"
+          />
+        </div>
+      ) : (
+        <div className="h-10" />
+      )}
+    </div>
+  );
 
   return (
     <section
@@ -1544,7 +1733,7 @@ function UserSection({
         isTop ? "rotate-180 landscape:rotate-0" : ""
       } ${
         isLocked
-          ? "pointer-events-none opacity-40 grayscale-[0.5]"
+          ? "pointer-events-none"
           : "opacity-100"
       } ${isActiveSpeaker && userState === "playing" ? "bg-zinc-900/50" : "bg-transparent"}`}
     >
@@ -1570,114 +1759,9 @@ function UserSection({
         </div>
       </div>
 
-      <div className="relative flex w-full flex-col items-center justify-center">
-        <div className="mb-1 flex h-6 items-center justify-center sm:mb-6 sm:h-10">
-          {isActiveSpeaker ? (
-            <span
-              className={`animate-pulse text-[10px] font-medium uppercase tracking-[0.2em] sm:text-xs ${
-                userState === "recording"
-                  ? "text-rose-400"
-                  : userState === "processing"
-                    ? "text-amber-400"
-                    : "text-emerald-400"
-              }`}
-            >
-              {userState === "recording"
-                ? uiStrings.listening
-                : userState === "processing"
-                  ? uiStrings.translating
-                  : uiStrings.speaking}
-            </span>
-          ) : null}
-
-          {isLocked && !isActiveSpeaker ? (
-            <span className="text-xs font-medium uppercase tracking-widest text-zinc-500">
-              {uiStrings.partnersTurn}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="group relative flex items-center justify-center">
-          <button
-            type="button"
-            onClick={() => {
-              if (userState === "idle") {
-                onStartInteraction();
-                return;
-              }
-
-              if (userState === "recording" && isActiveSpeaker) {
-                onStopInteraction();
-              }
-            }}
-            disabled={
-              isLocked || userState === "processing" || userState === "playing"
-            }
-            className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full transition-all duration-300 sm:h-32 sm:w-32 ${
-              userState === "recording" && isActiveSpeaker
-                ? "scale-105 bg-gradient-to-tr from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
-                : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
-            } ${userState === "processing" ? "cursor-wait bg-zinc-800/80 backdrop-blur-md" : ""} ${
-              userState === "playing"
-                ? "border-emerald-500/30 bg-zinc-800 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
-                : ""
-            }`}
-          >
-            {userState === "idle" ? (
-              <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
-                <Mic
-                  size={20}
-                  className="mb-0.5 text-zinc-200 sm:mb-2 sm:h-9 sm:w-9"
-                  strokeWidth={1.5}
-                />
-                <span className="text-[8px] font-semibold tracking-widest text-zinc-400 sm:text-[10px]">
-                  {uiStrings.tap}
-                </span>
-              </div>
-            ) : null}
-
-            {userState === "recording" && isActiveSpeaker ? (
-              <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
-            ) : null}
-
-            {userState === "processing" && isActiveSpeaker ? (
-              <Loader2
-                size={20}
-                className="animate-spin text-amber-400 sm:h-9 sm:w-9"
-                strokeWidth={1.5}
-              />
-            ) : null}
-
-            {userState === "playing" && isActiveSpeaker ? (
-              <Volume2
-                size={20}
-                className="animate-pulse text-emerald-400 sm:h-9 sm:w-9"
-                strokeWidth={1.5}
-              />
-            ) : null}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
-        {(userState === "recording" || userState === "processing") &&
-        !hasStreamingDraft ? (
-          <AudioWave
-            active={userState === "recording" && isActiveSpeaker}
-            colorClass="bg-rose-400"
-          />
-        ) : hasHistory ? (
-          <div className="h-full max-h-[20rem] w-full max-w-sm">
-            <TranscriptCarousel
-              history={history}
-              activeMessageId={activeMessageId}
-              onReplay={onReplay}
-              className="h-full"
-            />
-          </div>
-        ) : (
-          <div className="h-10" />
-        )}
+      <div className="relative flex min-h-0 w-full flex-1 flex-col items-center justify-between">
+        {interactionBlock}
+        {transcriptBlock}
       </div>
     </section>
   );
@@ -1744,6 +1828,7 @@ function ConversationScreen({
         language={theirLang}
         setLanguage={setTheirLang}
         languageOptions={VOICE_MODE_LANGUAGES}
+        captureStatus={captureState?.status}
         languageMenuOpen={openLanguageSelector === "top"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
@@ -1784,6 +1869,7 @@ function ConversationScreen({
         language={myLang}
         setLanguage={setMyLang}
         languageOptions={VOICE_MODE_LANGUAGES}
+        captureStatus={captureState?.status}
         languageMenuOpen={openLanguageSelector === "bottom"}
         onLanguageMenuOpenChange={(nextOpen) => {
           setOpenLanguageSelector((currentOpen) =>
@@ -1826,9 +1912,12 @@ function ActionColumn({
   color,
   onStart,
   onStop,
+  isFinalizing = false,
 }) {
-  const inactive = status !== "idle" && activeAction !== action;
+  const inactive =
+    !isFinalizing && status !== "idle" && activeAction !== action;
   const isActive = activeAction === action;
+  const visualStatus = isFinalizing ? "idle" : status;
   const activeGradient =
     color === "rose"
       ? "from-rose-600 to-red-500 shadow-[0_0_50px_rgba(244,63,94,0.4)]"
@@ -1855,14 +1944,17 @@ function ActionColumn({
               onStop();
             }
           }}
-          disabled={status !== "idle" && !(status === "recording" && isActive)}
+          disabled={
+            isFinalizing ||
+            (status !== "idle" && !(status === "recording" && isActive))
+          }
           className={`relative z-10 flex h-20 w-20 items-center justify-center rounded-full transition-all duration-300 sm:h-28 sm:w-28 md:h-36 md:w-36 ${
-            status === "recording" && isActive
+            visualStatus === "recording" && isActive
               ? `scale-105 bg-gradient-to-tr ${activeGradient}`
               : "border border-white/5 bg-zinc-800 shadow-xl hover:scale-105 hover:bg-zinc-700 active:scale-95"
           }`}
         >
-          {status === "idle" ? (
+          {visualStatus === "idle" ? (
             <div className="flex transform flex-col items-center transition-transform group-hover:-translate-y-1">
               <Icon
                 size={28}
@@ -1875,11 +1967,11 @@ function ActionColumn({
             </div>
           ) : null}
 
-          {status === "recording" && isActive ? (
+          {visualStatus === "recording" && isActive ? (
             <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
           ) : null}
 
-          {status === "processing" && isActive ? (
+          {visualStatus === "processing" && isActive ? (
             <Loader2
               size={36}
               className="animate-spin text-white"
@@ -1887,7 +1979,7 @@ function ActionColumn({
             />
           ) : null}
 
-          {status === "playing" && isActive ? (
+          {visualStatus === "playing" && isActive ? (
             <Volume2
               size={36}
               className="animate-pulse text-white"
@@ -1902,7 +1994,7 @@ function ActionColumn({
         onSelect={setLanguage}
         options={languageOptions}
         orientation="up"
-        disabled={status !== "idle"}
+        disabled={isFinalizing || status !== "idle"}
         searchPlaceholder={uiStrings.searchLanguages}
         isOpen={languageMenuOpen}
         onOpenChange={onLanguageMenuOpenChange}
@@ -1944,6 +2036,7 @@ function SingleModeScreen({
   const activeAction = flow.currentRun?.action ?? null;
   const screenLanguage = activeAction === "listen" ? theirLang : myLang;
   const screenUiStrings = useUiStrings(screenLanguage);
+  const isFinalizing = captureState?.status === "stopping";
   const history = [...voiceHistory, ...liveDrafts.filter(
     (draft) => draft.originMode === "single",
   )].sort(
@@ -1990,7 +2083,7 @@ function SingleModeScreen({
               </div>
             ) : null}
 
-            {flow.status === "processing" ? (
+            {flow.status === "processing" && !isFinalizing ? (
               <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
                 {screenUiStrings.translating}
               </span>
@@ -1999,7 +2092,8 @@ function SingleModeScreen({
 
           <div className="mt-6 flex h-full w-full flex-col items-center justify-center">
             {(flow.status === "recording" || flow.status === "processing") &&
-            !hasStreamingDraft ? (
+            !hasStreamingDraft &&
+            !isFinalizing ? (
               <AudioWave
                 active={flow.status === "recording"}
                 colorClass={
@@ -2016,6 +2110,7 @@ function SingleModeScreen({
                   flow.setActiveMessageId(message.id);
                   replayVoiceMessage(message);
                 }}
+                viewerLanguageCode={myLang.code}
                 className="h-full min-h-[12rem] max-h-[28rem] sm:min-h-[18rem]"
               />
             )}
@@ -2040,6 +2135,7 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="rose"
+          isFinalizing={isFinalizing}
           onStart={() =>
             flow.startRecording({
               action: "speak",
@@ -2066,6 +2162,7 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="indigo"
+          isFinalizing={isFinalizing}
           onStart={() =>
             flow.startRecording({
               action: "listen",
@@ -3041,6 +3138,7 @@ export default function StringPhoneApp() {
       if (draft.translationTimerId) {
         window.clearTimeout(draft.translationTimerId);
       }
+      revokeObjectUrl(draft.audioUrl);
     });
     liveTranscriptDraftsRef.current.clear();
     clearLiveDrafts();
@@ -3721,6 +3819,7 @@ export default function StringPhoneApp() {
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
     const draft = {
       utteranceId,
+      id: utteranceId,
       messageId: existingMessageId,
       createdAt: new Date().toISOString(),
       originMode,
@@ -3737,6 +3836,7 @@ export default function StringPhoneApp() {
       targetLanguageFlag: targetSnapshot.flag,
       transcript: "",
       translatedText: "",
+      audioUrl: "",
       revision: 0,
       finalized: false,
       translationTimerId: 0,
@@ -3943,6 +4043,7 @@ export default function StringPhoneApp() {
     translatedText = "",
     sourceLanguage,
     targetLanguage,
+    audioBlob = null,
     existingMessageId = null,
     liveMode = "fallback-transcription",
     originMode = "live",
@@ -3975,6 +4076,13 @@ export default function StringPhoneApp() {
     draft.liveMode = liveMode || draft.liveMode;
     draft.originMode = draft.originMode ?? originMode;
     draft.sender = draft.sender ?? sender;
+    if (audioBlob && typeof audioBlob.size === "number" && !draft.audioUrl) {
+      try {
+        draft.audioUrl = URL.createObjectURL(audioBlob);
+      } catch {
+        draft.audioUrl = "";
+      }
+    }
     draft.revision = Math.max(1, draft.revision + 1);
     draft.finalized = true;
     const finalRevision = draft.revision;
@@ -3989,6 +4097,7 @@ export default function StringPhoneApp() {
       translatedText: draft.translatedText,
       liveMode: draft.liveMode,
       realtimeItemId: utteranceId,
+      recordingBlob: audioBlob,
     };
     if (draft.messageId) {
       updateMessage(draft.messageId, {
@@ -4000,6 +4109,7 @@ export default function StringPhoneApp() {
       status: "processing",
       transcript: draft.transcript,
       translatedText: draft.translatedText,
+      audioUrl: draft.audioUrl,
     });
     updateLivePendingSegmentCount(1);
 
@@ -4071,7 +4181,7 @@ export default function StringPhoneApp() {
             translatedText: data.translatedText ?? "",
             translatedPronunciation: data.translatedPronunciation ?? "",
             transcript: data.transcript ?? draft.transcript,
-            audioUrl: "",
+            audioUrl: draft.audioUrl,
             errorMessage: "",
             detectedSourceLanguageCode:
               data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
@@ -4091,6 +4201,7 @@ export default function StringPhoneApp() {
           } else {
             appendMessage(finalMessage);
           }
+          draft.audioUrlTransferred = Boolean(draft.audioUrl);
 
           setLiveCaptureStateWithPatch({
             activeSpeaker: finalMessage.sender,
@@ -4125,6 +4236,9 @@ export default function StringPhoneApp() {
 
           if (currentDraft?.translationTimerId) {
             window.clearTimeout(currentDraft.translationTimerId);
+          }
+          if (currentDraft?.audioUrl && !currentDraft.audioUrlTransferred) {
+            revokeObjectUrl(currentDraft.audioUrl);
           }
           liveTranscriptDraftsRef.current.delete(utteranceId);
           removeLiveDraft(utteranceId);
@@ -4347,6 +4461,7 @@ export default function StringPhoneApp() {
         translatedText: retryPayload.translatedText,
         sourceLanguage,
         targetLanguage,
+        audioBlob: retryPayload.recordingBlob,
         existingMessageId: message.id,
         liveMode: retryPayload.liveMode,
         originMode: retryPayload.originMode,

@@ -19,6 +19,18 @@ function calculateRms(samples) {
   return Math.sqrt(sum / samples.length);
 }
 
+function getMediaRecorderMimeType() {
+  if (
+    typeof MediaRecorder === "undefined" ||
+    typeof MediaRecorder.isTypeSupported !== "function"
+  ) {
+    return "";
+  }
+
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    .find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
 function waitForIceGatheringComplete(peerConnection) {
   if (peerConnection.iceGatheringState === "complete") {
     return Promise.resolve();
@@ -61,6 +73,10 @@ export function useLiveConversationCapture({
   const peerConnectionRef = useRef(null);
   const eventsChannelRef = useRef(null);
   const closeTimeoutRef = useRef(0);
+  const segmentRecorderRef = useRef(null);
+  const segmentRecorderChunksRef = useRef([]);
+  const segmentRecorderFinalizingRef = useRef(false);
+  const pendingSegmentAudioRef = useRef([]);
   const isListeningRef = useRef(false);
   const isClosingRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -104,6 +120,91 @@ export function useLiveConversationCapture({
     }
   };
 
+  const startSegmentAudioRecording = () => {
+    if (
+      !streamRef.current ||
+      typeof MediaRecorder === "undefined" ||
+      segmentRecorderRef.current ||
+      segmentRecorderFinalizingRef.current
+    ) {
+      return;
+    }
+
+    try {
+      const mimeType = getMediaRecorderMimeType();
+      const recorder = new MediaRecorder(
+        streamRef.current,
+        mimeType ? { mimeType } : undefined,
+      );
+      const chunks = [];
+
+      segmentRecorderRef.current = recorder;
+      segmentRecorderChunksRef.current = chunks;
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data?.size > 0) {
+          chunks.push(event.data);
+        }
+      });
+      recorder.start();
+    } catch {
+      segmentRecorderRef.current = null;
+      segmentRecorderChunksRef.current = [];
+    }
+  };
+
+  const stopSegmentAudioRecording = () => {
+    const recorder = segmentRecorderRef.current;
+
+    if (!recorder) {
+      return Promise.resolve(null);
+    }
+
+    segmentRecorderRef.current = null;
+    segmentRecorderFinalizingRef.current = true;
+    const chunks = segmentRecorderChunksRef.current;
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        segmentRecorderFinalizingRef.current = false;
+        segmentRecorderChunksRef.current = [];
+        const audioBlob = chunks.length
+          ? new Blob(chunks, {
+              type: recorder.mimeType || "audio/webm",
+            })
+          : null;
+        resolve(audioBlob);
+
+        if (isListeningRef.current && speechStartedAtRef.current) {
+          startSegmentAudioRecording();
+        }
+      };
+
+      recorder.addEventListener("stop", finish, { once: true });
+      recorder.addEventListener("error", finish, { once: true });
+
+      try {
+        if (recorder.state === "inactive") {
+          finish();
+        } else {
+          recorder.stop();
+        }
+      } catch {
+        finish();
+      }
+    });
+  };
+
+  const queueSegmentAudioRecording = () => {
+    pendingSegmentAudioRef.current.push(stopSegmentAudioRecording());
+  };
+
   const releaseConnection = ({ status = "idle", lastError = "" } = {}) => {
     clearCloseTimeout();
 
@@ -116,6 +217,7 @@ export function useLiveConversationCapture({
     const peerConnection = peerConnectionRef.current;
     const stream = streamRef.current;
     const audioContext = audioContextRef.current;
+    const segmentRecorder = segmentRecorderRef.current;
 
     eventsChannelRef.current = null;
     peerConnectionRef.current = null;
@@ -126,6 +228,10 @@ export function useLiveConversationCapture({
     lastSpeechAtRef.current = 0;
     isListeningRef.current = false;
     isClosingRef.current = false;
+    segmentRecorderRef.current = null;
+    segmentRecorderFinalizingRef.current = false;
+    segmentRecorderChunksRef.current = [];
+    pendingSegmentAudioRef.current = [];
 
     if (eventsChannel && eventsChannel.readyState !== "closed") {
       eventsChannel.close();
@@ -133,6 +239,13 @@ export function useLiveConversationCapture({
 
     peerConnection?.close();
     stream?.getTracks().forEach((track) => track.stop());
+    if (segmentRecorder && segmentRecorder.state !== "inactive") {
+      try {
+        segmentRecorder.stop();
+      } catch {
+        // The connection is already being released; no playback blob is needed.
+      }
+    }
     void audioContext?.close().catch(() => undefined);
 
     patchCaptureState({
@@ -169,12 +282,18 @@ export function useLiveConversationCapture({
       typeof event.item_id === "string" &&
       typeof event.transcript === "string"
     ) {
-      latest.onLiveTranscript?.({
-        itemId: event.item_id,
-        transcript: event.transcript,
-        sourceLanguage: sessionLanguages.sourceLanguage,
-        targetLanguage: sessionLanguages.targetLanguage,
-        liveMode: "realtime-transcription",
+      const audioPromise =
+        pendingSegmentAudioRef.current.shift() ?? Promise.resolve(null);
+
+      void audioPromise.then((audioBlob) => {
+        latest.onLiveTranscript?.({
+          itemId: event.item_id,
+          transcript: event.transcript,
+          audioBlob,
+          sourceLanguage: sessionLanguages.sourceLanguage,
+          targetLanguage: sessionLanguages.targetLanguage,
+          liveMode: "realtime-transcription",
+        });
       });
       return;
     }
@@ -219,6 +338,7 @@ export function useLiveConversationCapture({
     if (rms >= SPEECH_RMS_THRESHOLD) {
       if (!speechStartedAtRef.current) {
         speechStartedAtRef.current = now;
+        startSegmentAudioRecording();
       }
       lastSpeechAtRef.current = now;
     } else if (
@@ -396,6 +516,7 @@ export function useLiveConversationCapture({
 
     if (eventsChannel?.readyState === "open") {
       if (speechStartedAtRef.current) {
+        queueSegmentAudioRecording();
         commitCurrentTranscriptTurn();
       }
       streamRef.current?.getTracks().forEach((track) => track.stop());
