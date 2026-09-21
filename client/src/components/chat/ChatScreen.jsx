@@ -18,6 +18,7 @@ export function ChatScreen({
   setMyLang,
   theirLang,
   setTheirLang,
+  onInvertLanguages,
   messages,
   submitTextMessage,
   retryMessage,
@@ -299,6 +300,7 @@ export function ChatScreen({
         setMyLang={setMyLang}
         theirLang={theirLang}
         setTheirLang={setTheirLang}
+        onInvertLanguages={onInvertLanguages}
         disabled={
           status !== "idle" ||
           liveRoomBusy ||

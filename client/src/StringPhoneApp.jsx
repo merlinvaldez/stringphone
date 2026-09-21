@@ -5118,6 +5118,32 @@ export default function StringPhoneApp() {
     }
   };
 
+  const handleInvertChatLanguages = async () => {
+    if (myLang.code === theirLang.code) {
+      return;
+    }
+
+    if (
+      sharedRoomSession &&
+      (sharedRoomSession.role !== "host" || sharedRoom?.guestJoined)
+    ) {
+      return;
+    }
+
+    const nextMyLanguage = theirLang;
+    const nextTheirLanguage = myLang;
+    const outcome = await handleUpdateSharedRoomLanguages({
+      nextMyLanguage,
+      nextTheirLanguage,
+    });
+
+    if (outcome === "passthrough") {
+      setMyLang(nextMyLanguage);
+      setTheirLang(nextTheirLanguage);
+      void persistActiveConversationLanguages(nextMyLanguage, nextTheirLanguage);
+    }
+  };
+
   const chatMessages = sharedRoomSession ? sharedRoomMessages : messages;
   const handleBlockedModeChange = () => {
     const message = sharedRoomSession?.role === "guest"
@@ -5239,6 +5265,7 @@ export default function StringPhoneApp() {
           setMyLang={handleSelectChatMyLanguage}
           theirLang={theirLang}
           setTheirLang={handleSelectChatTheirLanguage}
+          onInvertLanguages={handleInvertChatLanguages}
           messages={chatMessages}
           submitTextMessage={submitChatTextMessage}
           retryMessage={retryChatMessage}

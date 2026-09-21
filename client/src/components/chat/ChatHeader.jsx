@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Menu } from "lucide-react";
+import { ArrowLeftRight, Menu } from "lucide-react";
 import { LanguageSelector } from "../../StringPhoneApp.jsx";
 
 export function ChatHeader({
@@ -7,6 +7,7 @@ export function ChatHeader({
   setMyLang,
   theirLang,
   setTheirLang,
+  onInvertLanguages,
   disabled,
   uiStrings,
   sharedRoomSession,
@@ -26,6 +27,10 @@ export function ChatHeader({
     sharedRoomSession?.role === "host" && !sharedRoom?.guestJoined;
   const selectorsDisabled =
     disabled || (Boolean(sharedRoomSession) && !hostCanEditSharedRoomLanguages);
+  const invertDisabled =
+    selectorsDisabled ||
+    myLang.code === theirLang.code ||
+    typeof onInvertLanguages !== "function";
 
   return (
     <div className="relative z-20 mb-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-3 sm:px-1">
@@ -76,6 +81,16 @@ export function ChatHeader({
             );
           }}
         />
+        <button
+          type="button"
+          onClick={onInvertLanguages}
+          disabled={invertDisabled}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          title={uiStrings.invertLanguages}
+          aria-label={uiStrings.invertLanguages}
+        >
+          <ArrowLeftRight size={16} strokeWidth={1.8} />
+        </button>
         <LanguageSelector
           selected={theirLang}
           onSelect={setTheirLang}
