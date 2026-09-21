@@ -71,6 +71,10 @@ export function useLiveConversationCapture({
     onLiveTranscriptDelta,
     onLiveTranscript,
   });
+  const sessionLanguagesRef = useRef({
+    sourceLanguage: myLang,
+    targetLanguage: theirLang,
+  });
 
   useEffect(() => {
     latestValuesRef.current = {
@@ -141,6 +145,7 @@ export function useLiveConversationCapture({
 
   const handleRealtimeEvent = (event) => {
     const latest = latestValuesRef.current;
+    const sessionLanguages = sessionLanguagesRef.current;
 
     if (
       event?.type === "conversation.item.input_audio_transcription.delta" &&
@@ -151,8 +156,8 @@ export function useLiveConversationCapture({
       latest.onLiveTranscriptDelta?.({
         itemId: event.item_id,
         transcriptDelta: event.delta,
-        sourceLanguage: latest.myLang,
-        targetLanguage: latest.theirLang,
+        sourceLanguage: sessionLanguages.sourceLanguage,
+        targetLanguage: sessionLanguages.targetLanguage,
         liveMode: "realtime-transcription",
       });
       patchCaptureState({ activeSegmentId: event.item_id });
@@ -167,8 +172,8 @@ export function useLiveConversationCapture({
       latest.onLiveTranscript?.({
         itemId: event.item_id,
         transcript: event.transcript,
-        sourceLanguage: latest.myLang,
-        targetLanguage: latest.theirLang,
+        sourceLanguage: sessionLanguages.sourceLanguage,
+        targetLanguage: sessionLanguages.targetLanguage,
         liveMode: "realtime-transcription",
       });
       return;
@@ -227,10 +232,16 @@ export function useLiveConversationCapture({
     monitorFrameRef.current = requestAnimationFrame(monitorAudio);
   };
 
-  const startListening = async () => {
+  const startListening = async ({ sourceLanguage, targetLanguage } = {}) => {
     if (isListeningRef.current || peerConnectionRef.current) {
       return;
     }
+
+    const sessionLanguages = {
+      sourceLanguage: sourceLanguage ?? latestValuesRef.current.myLang,
+      targetLanguage: targetLanguage ?? latestValuesRef.current.theirLang,
+    };
+    sessionLanguagesRef.current = sessionLanguages;
 
     if (
       typeof navigator === "undefined" ||
@@ -317,8 +328,8 @@ export function useLiveConversationCapture({
       });
 
       const clientSecret = await createLiveTranscriptionClientSecret({
-        sourceLanguage: latest.myLang,
-        targetLanguage: latest.theirLang,
+        sourceLanguage: sessionLanguages.sourceLanguage,
+        targetLanguage: sessionLanguages.targetLanguage,
         authFetch: latest.authFetch,
         forceFallback: true,
       });
@@ -388,7 +399,11 @@ export function useLiveConversationCapture({
         commitCurrentTranscriptTurn();
       }
       streamRef.current?.getTracks().forEach((track) => track.stop());
-      eventsChannel.send(JSON.stringify({ type: "session.close" }));
+
+      // Transcription sessions do not support the translation-only
+      // `session.close` event. Keep the data channel alive long enough for
+      // the committed transcript.completed event, then close the peer
+      // connection locally.
       closeTimeoutRef.current = window.setTimeout(() => {
         releaseConnection();
       }, CLOSE_TIMEOUT_MS);

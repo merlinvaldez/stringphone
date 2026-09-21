@@ -72,6 +72,7 @@ import {
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { useLiveTurnFlow } from "./components/live/useLiveTurnFlow.js";
 import { LearningScreen } from "./components/learning/LearningScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
@@ -192,7 +193,9 @@ const MODE_OPTIONS = [
   { id: "conversation", label: "Conversation", Icon: Users },
   { id: "lesson", label: "Phrasebook", Icon: Bookmark },
 ];
-const HIDDEN_MODE_IDS = new Set(["live", "single", "conversation"]);
+// Live translation stays available from Chat; the legacy turn-taking modes
+// keep their original screens and are intentionally exposed again.
+const HIDDEN_MODE_IDS = new Set(["live"]);
 const VISIBLE_MODE_OPTIONS = MODE_OPTIONS.filter(
   ({ id }) => !HIDDEN_MODE_IDS.has(id),
 );
@@ -1471,7 +1474,12 @@ function TranscriptCarousel({
         behavior: "smooth",
       });
     }, 50);
-  }, [history.length]);
+  }, [
+    history.length,
+    history[history.length - 1]?.id,
+    history[history.length - 1]?.transcript,
+    history[history.length - 1]?.translatedText,
+  ]);
 
   return (
     <div
@@ -1526,6 +1534,9 @@ function UserSection({
   });
   const isTop = position === "top";
   const hasHistory = history.length > 0;
+  const hasStreamingDraft = history.some(
+    (message) => message.status !== "ready",
+  );
 
   return (
     <section
@@ -1649,7 +1660,8 @@ function UserSection({
       </div>
 
       <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
-        {userState === "recording" || userState === "processing" ? (
+        {(userState === "recording" || userState === "processing") &&
+        !hasStreamingDraft ? (
           <AudioWave
             active={userState === "recording" && isActiveSpeaker}
             colorClass="bg-rose-400"
@@ -1681,20 +1693,33 @@ function ConversationScreen({
   submitVoiceMessage,
   replayVoiceMessage,
   onOpenSidebar,
+  liveDrafts = [],
+  captureState,
+  setCaptureState,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
-  const flow = useVoiceModeFlow({
-    autoplayAudioUrl,
-    onSubmit: async ({ recording, run }) =>
-      submitVoiceMessage({
-        originMode: "conversation",
-        sender: run.speaker === "bottom" ? "self" : "partner",
-        sourceLanguage: run.speaker === "bottom" ? myLang : theirLang,
-        targetLanguage: run.speaker === "bottom" ? theirLang : myLang,
-        recording,
-      }),
+  const flow = useLiveTurnFlow({
+    myLang,
+    theirLang,
+    originMode: "conversation",
+    captureState,
+    setCaptureState,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+    onLiveCaptureClosed,
   });
   const activeSpeaker = flow.currentRun?.speaker ?? null;
+  const history = [...voiceHistory, ...liveDrafts.filter(
+    (draft) => draft.originMode === "conversation",
+  )].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
 
   return (
     <div
@@ -1725,13 +1750,20 @@ function ConversationScreen({
             nextOpen ? "top" : currentOpen === "top" ? null : currentOpen,
           );
         }}
-        history={voiceHistory}
+        history={history}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
           flow.setActiveMessageId(message.id);
           replayVoiceMessage(message);
         }}
-        onStartInteraction={() => flow.startRecording({ speaker: "top" })}
+        onStartInteraction={() =>
+          flow.startRecording({
+            speaker: "top",
+            sender: "partner",
+            sourceLanguage: theirLang,
+            targetLanguage: myLang,
+          })
+        }
         onStopInteraction={flow.stopRecording}
       />
 
@@ -1758,13 +1790,20 @@ function ConversationScreen({
             nextOpen ? "bottom" : currentOpen === "bottom" ? null : currentOpen,
           );
         }}
-        history={voiceHistory}
+        history={history}
         activeMessageId={flow.activeMessageId}
         onReplay={(message) => {
           flow.setActiveMessageId(message.id);
           replayVoiceMessage(message);
         }}
-        onStartInteraction={() => flow.startRecording({ speaker: "bottom" })}
+        onStartInteraction={() =>
+          flow.startRecording({
+            speaker: "bottom",
+            sender: "self",
+            sourceLanguage: myLang,
+            targetLanguage: theirLang,
+          })
+        }
         onStopInteraction={flow.stopRecording}
       />
 
@@ -1882,23 +1921,39 @@ function SingleModeScreen({
   submitVoiceMessage,
   replayVoiceMessage,
   onOpenSidebar,
+  liveDrafts = [],
+  captureState,
+  setCaptureState,
+  authFetch,
+  onLiveTranscriptDelta,
+  onLiveTranscript,
+  onLiveCaptureClosed,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
-  const flow = useVoiceModeFlow({
-    autoplayAudioUrl,
-    onSubmit: async ({ recording, run }) =>
-      submitVoiceMessage({
-        originMode: "single",
-        sender: run.action === "speak" ? "self" : "partner",
-        sourceLanguage: run.action === "speak" ? myLang : theirLang,
-        targetLanguage: run.action === "speak" ? theirLang : myLang,
-        recording,
-      }),
+  const flow = useLiveTurnFlow({
+    myLang,
+    theirLang,
+    originMode: "single",
+    captureState,
+    setCaptureState,
+    authFetch,
+    onLiveTranscriptDelta,
+    onLiveTranscript,
+    onLiveCaptureClosed,
   });
   const activeAction = flow.currentRun?.action ?? null;
   const screenLanguage = activeAction === "listen" ? theirLang : myLang;
   const screenUiStrings = useUiStrings(screenLanguage);
-  const hasHistory = voiceHistory.length > 0;
+  const history = [...voiceHistory, ...liveDrafts.filter(
+    (draft) => draft.originMode === "single",
+  )].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
+  const hasHistory = history.length > 0;
+  const hasStreamingDraft = history.some(
+    (message) => message.status !== "ready",
+  );
   const recordingTimer = useCountdown({
     active: flow.status === "recording",
     onExpire: flow.stopRecording,
@@ -1943,7 +1998,8 @@ function SingleModeScreen({
           </div>
 
           <div className="mt-6 flex h-full w-full flex-col items-center justify-center">
-            {flow.status === "recording" || flow.status === "processing" ? (
+            {(flow.status === "recording" || flow.status === "processing") &&
+            !hasStreamingDraft ? (
               <AudioWave
                 active={flow.status === "recording"}
                 colorClass={
@@ -1954,7 +2010,7 @@ function SingleModeScreen({
               <StringPhoneBrand withLabel className="animate-fade-in" />
             ) : (
               <TranscriptCarousel
-                history={voiceHistory}
+                history={history}
                 activeMessageId={flow.activeMessageId}
                 onReplay={(message) => {
                   flow.setActiveMessageId(message.id);
@@ -1984,7 +2040,14 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="rose"
-          onStart={() => flow.startRecording({ action: "speak" })}
+          onStart={() =>
+            flow.startRecording({
+              action: "speak",
+              sender: "self",
+              sourceLanguage: myLang,
+              targetLanguage: theirLang,
+            })
+          }
           onStop={flow.stopRecording}
         />
         <ActionColumn
@@ -2003,7 +2066,14 @@ function SingleModeScreen({
           status={flow.status}
           activeAction={activeAction}
           color="indigo"
-          onStart={() => flow.startRecording({ action: "listen" })}
+          onStart={() =>
+            flow.startRecording({
+              action: "listen",
+              sender: "partner",
+              sourceLanguage: theirLang,
+              targetLanguage: myLang,
+            })
+          }
           onStop={flow.stopRecording}
         />
       </div>
@@ -2525,7 +2595,11 @@ export default function StringPhoneApp() {
   const voiceHistory = useMemo(
     () =>
       messages.filter(
-        (message) => message.kind === "voice" && message.status === "ready",
+        (message) =>
+          message.status === "ready" &&
+          (message.kind === "voice" ||
+            message.originMode === "single" ||
+            message.originMode === "conversation"),
       ),
     [messages],
   );
@@ -3640,6 +3714,8 @@ export default function StringPhoneApp() {
     targetLanguage,
     existingMessageId = null,
     liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
@@ -3647,7 +3723,8 @@ export default function StringPhoneApp() {
       utteranceId,
       messageId: existingMessageId,
       createdAt: new Date().toISOString(),
-      sender: "self",
+      originMode,
+      sender,
       sourceLanguage,
       targetLanguage,
       myLanguage: sourceLanguage,
@@ -3818,6 +3895,8 @@ export default function StringPhoneApp() {
     sourceLanguage,
     targetLanguage,
     liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
   }) => {
     if (!itemId || (!transcriptDelta && !translatedTextDelta)) {
       return;
@@ -3830,12 +3909,16 @@ export default function StringPhoneApp() {
         sourceLanguage,
         targetLanguage,
         liveMode,
+        originMode,
+        sender,
       });
 
     if (draft.finalized) {
       return;
     }
 
+    draft.originMode = originMode;
+    draft.sender = sender;
     draft.liveMode = liveMode;
     draft.transcript = `${draft.transcript}${transcriptDelta}`;
     draft.translatedText = `${draft.translatedText}${translatedTextDelta}`;
@@ -3862,6 +3945,8 @@ export default function StringPhoneApp() {
     targetLanguage,
     existingMessageId = null,
     liveMode = "fallback-transcription",
+    originMode = "live",
+    sender = "self",
   }) => {
     const utteranceId = itemId || createId();
     const draft =
@@ -3872,6 +3957,8 @@ export default function StringPhoneApp() {
         targetLanguage,
         existingMessageId,
         liveMode,
+        originMode,
+        sender,
       });
 
     if (draft.finalized) {
@@ -3886,13 +3973,15 @@ export default function StringPhoneApp() {
     draft.transcript = transcript || draft.transcript;
     draft.translatedText = translatedText || draft.translatedText;
     draft.liveMode = liveMode || draft.liveMode;
+    draft.originMode = draft.originMode ?? originMode;
+    draft.sender = draft.sender ?? sender;
     draft.revision = Math.max(1, draft.revision + 1);
     draft.finalized = true;
     const finalRevision = draft.revision;
     const retryPayload = {
       kind: "live-transcript",
-      originMode: "live",
-      sender: "self",
+      originMode: draft.originMode ?? originMode,
+      sender: draft.sender ?? sender,
       messageOrigin: "human",
       sourceLanguageCode: sourceLanguage.code,
       targetLanguageCode: targetLanguage.code,
@@ -3973,7 +4062,7 @@ export default function StringPhoneApp() {
 
           const finalMessage = {
             kind: "text",
-            originMode: "live",
+            originMode: draft.originMode ?? originMode,
             sender: data.sender === "partner" ? "partner" : "self",
             messageOrigin: "human",
             status: "ready",
@@ -4260,6 +4349,8 @@ export default function StringPhoneApp() {
         targetLanguage,
         existingMessageId: message.id,
         liveMode: retryPayload.liveMode,
+        originMode: retryPayload.originMode,
+        sender: retryPayload.sender,
       });
       return;
     }
@@ -5094,9 +5185,15 @@ export default function StringPhoneApp() {
           setTheirLang={setTheirLang}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
-          submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          liveDrafts={liveDrafts}
+          captureState={liveCaptureState}
+          setCaptureState={setLiveCaptureState}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
 
@@ -5131,9 +5228,15 @@ export default function StringPhoneApp() {
           setTheirLang={setTheirLang}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
-          submitVoiceMessage={sendVoiceMessage}
           replayVoiceMessage={replayVoiceMessage}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          liveDrafts={liveDrafts}
+          captureState={liveCaptureState}
+          setCaptureState={setLiveCaptureState}
+          authFetch={isSignedIn ? authFetch : undefined}
+          onLiveTranscriptDelta={appendLiveTranscriptDelta}
+          onLiveTranscript={submitLiveConversationTranscript}
+          onLiveCaptureClosed={resetLiveCaptureState}
         />
       ) : null}
     </main>
