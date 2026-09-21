@@ -162,23 +162,39 @@ export async function processLiveConversationTranscript({
   liveMode,
   sourceLanguage,
   targetLanguage,
+  audioBlob = null,
   authFetch,
   conversationId = null,
 }) {
+  const formData = new FormData();
+  formData.append("utteranceId", utteranceId);
+  formData.append("revision", String(revision));
+  formData.append("transcript", transcript);
+  formData.append("liveMode", liveMode);
+  formData.append("sourceLanguage", sourceLanguage.code);
+  formData.append("targetLanguage", targetLanguage.code);
+
+  if (translatedText) {
+    formData.append("translatedText", translatedText);
+  }
+
+  if (conversationId) {
+    formData.append("conversationId", conversationId);
+  }
+
+  if (audioBlob && typeof audioBlob.size === "number" && audioBlob.size > 0) {
+    const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
+    formData.append(
+      "sourceAudio",
+      audioBlob,
+      `stringphone-live-transcript.${extension}`,
+    );
+  }
+
   const request = typeof authFetch === "function" ? authFetch : fetch;
   const response = await request(`${API_BASE_URL}/chat/messages/live-transcript`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      utteranceId,
-      revision,
-      transcript,
-      translatedText,
-      liveMode,
-      sourceLanguage: sourceLanguage.code,
-      targetLanguage: targetLanguage.code,
-      conversationId,
-    }),
+    body: formData,
   });
 
   if (!response.ok) {

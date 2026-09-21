@@ -152,7 +152,7 @@ export function useLiveConversationCapture({
     }
   };
 
-  const stopSegmentAudioRecording = () => {
+  const stopSegmentAudioRecording = ({ restart = false } = {}) => {
     const recorder = segmentRecorderRef.current;
 
     if (!recorder) {
@@ -181,7 +181,7 @@ export function useLiveConversationCapture({
           : null;
         resolve(audioBlob);
 
-        if (isListeningRef.current && speechStartedAtRef.current) {
+        if (restart && isListeningRef.current) {
           startSegmentAudioRecording();
         }
       };
@@ -201,8 +201,10 @@ export function useLiveConversationCapture({
     });
   };
 
-  const queueSegmentAudioRecording = () => {
-    pendingSegmentAudioRef.current.push(stopSegmentAudioRecording());
+  const queueSegmentAudioRecording = ({ restart = false } = {}) => {
+    pendingSegmentAudioRef.current.push(
+      stopSegmentAudioRecording({ restart }),
+    );
   };
 
   const releaseConnection = ({ status = "idle", lastError = "" } = {}) => {
@@ -312,10 +314,14 @@ export function useLiveConversationCapture({
     }
   };
 
-  const commitCurrentTranscriptTurn = () => {
+  const commitCurrentTranscriptTurn = ({ restartRecorder = false } = {}) => {
     const eventsChannel = eventsChannelRef.current;
 
     if (eventsChannel?.readyState === "open") {
+      if (speechStartedAtRef.current) {
+        queueSegmentAudioRecording({ restart: restartRecorder });
+      }
+
       eventsChannel.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     }
 
@@ -346,7 +352,7 @@ export function useLiveConversationCapture({
       now - speechStartedAtRef.current >= MIN_SPEECH_MS &&
       now - lastSpeechAtRef.current >= SILENCE_FINALIZE_MS
     ) {
-      commitCurrentTranscriptTurn();
+      commitCurrentTranscriptTurn({ restartRecorder: true });
     }
 
     monitorFrameRef.current = requestAnimationFrame(monitorAudio);
@@ -516,7 +522,6 @@ export function useLiveConversationCapture({
 
     if (eventsChannel?.readyState === "open") {
       if (speechStartedAtRef.current) {
-        queueSegmentAudioRecording();
         commitCurrentTranscriptTurn();
       }
       streamRef.current?.getTracks().forEach((track) => track.stop());

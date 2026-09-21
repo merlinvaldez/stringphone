@@ -12,6 +12,12 @@ type ChatLanguagePayload = {
   label: string;
 };
 
+type UploadedAudioFile = {
+  buffer: Buffer;
+  filename: string;
+  mimeType?: string;
+};
+
 export type RunLiveConversationTranscriptResult =
   | {
       ok: true;
@@ -42,8 +48,8 @@ function normalizeOptionalText(value: unknown) {
 
 /**
  * Converts a completed GPT Live transcript into the existing StringPhone
- * bilingual message shape. Audio stays in the realtime session; this helper
- * owns only selected-language classification, translation, and persistence.
+ * bilingual message shape. The completed source recording is persisted with
+ * the message when the caller supplies it.
  */
 export async function runLiveConversationTranscript(input: {
   utteranceId: unknown;
@@ -55,6 +61,7 @@ export async function runLiveConversationTranscript(input: {
   liveMode?: unknown;
   conversationId?: unknown;
   userId?: number | null;
+  sourceAudioFile?: UploadedAudioFile;
 }): Promise<RunLiveConversationTranscriptResult> {
   const myLanguage = getSupportedTtsLanguage(input.sourceLanguage);
   const theirLanguage = getSupportedTtsLanguage(input.targetLanguage);
@@ -144,7 +151,9 @@ export async function runLiveConversationTranscript(input: {
         translatedText,
         translatedPronunciation,
         transcript,
-        audioUrl: null,
+        audioUrl: input.sourceAudioFile
+          ? `data:${input.sourceAudioFile.mimeType ?? "audio/webm"};base64,${input.sourceAudioFile.buffer.toString("base64")}`
+          : null,
       });
 
       savedMessageId = typeof message?.id === "string" ? message.id : "";

@@ -6,10 +6,10 @@ export function ChatThread({
   messages,
   onRetry,
   onAudioPlay,
-  onPlayGeneratedSpeech,
   onSaveToCollection,
   uiStrings,
   aiPartnerDisplayName,
+  baseLanguageCode,
 }) {
   const threadRef = useRef(null);
   const messageContentVersion = messages
@@ -46,10 +46,10 @@ export function ChatThread({
             message={message}
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
-            onPlayGeneratedSpeech={onPlayGeneratedSpeech}
             onSaveToCollection={onSaveToCollection}
             uiStrings={uiStrings}
             aiPartnerDisplayName={aiPartnerDisplayName}
+            baseLanguageCode={baseLanguageCode}
           />
         ))}
       </div>

@@ -23,7 +23,6 @@ export const DEFAULT_UI_STRINGS = {
   secondsLeft: "{seconds}s left",
   recordVoiceNote: "Record voice note",
   stopVoiceNote: "Stop voice note",
-  invertLanguages: "Invert languages",
   sendTextMessage: "Send text message",
   playAudio: "Play audio",
   pauseAudio: "Pause audio",

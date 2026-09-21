@@ -1,4 +1,4 @@
-import { mistral } from "../lib/mistral.js";
+import { createOpenAiResponse } from "../lib/openai.js";
 
 export type LiveSegmentLanguageClassification = {
   languageCode: string;
@@ -50,38 +50,21 @@ export async function classifyLiveSegmentLanguage(input: {
   }
 
   try {
-    const response = await mistral.chat.complete({
+    const response = await createOpenAiResponse({
       model:
-        process.env.MISTRAL_LIVE_LANGUAGE_MODEL ??
-        process.env.MISTRAL_TRANSLATION_MODEL ??
-        "mistral-small-latest",
-      responseFormat: { type: "json_object" },
-      maxTokens: 120,
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: `Classify the transcript as one of exactly two selected languages. Never identify, infer, or return any third language. Return only JSON with this shape:
+        process.env.OPENAI_LIVE_LANGUAGE_MODEL?.trim() ||
+        process.env.OPENAI_TRANSLATION_MODEL?.trim() ||
+        "gpt-4o-mini",
+      instructions: `Classify the transcript as one of exactly two selected languages. Never identify, infer, or return any third language. Return only JSON with this shape:
 {
   "languageCode": "${myLanguageCode} | ${theirLanguageCode}",
   "confidence": 0.0
 }
 Use "${myLanguageCode}" only for ${input.myLanguage}. Use "${theirLanguageCode}" only for ${input.theirLanguage}. If the transcript is mixed, unclear, or too short, choose the closer of those two selected languages with low confidence.`,
-        },
-        {
-          role: "user",
-          content: `Transcript:\n${input.transcript}`,
-        },
-      ],
+      input: `Transcript:\n${input.transcript}`,
     });
 
-    const content = response.choices[0]?.message?.content;
-
-    if (typeof content !== "string" || !content.trim()) {
-      return fallback;
-    }
-
-    const parsed = JSON.parse(content) as {
+    const parsed = JSON.parse(response) as {
       languageCode?: unknown;
       confidence?: unknown;
     };

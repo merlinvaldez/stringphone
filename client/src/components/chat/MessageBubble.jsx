@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { Bookmark, Check, Loader2 } from "lucide-react";
-import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
 import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
 import { formatTimestamp, formatPronunciationGuide } from "../../utils.js";
@@ -19,22 +18,27 @@ export function MessageBubble({
   message,
   onRetry,
   onAudioPlay,
-  onPlayGeneratedSpeech,
   onSaveToCollection,
   uiStrings,
   aiPartnerDisplayName = "",
+  baseLanguageCode = "",
 }) {
   const isSelf = message.sender === "self";
-  const isVoice = message.kind === "voice";
+  const isVoice =
+    message.kind === "voice" ||
+    (message.originMode === "live" && Boolean(message.audioUrl));
   const showEmbeddedVoicePlayer = isVoice && Boolean(message.audioUrl);
   const isAiPartnerMessage = message.messageOrigin === "ai_partner";
   const aiPartnerTranslationFallback =
     isAiPartnerMessage && message.status === "ready"
       ? "Translation unavailable."
       : uiStrings.translatingShort;
-  const bubbleClasses = isSelf
-    ? "ml-auto border-emerald-500/20 bg-emerald-500/10"
-    : "mr-auto border-white/10 bg-zinc-900/90";
+  const isLanguageOne = baseLanguageCode
+    ? message.sourceLanguageCode === baseLanguageCode
+    : isSelf;
+  const bubbleClasses = isLanguageOne
+    ? "ml-auto border-emerald-500/25 bg-emerald-500/10"
+    : "mr-auto border-sky-500/25 bg-sky-500/10";
   const [saveState, setSaveState] = useState("idle");
   const canSaveToCollection =
     typeof onSaveToCollection === "function" &&
@@ -124,17 +128,27 @@ export function MessageBubble({
           {isVoice ? (
             <div className="space-y-3">
               {message.transcript ? (
-                <div>
-                  <p className="text-sm leading-6 text-white">
-                    {message.transcript ||
-                      (isAiPartnerMessage && message.status !== "ready"
-                        ? "AI partner is replying..."
-                        : "")}
-                  </p>
-                  {!isSelf ? (
-                    <PronunciationGuide
-                      value={message.originalPronunciation}
-                      className="mt-2 text-sm leading-6 text-zinc-300"
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-6 text-white">
+                      {message.transcript ||
+                        (isAiPartnerMessage && message.status !== "ready"
+                          ? "AI partner is replying..."
+                          : "")}
+                    </p>
+                    {!isSelf ? (
+                      <PronunciationGuide
+                        value={message.originalPronunciation}
+                        className="mt-2 text-sm leading-6 text-zinc-300"
+                      />
+                    ) : null}
+                  </div>
+                  {showEmbeddedVoicePlayer ? (
+                    <VoiceMessagePlayer
+                      audioUrl={message.audioUrl}
+                      onAudioPlay={onAudioPlay}
+                      isSelf={isSelf}
+                      uiStrings={uiStrings}
                     />
                   ) : null}
                 </div>
@@ -158,14 +172,6 @@ export function MessageBubble({
                         />
                       ) : null}
                     </div>
-                    {showEmbeddedVoicePlayer ? (
-                      <VoiceMessagePlayer
-                        audioUrl={message.audioUrl}
-                        onAudioPlay={onAudioPlay}
-                        isSelf={isSelf}
-                        uiStrings={uiStrings}
-                      />
-                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -188,17 +194,6 @@ export function MessageBubble({
                       />
                     ) : null}
                   </div>
-                  {!isSelf && message.originalText && !isAiPartnerMessage ? (
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <TextToSpeechButton
-                        text={message.originalText}
-                        languageCode={message.sourceLanguageCode}
-                        onPlay={onPlayGeneratedSpeech}
-                        uiStrings={uiStrings}
-                        className="mt-0.5"
-                      />
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
@@ -218,17 +213,6 @@ export function MessageBubble({
                       />
                     ) : null}
                   </div>
-                  {isSelf && message.translatedText ? (
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <TextToSpeechButton
-                        text={message.translatedText}
-                        languageCode={message.targetLanguageCode}
-                        onPlay={onPlayGeneratedSpeech}
-                        uiStrings={uiStrings}
-                        className="mt-0.5"
-                      />
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>

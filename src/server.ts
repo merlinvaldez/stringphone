@@ -1221,31 +1221,42 @@ app.post("/chat/live-transcription/token", async (req, res) => {
   }
 });
 
-app.post("/chat/messages/live-transcript", async (req, res) => {
-  try {
-    const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
-    const result = await runLiveConversationTranscript({
-      utteranceId: req.body?.utteranceId,
-      revision: req.body?.revision,
-      sourceLanguage: req.body?.sourceLanguage,
-      targetLanguage: req.body?.targetLanguage,
-      transcript: req.body?.transcript,
-      translatedText: req.body?.translatedText,
-      liveMode: req.body?.liveMode,
-      conversationId: req.body?.conversationId,
-      userId: authenticatedRequest?.appUser?.id ?? null,
-    });
+app.post(
+  "/chat/messages/live-transcript",
+  upload.single("sourceAudio"),
+  async (req, res) => {
+    try {
+      const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+      const result = await runLiveConversationTranscript({
+        utteranceId: req.body?.utteranceId,
+        revision: req.body?.revision,
+        sourceLanguage: req.body?.sourceLanguage,
+        targetLanguage: req.body?.targetLanguage,
+        transcript: req.body?.transcript,
+        translatedText: req.body?.translatedText,
+        liveMode: req.body?.liveMode,
+        conversationId: req.body?.conversationId,
+        userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile: req.file
+          ? {
+              buffer: req.file.buffer,
+              filename: req.file.originalname,
+              mimeType: req.file.mimetype,
+            }
+          : undefined,
+      });
 
-    if (!result.ok) {
-      return res.status(result.status).json(result.body);
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Live transcript processing failed", error);
+      return res.status(502).json({ error: "Live transcription failed." });
     }
-
-    return res.status(200).json(result);
-  } catch (error) {
-    console.error("Live transcript processing failed", error);
-    return res.status(502).json({ error: "Live transcription failed." });
-  }
-});
+  },
+);
 
 app.post("/chat/messages/live-translation", async (req, res) => {
   try {

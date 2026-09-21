@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Loader2, Pause, Volume2 } from "lucide-react";
 
-import { BASE_AUDIO_ICON_BUTTON_CLASSNAME } from "../audio/TextToSpeechButton.jsx";
+import { BASE_AUDIO_ICON_BUTTON_CLASSNAME } from "../audio/audioStyles.js";
 
 export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings }) {
   const audioRef = useRef(null);
@@ -37,7 +37,7 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
   };
 
   return (
-    <div className={`flex ${isSelf ? "justify-end" : "justify-start"}`}>
+    <div className={`flex shrink-0 ${isSelf ? "ml-auto" : ""}`}>
       <button
         type="button"
         onClick={(event) => {

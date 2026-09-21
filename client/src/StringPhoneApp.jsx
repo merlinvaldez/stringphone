@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeftRight,
   ArrowRight,
   Bookmark,
   Copy,
@@ -67,7 +66,6 @@ import {
   SHARED_ROOM_POLL_INTERVAL_MS,
   sendSharedRoomTextMessage,
   updateSharedRoomLanguages,
-  sendSharedRoomVoiceMessage,
   shouldPollSharedRoomUpdates,
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
@@ -175,10 +173,7 @@ const LANGUAGES = RAW_LANGUAGES.map((language) => ({
   name: getNativeLanguageName(language.code, language.englishName),
   flag: getFlagCountryCode(language.code, language.flag),
 }));
-const CHAT_ONLY_TEXT_LANGUAGE_CODES = new Set(["fa"]);
-const VOICE_MODE_LANGUAGES = LANGUAGES.filter(
-  (language) => !CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
-);
+const VOICE_MODE_LANGUAGES = LANGUAGES;
 
 const LANGUAGE_BY_CODE = Object.fromEntries(
   LANGUAGES.map((language) => [language.code, language]),
@@ -512,12 +507,6 @@ function buildLanguageSnapshot(language) {
     label: language.name,
     flag: language.flag,
   };
-}
-
-export function usesChatOnlyTextLanguage(...languages) {
-  return languages.some(
-    (language) => language && CHAT_ONLY_TEXT_LANGUAGE_CODES.has(language.code),
-  );
 }
 
 function getInitialJoinToken() {
@@ -1384,7 +1373,6 @@ function ModeSwitcher({
   appMode,
   setAppMode,
   sharedChatLocked = false,
-  textOnlyChatLocked = false,
   onBlockedModeChange,
   noticeMessage,
   onDismissNotice,
@@ -1398,10 +1386,8 @@ function ModeSwitcher({
         {VISIBLE_MODE_OPTIONS.map(({ id, label, Icon }) => {
           const modeBlocked =
             (id === "live" || id === "single" || id === "conversation") &&
-            (sharedChatLocked || textOnlyChatLocked);
-          const blockedTitle = sharedChatLocked
-            ? `${label} unavailable while shared chat is active`
-            : "Persian is only available in Chat mode right now";
+            sharedChatLocked;
+          const blockedTitle = `${label} unavailable while shared chat is active`;
 
           return (
             <button
@@ -2373,7 +2359,6 @@ export default function StringPhoneApp() {
   const [sharedRoomError, setSharedRoomError] = useState("");
   const [sharedRoomCopyNotice, setSharedRoomCopyNotice] = useState("");
   const [modeLockNotice, setModeLockNotice] = useState(null);
-  const isFarsiChatOnly = usesChatOnlyTextLanguage(myLang, theirLang);
   const sharedRoomInviteUrl =
     sharedRoomSession?.inviteUrl ??
     (pendingInviteToken ? buildSharedRoomInviteUrl(pendingInviteToken) : "");
@@ -2632,18 +2617,6 @@ export default function StringPhoneApp() {
       window.clearTimeout(timeoutId);
     };
   }, [modeLockNotice]);
-
-  useEffect(() => {
-    if (appMode === "chat" || !isFarsiChatOnly) {
-      return;
-    }
-
-    setAppMode("chat");
-    setModeLockNotice({
-      id: Date.now(),
-      message: "Persian is only available in Chat mode for now.",
-    });
-  }, [appMode, isFarsiChatOnly]);
 
   applySharedRoomSnapshotRef.current = (roomSnapshot, session = sharedRoomSession) => {
     if (!session) {
@@ -3081,6 +3054,28 @@ export default function StringPhoneApp() {
     }));
   };
 
+  const buildLiveDraftMessagePatch = (draft) => ({
+    kind:
+      draft.messageKind === "voice" || draft.audioUrl ? "voice" : "text",
+    originMode: draft.originMode,
+    sender: draft.sender,
+    messageOrigin: "human",
+    status: draft.status,
+    originalText: draft.transcript ?? "",
+    originalPronunciation: "",
+    translatedText: draft.translatedText ?? "",
+    translatedPronunciation: "",
+    transcript: draft.transcript ?? "",
+    audioUrl: draft.audioUrl ?? "",
+    errorMessage: "",
+    sourceLanguageCode: draft.sourceLanguageCode ?? "",
+    sourceLanguageLabel: draft.sourceLanguageLabel ?? "",
+    sourceLanguageFlag: draft.sourceLanguageFlag ?? "",
+    targetLanguageCode: draft.targetLanguageCode ?? "",
+    targetLanguageLabel: draft.targetLanguageLabel ?? "",
+    targetLanguageFlag: draft.targetLanguageFlag ?? "",
+  });
+
   const addLiveDraft = (draft) => {
     setLiveDrafts((previousDrafts) => {
       const nextDrafts = [
@@ -3094,6 +3089,28 @@ export default function StringPhoneApp() {
   };
 
   const updateLiveDraft = (utteranceId, patch) => {
+    const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
+    const nextPatch = currentDraft
+      ? typeof patch === "function"
+        ? patch(currentDraft)
+        : patch
+      : null;
+
+    if (!nextPatch) {
+      return;
+    }
+
+    if (currentDraft) {
+      Object.assign(currentDraft, nextPatch);
+
+      if (currentDraft.messageId) {
+        updateMessage(
+          currentDraft.messageId,
+          buildLiveDraftMessagePatch(currentDraft),
+        );
+      }
+    }
+
     setLiveDrafts((previousDrafts) => {
       let changed = false;
       const nextDrafts = previousDrafts.map((draft) => {
@@ -3102,8 +3119,6 @@ export default function StringPhoneApp() {
         }
 
         changed = true;
-        const nextPatch =
-          typeof patch === "function" ? patch(draft) : patch;
         return { ...draft, ...nextPatch };
       });
 
@@ -3814,6 +3829,7 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    messageKind = "text",
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
@@ -3824,6 +3840,7 @@ export default function StringPhoneApp() {
       createdAt: new Date().toISOString(),
       originMode,
       sender,
+      messageKind,
       sourceLanguage,
       targetLanguage,
       myLanguage: sourceLanguage,
@@ -3847,7 +3864,9 @@ export default function StringPhoneApp() {
     };
 
     liveTranscriptDraftsRef.current.set(utteranceId, draft);
-    addLiveDraft(draft);
+    if (originMode !== "chat") {
+      addLiveDraft(draft);
+    }
     return draft;
   };
 
@@ -3997,6 +4016,7 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    messageKind = "text",
   }) => {
     if (!itemId || (!transcriptDelta && !translatedTextDelta)) {
       return;
@@ -4011,6 +4031,7 @@ export default function StringPhoneApp() {
         liveMode,
         originMode,
         sender,
+        messageKind,
       });
 
     if (draft.finalized) {
@@ -4020,9 +4041,15 @@ export default function StringPhoneApp() {
     draft.originMode = originMode;
     draft.sender = sender;
     draft.liveMode = liveMode;
+    draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
     draft.transcript = `${draft.transcript}${transcriptDelta}`;
     draft.translatedText = `${draft.translatedText}${translatedTextDelta}`;
     draft.revision += 1;
+
+    if (originMode === "chat" && !draft.messageId) {
+      draft.messageId = appendMessage(buildLiveDraftMessagePatch(draft));
+    }
+
     updateLiveDraft(itemId, {
       status:
         draft.liveMode === "realtime-translation"
@@ -4030,6 +4057,7 @@ export default function StringPhoneApp() {
           : "transcribing",
       transcript: draft.transcript,
       translatedText: draft.translatedText,
+      messageKind: draft.messageKind,
     });
 
     if (draft.liveMode !== "realtime-translation" && transcriptDelta) {
@@ -4048,6 +4076,7 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    messageKind = "text",
   }) => {
     const utteranceId = itemId || createId();
     const draft =
@@ -4060,6 +4089,7 @@ export default function StringPhoneApp() {
         liveMode,
         originMode,
         sender,
+        messageKind,
       });
 
     if (draft.finalized) {
@@ -4076,6 +4106,7 @@ export default function StringPhoneApp() {
     draft.liveMode = liveMode || draft.liveMode;
     draft.originMode = draft.originMode ?? originMode;
     draft.sender = draft.sender ?? sender;
+    draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
     if (audioBlob && typeof audioBlob.size === "number" && !draft.audioUrl) {
       try {
         draft.audioUrl = URL.createObjectURL(audioBlob);
@@ -4096,6 +4127,7 @@ export default function StringPhoneApp() {
       transcript: draft.transcript,
       translatedText: draft.translatedText,
       liveMode: draft.liveMode,
+      messageKind: draft.messageKind,
       realtimeItemId: utteranceId,
       recordingBlob: audioBlob,
     };
@@ -4140,6 +4172,7 @@ export default function StringPhoneApp() {
               draft.liveMode === "realtime-translation"
                 ? draft.translatedText
                 : undefined,
+            audioBlob,
             authFetch: isSignedIn ? authFetch : undefined,
             conversationId,
           });
@@ -4171,7 +4204,10 @@ export default function StringPhoneApp() {
             buildLanguageSnapshot(detectedTargetLanguage);
 
           const finalMessage = {
-            kind: "text",
+            kind:
+              draft.messageKind === "voice" || draft.audioUrl
+                ? "voice"
+                : "text",
             originMode: draft.originMode ?? originMode,
             sender: data.sender === "partner" ? "partner" : "self",
             messageOrigin: "human",
@@ -4259,6 +4295,13 @@ export default function StringPhoneApp() {
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    let audioUrl = "";
+
+    try {
+      audioUrl = URL.createObjectURL(audioBlob);
+    } catch {
+      audioUrl = "";
+    }
     const retryPayload = {
       kind: "live",
       originMode: "live",
@@ -4271,7 +4314,7 @@ export default function StringPhoneApp() {
       segmentEndedAt,
     };
     const pendingMessage = {
-      kind: "text",
+      kind: "voice",
       originMode: "live",
       sender: "self",
       messageOrigin: "human",
@@ -4281,7 +4324,7 @@ export default function StringPhoneApp() {
       translatedText: "",
       translatedPronunciation: "",
       transcript: "",
-      audioUrl: "",
+      audioUrl,
       errorMessage: "",
       sourceLanguageCode: sourceSnapshot.code,
       sourceLanguageLabel: sourceSnapshot.label,
@@ -4347,7 +4390,7 @@ export default function StringPhoneApp() {
             buildLanguageSnapshot(detectedTargetLanguage);
 
           const readyMessage = {
-            kind: "text",
+            kind: "voice",
             originMode: "live",
             sender: data.sender === "partner" ? "partner" : "self",
             messageOrigin: "human",
@@ -4357,7 +4400,7 @@ export default function StringPhoneApp() {
             translatedText: data.translatedText ?? "",
             translatedPronunciation: data.translatedPronunciation ?? "",
             transcript: data.transcript ?? "",
-            audioUrl: "",
+            audioUrl,
             errorMessage: "",
             detectedSourceLanguageCode:
               data.detectedSourceLanguage?.code ?? detectedSourceSnapshot.code,
@@ -4466,6 +4509,7 @@ export default function StringPhoneApp() {
         liveMode: retryPayload.liveMode,
         originMode: retryPayload.originMode,
         sender: retryPayload.sender,
+        messageKind: retryPayload.messageKind,
       });
       return;
     }
@@ -4501,41 +4545,6 @@ export default function StringPhoneApp() {
       sourceLanguage,
       targetLanguage,
       text,
-    });
-  };
-
-  const submitChatVoiceMessage = async ({
-    originMode,
-    sender,
-    sourceLanguage,
-    targetLanguage,
-    recording,
-  }) => {
-    if (sharedRoomSession) {
-      const result = await sendSharedRoomVoiceMessage({
-        roomId: sharedRoomSession.roomId,
-        participantSessionToken: sharedRoomSession.participantSessionToken,
-        recording,
-      });
-
-      if (isSignedIn && sender === "self") {
-        saveVoiceSample(authFetch, {
-          recording,
-          conversationId: null,
-        }).catch((error) => {
-          console.error("Failed to save shared-room voice sample", error);
-        });
-      }
-
-      return result;
-    }
-
-    return sendVoiceMessage({
-      originMode,
-      sender,
-      sourceLanguage,
-      targetLanguage,
-      recording,
     });
   };
 
@@ -5109,41 +5118,11 @@ export default function StringPhoneApp() {
     }
   };
 
-  const handleInvertChatLanguages = async () => {
-    if (myLang.code === theirLang.code) {
-      return;
-    }
-
-    if (
-      sharedRoomSession &&
-      (sharedRoomSession.role !== "host" || sharedRoom?.guestJoined)
-    ) {
-      return;
-    }
-
-    const nextMyLanguage = theirLang;
-    const nextTheirLanguage = myLang;
-    const outcome = await handleUpdateSharedRoomLanguages({
-      nextMyLanguage,
-      nextTheirLanguage,
-    });
-
-    if (outcome === "passthrough") {
-      setMyLang(nextMyLanguage);
-      setTheirLang(nextTheirLanguage);
-      void persistActiveConversationLanguages(nextMyLanguage, nextTheirLanguage);
-    }
-  };
-
   const chatMessages = sharedRoomSession ? sharedRoomMessages : messages;
   const handleBlockedModeChange = () => {
     const message = sharedRoomSession?.role === "guest"
       ? "This shared chat invite only works in Chat mode."
-      : sharedRoomSession
-        ? "Please untoggle shared chat to use live conversation modes."
-        : isFarsiChatOnly
-          ? "Persian is only available in Chat mode for now."
-          : "Please untoggle shared chat to use live conversation modes.";
+      : "Please untoggle shared chat to use live conversation modes.";
 
     setModeLockNotice({
       id: Date.now(),
@@ -5198,10 +5177,9 @@ export default function StringPhoneApp() {
       />
       <ModeSwitcher
         appMode={appMode}
-        setAppMode={handleSelectAppMode}
-        sharedChatLocked={Boolean(sharedRoomSession)}
-        textOnlyChatLocked={isFarsiChatOnly}
-        onBlockedModeChange={handleBlockedModeChange}
+          setAppMode={handleSelectAppMode}
+          sharedChatLocked={Boolean(sharedRoomSession)}
+          onBlockedModeChange={handleBlockedModeChange}
         noticeMessage={modeLockNotice?.message ?? ""}
         onDismissNotice={() => setModeLockNotice(null)}
       />
@@ -5261,13 +5239,10 @@ export default function StringPhoneApp() {
           setMyLang={handleSelectChatMyLanguage}
           theirLang={theirLang}
           setTheirLang={handleSelectChatTheirLanguage}
-          onInvertLanguages={handleInvertChatLanguages}
           messages={chatMessages}
           submitTextMessage={submitChatTextMessage}
-          submitVoiceMessage={submitChatVoiceMessage}
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
-          onPlayGeneratedSpeech={playGeneratedSpeech}
           onSaveToCollection={handleSaveMessageToCollection}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
@@ -5282,7 +5257,6 @@ export default function StringPhoneApp() {
           onOpenSidebar={() => setIsSidebarOpen(true)}
           aiPartnerState={aiPartnerState}
           onExecuteSlashCommand={executeChatSlashCommand}
-          liveDrafts={liveDrafts}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}

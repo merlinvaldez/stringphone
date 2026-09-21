@@ -1,5 +1,5 @@
 import React from "react";
-import { Square, Send, Mic, ArrowLeftRight, Loader2, Radio } from "lucide-react";
+import { Square, Send, Mic, Loader2 } from "lucide-react";
 import { interpolateTemplate } from "../../uiStrings.js";
 import { AudioWave } from "../../StringPhoneApp.jsx";
 import { ChatCommandMenu } from "./ChatCommandMenu.jsx";
@@ -12,20 +12,14 @@ export function ChatComposer({
   sourceLanguage,
   uiStrings,
   onSendText,
-  onInvertLanguages,
   onStartRecording,
   onStopRecording,
   supportsVoiceInput = true,
-  showInvertLanguages = false,
   disabled = false,
   disabledPlaceholder = "",
   commandMenu = null,
   commandNotice = "",
   onInputKeyDown,
-  liveStatus = "idle",
-  onStartLive,
-  onStopLive,
-  liveDisabled = false,
 }) {
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
@@ -59,16 +53,6 @@ export function ChatComposer({
             icon: <Mic size={18} />,
             disabled: recordingStatus === "processing" || !supportsVoiceInput,
         };
-  const liveIsActive =
-    liveStatus === "starting" ||
-    liveStatus === "listening" ||
-    liveStatus === "processing" ||
-    liveStatus === "stopping";
-  const liveIsBusy = liveStatus === "starting" || liveStatus === "stopping";
-  const liveActionLabel = liveIsActive
-    ? "Stop live translation"
-    : "Start live translation";
-
   return (
     <div className="mt-4 rounded-[2rem] border border-white/10 bg-zinc-900/80 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
       {commandNotice ? (
@@ -134,41 +118,6 @@ export function ChatComposer({
           }
           className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
         />
-
-        {showInvertLanguages ? (
-          <button
-            type="button"
-            onClick={onInvertLanguages}
-            disabled={recordingStatus !== "idle" || disabled}
-            className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            title={uiStrings.invertLanguages}
-            aria-label={uiStrings.invertLanguages}
-          >
-            <ArrowLeftRight size={18} />
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={liveIsActive ? onStopLive : onStartLive}
-          disabled={liveDisabled || liveIsBusy || recordingStatus !== "idle"}
-          className={`flex h-14 w-14 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-50 ${
-            liveIsActive
-              ? "border-rose-400/30 bg-rose-500/10 text-rose-300"
-              : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10 hover:text-white"
-          }`}
-          title={liveActionLabel}
-          aria-label={liveActionLabel}
-        >
-          {liveIsBusy ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <Radio
-              size={18}
-              className={liveIsActive ? "animate-pulse" : ""}
-            />
-          )}
-        </button>
 
         <button
           type="button"
