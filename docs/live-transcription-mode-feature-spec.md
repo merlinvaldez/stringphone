@@ -1,11 +1,11 @@
 # StringPhone Live Speech Capture
 
-**Status:** Implemented on `feat/14-live-text-translation`.
+**Status:** Current behavior in the main checkout (verified 2026-09-22).
 **Current entry point:** the existing mic button in Chat, Single, and Conversation.
 
 ## What Live means in the current app
 
-Live is a backend and capture workflow, not a separate visible mode. The user presses the normal mic control for a turn. The app opens a streaming transcription session, shows the partial transcript and translation in the normal message surface, and finalizes each utterance as a bilingual voice message.
+Live is a backend and capture workflow, not a separate visible mode. The user presses the normal mic control for a turn. The app opens a streaming transcription session, shows the partial transcript and server-generated text translation in the normal message surface, and finalizes each utterance as a bilingual voice message. The active browser hook requests the fallback transcription session explicitly, so the current runtime path is `gpt-live-transcribe` plus server-side OpenAI text translation; it does not use provider-generated translated audio.
 
 The current Chat layout does not render a separate Live button, Live dashboard, or `LiveTranslationDock`. `client/src/components/live/LiveTranslationDock.jsx` remains an available component, but it is not part of the active Chat render path. This preserves the existing Chat, Single, and Conversation UIs.
 
@@ -35,7 +35,7 @@ Live capture stops when the user presses the square stop control, when the scree
 
 ## Language behavior
 
-Live processing is constrained to the selected pair. The server classifies each transcript as `my language` or `their language`; it does not expose a third language in the message model.
+Live processing is constrained to the selected pair. The active screen supplies the direction explicitly: Chat uses `my language` → `their language`, Single uses its Speak/Listen side, and Conversation uses its top/bottom speaker. The backend accepts only the selected pair and does not expose a third language in the message model.
 
 - Speech classified as `my language` becomes a `self` message translated into `their language`.
 - Speech classified as `their language` becomes a `partner` message translated into `my language`.
@@ -64,7 +64,7 @@ The browser then posts its WebRTC offer to `https://api.openai.com/v1/realtime/c
 
 ### 2. Draft translation
 
-`POST /chat/messages/live-translation` receives `utteranceId`, `revision`, `transcript`, `sourceLanguage`, and `targetLanguage`. `runLiveConversationTranslation` classifies the transcript against exactly the selected pair and calls `translateLiveDraft` for the opposite-language preview.
+`POST /chat/messages/live-translation` receives `utteranceId`, `revision`, `transcript`, `sourceLanguage`, and `targetLanguage`. `runLiveConversationTranslation` keeps the supplied direction within the selected pair and calls `translateLiveDraft` for the opposite-language preview.
 
 Draft translation uses the OpenAI Responses API with `OPENAI_LIVE_TRANSLATION_MODEL` and defaults to `gpt-4o-mini`. The standard `translateText` path is used if the low-latency request cannot produce a result. The client ignores stale revisions so an older response cannot overwrite newer speech.
 

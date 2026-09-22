@@ -1,6 +1,6 @@
 # StringPhone Chat Mode
 
-**Status:** Implemented on `feat/14-live-text-translation`.
+**Status:** Current behavior in the main checkout (verified 2026-09-22).
 **Source of truth:** `client/src/StringPhoneApp.jsx`, `client/src/components/chat/*`, `client/src/components/live/*`, and the `/chat/*` handlers.
 
 ## Purpose
@@ -14,7 +14,9 @@ The floating mode switcher exposes:
 - `Chat` — the default mode and canonical message-thread view.
 - `Single` — one-phone Speak/Listen turn-taking.
 - `Conversation` — paired top/bottom or side-by-side turn-taking.
-- `Phrasebook` — lessons and saved phrasebook entries.
+- `Phrasebook` — the current visible learning surface for authenticated phrasebook collections.
+
+The lesson-generation code remains in the repository, but the current UI keeps the lesson builder and lesson-history tab hidden (`SHOW_LESSON_BUILDING = false` and `SHOW_LESSON_HISTORY = false`).
 
 There is an internal `Live` mode identifier for state cleanup and compatibility, but it is hidden from the mode switcher. Live capture is started from Chat's existing mic button.
 
@@ -47,7 +49,7 @@ The Chat mic uses the live capture workflow. It does not call a separate manual 
 
 1. The user leaves the composer empty and presses the mic.
 2. `useLiveTurnFlow` starts `useLiveConversationCapture` with the current language pair.
-3. The browser requests microphone access and opens a WebRTC transcription session using a short-lived credential from `POST /chat/live-transcription/token`.
+3. The browser requests microphone access and opens an OpenAI WebRTC transcription session using a short-lived credential from `POST /chat/live-transcription/token`. The active client explicitly requests the `gpt-live-transcribe` fallback transcription session.
 4. OpenAI transcription deltas are appended to the normal Chat message bubble as speech arrives.
 5. The client sends partial transcript revisions to `POST /chat/messages/live-translation`. The draft translation updates in the same bubble while speech continues.
 6. Local audio monitoring commits a segment after a short silence. The client also keeps a `MediaRecorder` blob for that utterance.
@@ -77,6 +79,7 @@ Voice messages show:
 - the captured transcript;
 - a compact voice-message player when captured audio is available;
 - the translated text;
+- a manual translated-text speaker control when the translated line is ready;
 - pronunciation guidance where applicable;
 - processing/error/retry treatment.
 
@@ -86,7 +89,7 @@ The message sender controls bubble alignment. Chat-originated user turns use `se
 
 The root app owns the message list. Chat, Single, Conversation, and live callbacks append to the same list with an `originMode` of `chat`, `single`, `conversation`, or `live` as appropriate. Single and Conversation filter that list for their own voice histories while Chat renders the full current thread.
 
-For signed-in users, completed messages are saved in the active `public.conversations` / `public.messages` records. Live finalization can save the captured source audio with the message. Signed-out messages remain in the current page session and are cleared on reload.
+For signed-in users, completed messages are saved in the active `public.conversations` / `public.messages` records. Live finalization can save the captured source audio with the message. Signed-out messages remain in the current page session and are cleared on reload. Shared-room messages use the room session transport and are not converted into the signed-in user's saved conversation automatically.
 
 Opening a saved conversation loads its language pair and messages into Chat. Starting a new conversation clears the active message list and resets live state.
 
@@ -124,7 +127,7 @@ Each deployed handler under `api/` shares orchestration with the Express route i
 
 ## Provider responsibilities
 
-- OpenAI: typed Chat translation, transcription, synthesized TTS audio, live transcription credentials, live draft translation, selected-pair language classification, and pronunciation guidance.
+- OpenAI: typed Chat translation, `gpt-live-transcribe` transcription, synthesized TTS audio, live transcription credentials, live draft translation, selected-pair direction handling, and pronunciation guidance. The active browser path does not use provider-generated translated audio or voice cloning.
 
 The OpenAI model selectors are configurable through `OPENAI_TRANSLATION_MODEL`, `OPENAI_LIVE_TRANSLATION_MODEL`, `OPENAI_LIVE_LANGUAGE_MODEL`, `OPENAI_PRONUNCIATION_MODEL`, and `OPENAI_TRANSCRIPTION_MODEL`. Their current defaults are documented in the repository README.
 
@@ -139,3 +142,5 @@ The OpenAI model selectors are configurable through `OPENAI_TRANSLATION_MODEL`, 
 7. Confirm Single and Conversation still show their original turn-taking controls and 30-second timers.
 8. Select Persian in Chat and in a voice mode and confirm it is not blocked by a mode gate.
 9. Sign in, send a message, reopen it from History, and confirm its bilingual content and voice playback hydrate.
+10. Open Phrasebook while signed out and confirm the sign-in callout; sign in and confirm language-grouped collections, search, manual add, archive, and playback.
+11. Confirm the top-level mode switcher does not expose Live or the lesson builder in the current UI.

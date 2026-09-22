@@ -1,7 +1,7 @@
 # StringPhone Clerk + Supabase Auth Spec
 
-Status: In Progress
-Date: 2026-05-16
+Status: Auth foundation implemented; current persistence behavior documented below (verified 2026-09-22)
+Date: 2026-05-16 (original foundation spec)
 Repo: StringPhone
 
 Primary Client References:
@@ -25,16 +25,23 @@ Primary Backend References:
 
 ## 1. Feature Summary
 
-StringPhone will gain a guest-first authentication foundation using Clerk for identity and Supabase Postgres for app-owned user records.
+StringPhone has a guest-first authentication foundation using Clerk for identity and Supabase Postgres for app-owned user records.
 
 This auth rollout is not a product pivot into an account-gated app. The translation experience at `/` remains usable without signing in. The new work adds dedicated login and signup routes, a minimal authenticated account record, and shared backend auth plumbing so the repo can safely grow into account-linked features later.
 
-Phase 1 only creates the base account layer:
+The original phase-1 rollout created the base account layer:
 
 - Clerk handles sign up, sign in, sign out, and session state.
 - Supabase Postgres stores one minimal `users` row per Clerk user.
 - The backend verifies Clerk auth before reading or writing app-owned user data.
 - The current translation endpoints and current live-room token model remain public.
+
+The current app has since added authenticated persistence on top of that foundation:
+
+- signed-in text, voice, and live messages can be saved to owned conversations;
+- signed-in users can reopen and archive conversations from History;
+- Phrasebook collections and entries are authenticated, searchable, playable, and archivable;
+- lesson persistence and lesson APIs remain implemented, although the lesson UI is currently hidden.
 
 ## 2. Locked Product Decisions
 
@@ -43,7 +50,8 @@ Phase 1 only creates the base account layer:
 - Redirect target after sign-in and sign-up is `/`.
 - Phase 1 creates only a minimal Supabase-backed user record.
 - No onboarding form is included in this rollout.
-- No room persistence or message history persistence is included in this rollout.
+- Shared rooms remain invite/token based and are not migrated to Clerk ownership.
+- Signed-in conversation, message, and Phrasebook persistence is now part of the current app beyond the original phase-1 scope.
 - No account-linked ownership changes are made to the current shared-room flow in this rollout.
 - Clerk remains the only auth provider.
 - Supabase is introduced here as Postgres storage for app data, not as the primary auth system.
@@ -61,7 +69,7 @@ Phase 1 only creates the base account layer:
 
 - No requirement to sign in before using StringPhone translation modes.
 - No profile settings page.
-- No persistent saved room list or conversation history.
+- No account-owned shared-room history or participant ownership migration.
 - No room ownership migration from `participantSessionToken` to Clerk identity.
 - No RLS-based client-side Supabase access pattern.
 - No Supabase Auth, magic links, or secondary auth provider.
@@ -305,31 +313,40 @@ The endpoint should not accept arbitrary guest identity input as the source of t
 
 ### 12.3 Public Routes That Stay Unchanged
 
-These stay public in phase 1:
+These translation and shared-room routes stay guest-accessible in the current app:
 
 - `/speech/translate`
 - `/chat/messages/text`
 - `/chat/messages/voice`
+- `/chat/live-transcription/token`
+- `/chat/messages/live-translation`
+- `/chat/messages/live-transcript`
+- `/chat/messages/live-segment`
 - `/chat/rooms`
 - `/chat/rooms/join`
 - current shared room message and retry endpoints
+- `/speech/output`
 
 This auth rollout must not retroactively gate those flows.
 
 ### 12.4 Phase 1 Scope Lock
 
-Only the current-user account routes are auth-protected in phase 1:
+The original phase-1 user routes are auth-protected:
 
 - `GET /users/me`
 - `POST /users/me/bootstrap`
 - `GET /api/users/me`
 - `POST /api/users/me/bootstrap`
 
-Everything else remains guest-accessible, including:
+The current app also protects owned persistence routes, while the following remain guest-accessible:
 
 - `/speech/translate`
 - `/chat/messages/text`
 - `/chat/messages/voice`
+- `/chat/live-transcription/token`
+- `/chat/messages/live-translation`
+- `/chat/messages/live-transcript`
+- `/chat/messages/live-segment`
 - `/chat/rooms`
 - `/chat/rooms/join`
 - `/chat/rooms/:roomId`
@@ -338,8 +355,11 @@ Everything else remains guest-accessible, including:
 - `/chat/rooms/:roomId/messages/voice`
 - `/chat/rooms/:roomId/messages/:messageId/retry`
 - `/ui/translations`
+- `/speech/output`
 
-`clerkMiddleware()` now runs globally in local Express, but only the `/users/me*` routes call `requireAuthenticatedAppRequest`. The deployed Vercel auth helper is likewise used only by `/api/users/me*`.
+`clerkMiddleware()` now runs globally in local Express. The `/users/me*`, owned conversation/history, lesson-history, and Phrasebook routes call `requireAuthenticatedAppRequest`; public translation and participant-token shared-room routes remain guest-accessible. The deployed Vercel handlers use the corresponding authenticated helper for owned routes.
+
+Current owned persistence routes include authenticated conversation/history, lesson-history, and Phrasebook collection operations. `POST /lessons` accepts an optional authenticated user and retains a guest-generation path; `GET`/archive operations for lessons, conversations, and collections require authentication.
 
 ### 12.5 Shared Room Scope Lock
 
@@ -352,6 +372,15 @@ That means:
 - no Clerk user lookup is attached to the room routes
 - no room ownership migration is made from `participantSessionToken` to Clerk identity
 - no client payloads or response shapes are renamed away from `participantSessionToken` in phase 1
+
+### 12.6 Current persistence behavior
+
+- Guests can use the visible translation modes and keep messages only in the current page session.
+- When a signed-in user sends a text or voice message, the app creates or reuses an owned conversation and saves the completed message.
+- Live finalization can save the completed bilingual message and captured source audio to that owned conversation.
+- History can reopen or archive owned conversations; opening a saved conversation restores its language pair and message metadata.
+- Phrasebook collections and entries are owned by the signed-in user and support search, manual add, playback, duplicate reuse, and soft archive.
+- The last visible app location is stored in browser local storage per signed-in user. Auth return state stores only lightweight route/language/invite context, not tokens, message history, or audio blobs.
 
 ## 13. Local Express And Vercel Parity
 
@@ -489,7 +518,7 @@ Notes:
 
 ## 16. Implementation Checklist
 
-Progress snapshot as of 2026-05-16:
+Original phase-1 progress snapshot (2026-05-16):
 
 - Client and server auth dependencies are installed.
 - The app now routes through `client/src/App.jsx`.
@@ -499,7 +528,7 @@ Progress snapshot as of 2026-05-16:
 - The app-specific `AuthProvider` is wired and the first visible guest-first account controls are live in `StringPhoneApp.jsx`.
 - Auth return-state storage now preserves mode, languages, and invite-token context across Clerk redirects without storing audio blobs or message history.
 - Supabase repo scaffolding and the minimal remote `users` table migration are now in place.
-- The next unfinished slice starts with scope-protection verification and rollout documentation for Clerk redirects, Vercel env vars, and Supabase `DATABASE_URL` setup.
+- The original auth foundation is complete. Later current-app work added owned conversation/message persistence, History archive/reopen behavior, Phrasebook collections, and lesson persistence on top of it; see section 12.6.
 
 ### Phase 1: Dependencies And Routing
 

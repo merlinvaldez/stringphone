@@ -1,6 +1,6 @@
 # StringPhone language lessons
 
-**Status:** Implemented on `feat/6-language-lessons` for issue [#6](https://github.com/merlinvaldez/stringphone/issues/6) on 2026-07-28, including the cross-script phonetic-guidance and output-language text-to-speech updates on 2026-07-28.  
+**Status:** Lesson generation and persistence remain implemented in the repository, but the current client hides the lesson builder and lesson-history tab (verified 2026-09-22). Phrasebook is the visible learning surface.
 **Product:** StringPhone  
 **Audience:** people using StringPhone to communicate across two languages who want a short, practical way to reinforce a situation or recent exchange.
 
@@ -8,7 +8,7 @@
 
 StringPhone adds a focused Lessons mode that turns either the current chat or a learner's requested topic into a three-minute practice card. The lesson is saved to the authenticated learner's history so they can revisit it without re-sending or re-generating a chat.
 
-The feature deliberately complements StringPhone's translation-first chat. It does not try to become a linear course, streak system, camera tool, or pronunciation scorer.
+The feature deliberately complements StringPhone's translation-first chat. It does not try to become a linear course, streak system, camera tool, or pronunciation scorer. Because the current `LearningScreen` sets `SHOW_LESSON_BUILDING = false` and the history drawer sets `SHOW_LESSON_HISTORY = false`, this feature is currently dormant in the active UI even though its API, database, and rendering code remain available.
 
 ## Research grounding: Google Little Language Lessons
 
@@ -36,17 +36,10 @@ The public Labs page was not server-rendered in the research tool, so exact curr
 
 ### Entry points
 
-1. The top app-mode segmented control now ends with a graduation-cap icon. It opens Lessons mode after the multi-person Conversation icon.
-2. The chat history drawer is renamed **History**. An icon-only segmented control directly under that heading switches between chat history and lesson history:
-   - message-square icon: chats
-   - graduation-cap icon: lessons
-3. The Lessons tab in History exposes **New lesson**.
-4. An existing saved lesson opens from lesson history and preserves its generated content.
-5. Lesson mode keeps a visible History trigger so the learner can reopen the side panel without leaving the lesson.
-6. Lesson rows in the History side panel use a short home-language label rather than the target-language lesson title.
-7. Tapping the top lesson-mode icon from chat resolves lesson state from the current chat:
-   - if the active saved conversation already has one or more chat-derived lessons, the latest one opens;
-   - if that specific chat has no lesson yet, the learner lands on the new-lesson builder instead of a stale lesson from another chat.
+1. The current top-level learning slot is labeled **Phrasebook** and opens the authenticated collection browser.
+2. The lesson builder is retained in `LessonScreen.jsx`, but `LearningScreen.jsx` currently forces the visible learning view to Phrasebook.
+3. The History drawer currently exposes chat and Phrasebook tabs; the lesson tab is disabled by `SHOW_LESSON_HISTORY = false`.
+4. The lesson API and saved lesson schema remain available for a future re-exposure of this UI.
 
 All icon-only controls retain `aria-label`, `title`, `aria-selected`, and tab semantics.
 
@@ -84,7 +77,7 @@ The learner selects one source:
 - **New topic:** enters a practical intent such as “ordering breakfast at a café.”
 - **This chat:** uses the most recent twelve ready chat messages. It requires at least one message.
 
-The primary action is **Create lesson**. It is disabled for an empty chat source, shows an in-button loading state, and returns an actionable error when authentication, validation, or generation fails. Creating a lesson requires sign-in because saved lesson history is a user-owned artifact.
+The dormant builder's primary action is **Create lesson**. It is disabled for an empty chat source, shows an in-button loading state, and returns an actionable error when validation or generation fails. The active client requires sign-in for chat-derived lesson history; the backend also retains a guest lesson-generation path for unsaved results, but that path is not currently linked from the visible UI.
 
 ### Generated lesson
 

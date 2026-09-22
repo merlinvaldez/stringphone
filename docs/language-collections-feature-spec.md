@@ -1,12 +1,12 @@
 # StringPhone phrasebook
 
-**Status:** Implemented on `feat/10-language-collections` for issue [#10](https://github.com/merlinvaldez/stringphone/issues/10) on August 3, 2026.  
+**Status:** Phrasebook collection behavior is implemented and current in the main checkout (verified 2026-09-22). The broader Learning wrapper and lesson toggle remain feature-flagged off.
 **Product:** StringPhone  
 **Audience:** people using StringPhone to save useful words and phrases from chats and lessons, then revisit them by language without leaving the product's existing learning flow.
 
 ## Outcome
 
-StringPhone adds **Phrasebook** as a second learning surface beside Lessons. The feature keeps the current graduation-cap entry point, but reframes it as **Learning** and lets the user switch between lesson generation and saved phrasebook browsing.
+StringPhone exposes **Phrasebook** as the current visible learning surface. Authenticated users browse saved phrases by language, save phrases from messages, add entries manually, search, archive, and play them back. The lesson UI remains in the repository, but the current `LearningScreen` flags keep its builder and history tab hidden.
 
 The feature is deliberately lightweight. It is not a flashcard engine, spaced-repetition system, public phrasebook, or notes product. Its job is to let the user quickly keep language they want to reuse.
 
@@ -14,7 +14,7 @@ The feature is deliberately lightweight. It is not a flashcard engine, spaced-re
 
 | Requirement | StringPhone decision | Why |
 | --- | --- | --- |
-| Phrasebook lives under learning | Keep the current fourth mode slot, but rename the surface from **Lessons** to **Learning** | The app keeps one learning destination instead of adding a fifth primary mode |
+| Phrasebook lives in the existing mode slot | Keep the current fourth mode slot labeled **Phrasebook** | The current UI exposes the collection surface directly while lesson building is disabled |
 | Phrasebook is stored by language | Persist one user-owned collection per target language, with entries nested inside it | The organization model stays obvious and matches how people review saved phrases |
 | Save from any message | A ready chat message can be saved directly into the correct phrasebook from the bubble itself | The feature should start from the actual StringPhone conversation, not a separate workspace |
 | Save from lessons | Key word cards in lessons carry the same compact phrasebook save affordance | Useful lesson vocabulary should not need to be retyped |
@@ -23,26 +23,22 @@ The feature is deliberately lightweight. It is not a flashcard engine, spaced-re
 | Alphabetical language ordering | Phrasebook groups are ordered by visible language name using the stable English display name already present in the app's language registry | Cross-script sorting stays predictable |
 | Symbol/icon-first UI | Reuse icon toggles, compact buttons, flag markers, and the existing three-dot archive pattern instead of adding text-heavy controls | The feature should feel native to StringPhone rather than bolted on |
 | Pronunciation playback | Saved cards reuse the compact TTS playback button pattern already used in chat | Phrasebook cards should preserve the same listen-and-repeat workflow as message playback |
-| Return state | Signed-in users reopen the app where they last were, while tapping the StringPhone brand returns them to home | Learning and chat stay persistent without losing a reliable home action |
+| Return state | Signed-in users reopen the app where they last were, while tapping the StringPhone brand returns them to home | Phrasebook and chat stay persistent without losing a reliable home action |
 
 ## User experience
 
-### Learning entry point
+### Phrasebook entry point
 
-1. The current top-level graduation-cap mode remains in place, but its visible label becomes **Learning**.
-2. Opening Learning lands on the last-used learning subview:
-   - `GraduationCap`: Lessons
-   - `BookMarked`: Phrasebook
-3. The Learning screen shows an icon-first segmented control near the top of the content surface for switching between those two subviews.
-4. The control is visually icon-first and still exposes `aria-label`, `title`, `aria-selected`, and tab semantics.
+1. The current top-level mode uses the bookmark icon and visible label **Phrasebook**.
+2. Opening Phrasebook lands on the language-grouped collection browser, or on the selected language collection when the last-view state contains one.
+3. The lesson builder and lesson-history tab are not exposed in the current UI because `SHOW_LESSON_BUILDING` and `SHOW_LESSON_HISTORY` are false.
 
 ### History drawer
 
-1. The History drawer expands from two saved-content tabs to three:
+1. The History drawer exposes two saved-content tabs:
    - `MessageSquare`: chats
-   - `GraduationCap`: lessons
    - `BookMarked`: phrasebook
-2. When the user opens History from the Learning surface, the drawer defaults to the active learning subview.
+2. When the user opens History from Phrasebook, the drawer defaults to phrasebook collections.
 3. Phrasebook rows are grouped by language rather than by individual entry.
 4. Language rows are sorted alphabetically from A to Z by the language's English display name while still showing the existing flag treatment.
 
@@ -304,14 +300,14 @@ Rules:
 
 Archives one collection entry for the authenticated user.
 
-## Proposed implementation map
+## Implemented file map
 
 | Area | Files |
 | --- | --- |
-| Learning-mode rename and subview state | `client/src/StringPhoneApp.jsx` |
-| Learning wrapper and collection UI | `client/src/components/learning/LearningScreen.jsx`, `client/src/components/learning/CollectionScreen.jsx` |
-| Existing lesson UI integration | `client/src/components/lessons/LessonScreen.jsx` |
-| History drawer collections tab | `client/src/components/chat/ChatHistorySidebar.jsx` |
+| Phrasebook mode and collection state | `client/src/StringPhoneApp.jsx` |
+| Phrasebook UI | `client/src/components/learning/LearningScreen.jsx`, `client/src/components/learning/CollectionScreen.jsx` |
+| Dormant lesson UI | `client/src/components/lessons/LessonScreen.jsx` |
+| History drawer chat and phrasebook tabs | `client/src/components/chat/ChatHistorySidebar.jsx` |
 | Message save affordance | `client/src/components/chat/MessageBubble.jsx` |
 | Return-to-last-location and brand-home behavior | `client/src/StringPhoneApp.jsx`, `client/src/authReturnState.js`, `client/src/lastViewState.js` |
 | Client API | `client/src/chatApi.js` |
@@ -321,28 +317,28 @@ Archives one collection entry for the authenticated user.
 
 ## Acceptance criteria
 
-- [ ] The current graduation-cap mode becomes Learning rather than a lessons-only destination.
-- [ ] Learning can toggle between Lessons and Phrasebook without leaving the mode.
-- [ ] History exposes icon-first tabs for chats, lessons, and collections.
-- [ ] Phrasebook groups are ordered alphabetically by language.
-- [ ] Tapping a ready chat message exposes a compact save-to-collection action.
-- [ ] Tapping a lesson keyword card exposes a compact save-to-phrasebook action without removing playback.
-- [ ] Saving an outgoing message stores the translated/practice-language line as the collection phrase.
-- [ ] Saving an incoming message stores the original foreign-language line as the collection phrase.
-- [ ] Voice-message saves capture the displayed text pair rather than raw audio blobs.
-- [ ] A signed-out save attempt routes through sign-in rather than failing silently.
-- [ ] A user can add a manual entry from the root Collections view.
-- [ ] A user can add a manual entry from inside a specific language collection.
-- [ ] Manual phrasebook add uses a single input and translates into the selected target language before save.
-- [ ] Saving a new manual card opens it directly in the focused card viewer.
-- [ ] Root collection search can find a phrase by language name, phrase text, meaning, or note.
-- [ ] In-language search filters entries without leaving that collection.
-- [ ] Saving the same phrase twice reuses the existing entry instead of creating duplicates.
-- [ ] Collection cards expose compact pronunciation playback using the existing chat-style TTS control.
-- [ ] A user can archive a saved collection card from the collection detail view.
-- [ ] A user can tap a phrasebook card to open a focused viewer, close it with `X`, swipe between cards, and jump to a random card.
-- [ ] A signed-in user who reopens the app returns to the last active chat or learning screen instead of always landing on home.
-- [ ] Tapping the StringPhone brand returns the user to home.
+- [x] The current top-level mode opens the Phrasebook collection surface.
+- [ ] The lesson builder and Phrasebook share a visible Learning toggle. (Current flags keep this hidden.)
+- [x] History exposes icon-first tabs for chats and phrasebook collections.
+- [x] Phrasebook groups are ordered alphabetically by language.
+- [x] Tapping a ready chat message exposes a compact save-to-collection action.
+- [ ] Tapping a lesson keyword card exposes a compact save-to-phrasebook action in the current UI. (Lesson UI is hidden.)
+- [x] Saving an outgoing message stores the translated/practice-language line as the collection phrase.
+- [x] Saving an incoming message stores the original foreign-language line as the collection phrase.
+- [x] Voice-message saves capture the displayed text pair rather than raw audio blobs.
+- [x] A signed-out save attempt routes through sign-in rather than failing silently.
+- [x] A user can add a manual entry from the root Phrasebook view.
+- [x] A user can add a manual entry from inside a specific language collection.
+- [x] Manual phrasebook add uses a single input and translates into the selected target language before save.
+- [x] Saving a new manual card opens it directly in the focused card viewer.
+- [x] Root collection search can find a phrase by language name, phrase text, meaning, or note.
+- [x] In-language search filters entries without leaving that collection.
+- [x] Saving the same phrase twice reuses the existing entry instead of creating duplicates.
+- [x] Collection cards expose compact pronunciation playback using the existing chat-style TTS control.
+- [x] A user can archive a saved collection card from the collection detail view.
+- [x] A user can tap a phrasebook card to open a focused viewer, close it with `X`, swipe between cards, and jump to a random card.
+- [x] A signed-in user who reopens the app returns to the last active chat or Phrasebook screen instead of always landing on home.
+- [x] Tapping the StringPhone brand returns the user to home.
 
 ## Out of scope for this release
 
