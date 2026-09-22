@@ -51,7 +51,13 @@ export function useLiveTurnFlow({
       onLiveTranscriptDelta?.({
         ...payload,
         originMode,
-        sender: runRef.current?.sender ?? "self",
+        speaker: payload.speaker ?? runRef.current?.speaker,
+        sender:
+          payload.speaker === "top"
+            ? "partner"
+            : payload.speaker === "bottom"
+              ? "self"
+              : payload.sender ?? runRef.current?.sender ?? "self",
       });
     },
     onLiveTranscript: (payload) => {
@@ -62,7 +68,13 @@ export function useLiveTurnFlow({
       onLiveTranscript?.({
         ...payload,
         originMode,
-        sender: runRef.current?.sender ?? "self",
+        speaker: payload.speaker ?? runRef.current?.speaker,
+        sender:
+          payload.speaker === "top"
+            ? "partner"
+            : payload.speaker === "bottom"
+              ? "self"
+              : payload.sender ?? runRef.current?.sender ?? "self",
       });
     },
   });
@@ -107,6 +119,8 @@ export function useLiveTurnFlow({
     await startListening({
       sourceLanguage: nextRun.sourceLanguage,
       targetLanguage: nextRun.targetLanguage,
+      sender: nextRun.sender,
+      speaker: nextRun.speaker,
     });
   };
 

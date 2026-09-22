@@ -1,4 +1,3 @@
-import "../../src/lib/mistral.js";
 import { runUiTranslations } from "../../src/lib/runUiTranslations.js";
 
 export const config = {

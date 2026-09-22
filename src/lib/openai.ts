@@ -43,6 +43,8 @@ export async function createOpenAiResponse(input: {
   instructions: string;
   input: string;
   model?: string;
+  jsonObject?: boolean;
+  maxOutputTokens?: number;
 }) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -58,6 +60,12 @@ export async function createOpenAiResponse(input: {
       store: false,
       instructions: input.instructions,
       input: input.input,
+      ...(input.jsonObject
+        ? { text: { format: { type: "json_object" } } }
+        : {}),
+      ...(input.maxOutputTokens
+        ? { max_output_tokens: input.maxOutputTokens }
+        : {}),
     }),
   });
 

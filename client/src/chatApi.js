@@ -61,7 +61,6 @@ export async function translateVoiceMessage({
   formData.append("sourceLanguage", sourceLanguage.code);
   formData.append("targetLanguage", targetLanguage.code);
   formData.append("sourceAudio", recording.blob, fileName);
-  formData.append("voiceSample", recording.blob, fileName);
 
   if (conversationId) {
     formData.append("conversationId", conversationId);
@@ -160,6 +159,7 @@ export async function processLiveConversationTranscript({
   transcript,
   translatedText,
   liveMode,
+  sender,
   sourceLanguage,
   targetLanguage,
   audioBlob = null,
@@ -173,6 +173,10 @@ export async function processLiveConversationTranscript({
   formData.append("liveMode", liveMode);
   formData.append("sourceLanguage", sourceLanguage.code);
   formData.append("targetLanguage", targetLanguage.code);
+
+  if (sender === "self" || sender === "partner") {
+    formData.append("sender", sender);
+  }
 
   if (translatedText) {
     formData.append("translatedText", translatedText);
@@ -213,6 +217,7 @@ export async function processLiveConversationDraftTranslation({
   sourceLanguage,
   targetLanguage,
   authFetch,
+  sender,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
   const response = await request(`${API_BASE_URL}/chat/messages/live-translation`, {
@@ -224,6 +229,7 @@ export async function processLiveConversationDraftTranslation({
       transcript,
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
+      sender,
     }),
   });
 
@@ -301,107 +307,11 @@ export async function saveMessage(authFetch, conversationId, messagePayload) {
   return response.json();
 }
 
-export async function saveVoiceSample(
-  authFetch,
-  { recording, conversationId = null },
-) {
-  const formData = new FormData();
-  const extension = recording.blob.type.includes("mp4") ? "m4a" : "webm";
-  const fileName = `stringphone-voice-sample.${extension}`;
-
-  formData.append("voiceSample", recording.blob, fileName);
-
-  if (conversationId) {
-    formData.append("conversationId", conversationId);
-  }
-
-  const response = await authFetch(`${API_BASE_URL}/users/me/voice-samples`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "Failed to save voice sample"),
-    );
-  }
-
-  return response.json();
-}
-
 export async function fetchLessons(authFetch) {
   const response = await authFetch(`${API_BASE_URL}/lessons`);
 
   if (!response.ok) {
     throw new Error(await parseApiError(response, "Failed to fetch lessons"));
-  }
-
-  return response.json();
-}
-
-export async function fetchAiPartnerSession(authFetch, conversationId) {
-  const response = await authFetch(
-    `${API_BASE_URL}/chat/conversations/${conversationId}/ai-partner`,
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "Failed to fetch AI partner session"),
-    );
-  }
-
-  return response.json();
-}
-
-export async function updateAiPartnerSession(
-  authFetch,
-  conversationId,
-  { enabled },
-) {
-  const response = await authFetch(
-    `${API_BASE_URL}/chat/conversations/${conversationId}/ai-partner`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "Failed to update AI partner session"),
-    );
-  }
-
-  return response.json();
-}
-
-export async function requestAiPartnerReply(
-  requestImpl,
-  {
-    conversationId = null,
-    userLanguage,
-    partnerLanguage,
-    recentMessages,
-    sessionDraft,
-  },
-) {
-  const response = await requestImpl(`${API_BASE_URL}/chat/ai-partner/reply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      conversationId,
-      userLanguage,
-      partnerLanguage,
-      recentMessages,
-      sessionDraft,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await parseApiError(response, "AI partner reply failed."),
-    );
   }
 
   return response.json();
@@ -422,7 +332,7 @@ export async function archiveLesson(authFetch, lessonId) {
 export async function fetchOutputSpeech({
   text,
   language,
-  conversationId = null,
+  speechVoice = null,
   authFetch,
   signal,
 }) {
@@ -436,7 +346,7 @@ export async function fetchOutputSpeech({
     body: JSON.stringify({
       text,
       language,
-      conversationId,
+      ...(speechVoice ? { speechVoice } : {}),
     }),
   });
 
@@ -447,7 +357,7 @@ export async function fetchOutputSpeech({
   }
 
   return new Blob([await response.arrayBuffer()], {
-    type: response.headers.get("Content-Type") ?? "audio/mpeg",
+    type: response.headers.get("Content-Type") ?? "audio/wav",
   });
 }
 

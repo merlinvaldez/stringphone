@@ -18,14 +18,7 @@ import {
   createMessage,
   getMessages,
 } from "./db/queries/conversations.js";
-import {
-  buildAiPartnerSessionSnapshot,
-  getAiPartnerSession,
-  upsertAiPartnerSession,
-} from "./db/queries/aiPartnerSessions.js";
 import { archiveLesson, getLessons } from "./db/queries/lessons.js";
-import { runAiPartnerReply } from "./lib/runAiPartnerReply.js";
-import { runSaveUserVoiceSample } from "./lib/runSaveUserVoiceSample.js";
 import { refreshConversationTitle } from "./services/refreshConversationTitle.js";
 import {
   createGuestLanguageLesson,
@@ -273,9 +266,7 @@ async function processRoomVoiceMessage({
     const result = await runVoiceChatMessage({
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
-      userId,
       sourceAudioFile,
-      voiceSampleFile: sourceAudioFile,
     });
 
     if (!result.ok) {
@@ -359,36 +350,6 @@ app.post("/users/me/bootstrap", requireAuthenticatedAppRequest, async (req, res)
     return res.status(502).json({ error: "Failed to bootstrap current user" });
   }
 });
-
-app.post(
-  "/users/me/voice-samples",
-  requireAuthenticatedAppRequest,
-  upload.single("voiceSample"),
-  async (req, res) => {
-    try {
-      const authenticatedRequest = getAuthenticatedAppRequest(req);
-
-      if (!authenticatedRequest.appUser) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const result = await runSaveUserVoiceSample({
-        userId: authenticatedRequest.appUser.id,
-        conversationId: req.body?.conversationId,
-        voiceSampleFile: coerceUploadedFile(req.file),
-      });
-
-      if (!result.ok) {
-        return res.status(result.status).json(result.body);
-      }
-
-      return res.status(201).json({ id: result.voiceSampleId });
-    } catch (error) {
-      console.error("Failed to save user voice sample", error);
-      return res.status(502).json({ error: "Failed to save voice sample" });
-    }
-  },
-);
 
 // Shared-room and translation routes remain guest-accessible in phase 1.
 app.post("/chat/rooms", (req, res) => {
@@ -931,7 +892,7 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
     const message = await createMessage({
       conversationId,
       sender: req.body.sender,
-      messageOrigin: req.body.messageOrigin ?? "human",
+      messageOrigin: "human",
       originalText: req.body.originalText,
       originalPronunciation: req.body.originalPronunciation ?? null,
       translatedText: req.body.translatedText,
@@ -954,80 +915,6 @@ app.post("/chat/conversations/:id/messages", requireAuthenticatedAppRequest, asy
   }
 });
 
-app.get(
-  "/chat/conversations/:id/ai-partner",
-  requireAuthenticatedAppRequest,
-  async (req, res) => {
-    try {
-      const user = (req as any).appUser;
-
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const conversation = await getConversation(req.params.id, user.id);
-
-      if (!conversation) {
-        return res
-          .status(404)
-          .json({ error: "Conversation not found or unauthorized" });
-      }
-
-      const session = await getAiPartnerSession({
-        conversationId: conversation.id,
-        userId: user.id,
-      });
-
-      return res.status(200).json(
-        buildAiPartnerSessionSnapshot(session, conversation.target_language),
-      );
-    } catch (error) {
-      console.error("Failed to fetch AI partner session", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-  },
-);
-
-app.put(
-  "/chat/conversations/:id/ai-partner",
-  requireAuthenticatedAppRequest,
-  async (req, res) => {
-    if (typeof req.body?.enabled !== "boolean") {
-      return res.status(400).json({ error: "enabled must be a boolean" });
-    }
-
-    try {
-      const user = (req as any).appUser;
-
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      const conversation = await getConversation(req.params.id, user.id);
-
-      if (!conversation) {
-        return res
-          .status(404)
-          .json({ error: "Conversation not found or unauthorized" });
-      }
-
-      const session = await upsertAiPartnerSession({
-        conversationId: conversation.id,
-        userId: user.id,
-        partnerLanguage: conversation.target_language,
-        enabled: req.body.enabled,
-      });
-
-      return res.status(200).json(
-        buildAiPartnerSessionSnapshot(session, conversation.target_language),
-      );
-    } catch (error) {
-      console.error("Failed to update AI partner session", error);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-  },
-);
-
 app.post("/chat/messages/text", async (req, res) => {
   try {
     const result = await runTextChatMessage({
@@ -1047,53 +934,16 @@ app.post("/chat/messages/text", async (req, res) => {
   }
 });
 
-app.post("/chat/ai-partner/reply", async (req, res) => {
-  try {
-    const authenticatedRequest =
-      await getOptionalAuthenticatedAppRequest(req);
-    const result = await runAiPartnerReply({
-      conversationId: req.body?.conversationId,
-      userId: authenticatedRequest?.appUser?.id ?? null,
-      userLanguage: req.body?.userLanguage,
-      partnerLanguage: req.body?.partnerLanguage,
-      recentMessages: req.body?.recentMessages,
-      sessionDraft: req.body?.sessionDraft,
-    });
-
-    if (result.ok === false) {
-      return res.status(result.status).json(result.body);
-    }
-
-    return res.status(200).json(result);
-  } catch (error) {
-    console.error("AI partner reply failed", error);
-    return res.status(502).json({ error: "AI partner reply failed" });
-  }
-});
-
 app.post(
   "/chat/messages/voice",
-  upload.fields([
-    { name: "sourceAudio", maxCount: 1 },
-    { name: "voiceSample", maxCount: 1 },
-  ]),
+  upload.single("sourceAudio"),
   async (req, res) => {
-    const uploadedFiles = req.files as
-      | {
-          sourceAudio?: Express.Multer.File[];
-          voiceSample?: Express.Multer.File[];
-        }
-      | undefined;
-    const sourceAudioFile = uploadedFiles?.sourceAudio?.[0];
-    const voiceSampleFile = uploadedFiles?.voiceSample?.[0];
+    const sourceAudioFile = req.file;
 
     try {
-      const authenticatedRequest =
-        await getOptionalAuthenticatedAppRequest(req);
       const result = await runVoiceChatMessage({
         sourceLanguage: req.body?.sourceLanguage,
         targetLanguage: req.body?.targetLanguage,
-        userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile: sourceAudioFile
           ? {
               buffer: sourceAudioFile.buffer,
@@ -1101,43 +951,10 @@ app.post(
               mimeType: sourceAudioFile.mimetype,
             }
           : undefined,
-        voiceSampleFile: voiceSampleFile
-          ? {
-              buffer: voiceSampleFile.buffer,
-              filename: voiceSampleFile.originalname,
-              mimeType: voiceSampleFile.mimetype,
-            }
-          : undefined,
       });
 
       if (!result.ok) {
         return res.status(result.status).json(result.body);
-      }
-
-      if (authenticatedRequest?.appUser && voiceSampleFile) {
-        try {
-          const voiceSampleSaveResult = await runSaveUserVoiceSample({
-            userId: authenticatedRequest.appUser.id,
-            conversationId: req.body?.conversationId,
-            voiceSampleFile: {
-              buffer: voiceSampleFile.buffer,
-              filename: voiceSampleFile.originalname,
-              mimeType: voiceSampleFile.mimetype,
-            },
-          });
-
-          if (!voiceSampleSaveResult.ok) {
-            console.warn(
-              "Failed to persist authenticated voice sample during chat translation",
-              voiceSampleSaveResult,
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "Voice sample persistence crashed during chat translation; returning translation anyway",
-            error,
-          );
-        }
       }
 
       return res.status(200).json({
@@ -1150,6 +967,10 @@ app.post(
         audio: {
           mimeType: result.audioMimeType,
           base64: result.audioBuffer.toString("base64"),
+        },
+        sourceAudio: {
+          mimeType: result.sourceAudioMimeType,
+          base64: result.sourceAudioBuffer.toString("base64"),
         },
       });
     } catch (error) {
@@ -1235,6 +1056,7 @@ app.post(
         transcript: req.body?.transcript,
         translatedText: req.body?.translatedText,
         liveMode: req.body?.liveMode,
+        sender: req.body?.sender,
         conversationId: req.body?.conversationId,
         userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile: req.file
@@ -1266,6 +1088,7 @@ app.post("/chat/messages/live-translation", async (req, res) => {
       sourceLanguage: req.body?.sourceLanguage,
       targetLanguage: req.body?.targetLanguage,
       transcript: req.body?.transcript,
+      sender: req.body?.sender,
     });
 
     if (!result.ok) {
@@ -1281,19 +1104,9 @@ app.post("/chat/messages/live-translation", async (req, res) => {
 
 app.post(
   "/speech/translate",
-  upload.fields([
-    { name: "sourceAudio", maxCount: 1 },
-    { name: "voiceSample", maxCount: 1 },
-  ]),
+  upload.single("sourceAudio"),
   async (req, res) => {
-    const uploadedFiles = req.files as
-      | {
-          sourceAudio?: Express.Multer.File[];
-          voiceSample?: Express.Multer.File[];
-        }
-      | undefined;
-    const sourceAudioFile = uploadedFiles?.sourceAudio?.[0];
-    const voiceSampleFile = uploadedFiles?.voiceSample?.[0];
+    const sourceAudioFile = req.file;
 
     try {
       const result = await runSpeechTranslation({
@@ -1305,13 +1118,6 @@ app.post(
               buffer: sourceAudioFile.buffer,
               filename: sourceAudioFile.originalname,
               mimeType: sourceAudioFile.mimetype,
-            }
-          : undefined,
-        voiceSampleFile: voiceSampleFile
-          ? {
-              buffer: voiceSampleFile.buffer,
-              filename: voiceSampleFile.originalname,
-              mimeType: voiceSampleFile.mimetype,
             }
           : undefined,
       });
@@ -1326,16 +1132,16 @@ app.post(
           translation: result.translation,
           targetLanguage: result.targetLanguage,
           audio: {
-            mimeType: "audio/mpeg",
+            mimeType: "audio/wav",
             base64: result.audioBuffer.toString("base64"),
           },
         });
       }
 
-      res.setHeader("Content-Type", "audio/mpeg");
+      res.setHeader("Content-Type", "audio/wav");
       res.setHeader(
         "Content-Disposition",
-        'inline; filename="translated-speech.mp3"',
+        'inline; filename="translated-speech.wav"',
       );
       return res.status(200).send(result.audioBuffer);
     } catch (error) {
@@ -1347,20 +1153,10 @@ app.post(
 
 app.post("/speech/output", async (req, res) => {
   try {
-    let appUserId: number | null = null;
-
-    try {
-      const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
-      appUserId = authenticatedRequest?.appUser?.id ?? null;
-    } catch (error) {
-      console.warn("Failed to resolve optional speech auth context", error);
-    }
-
     const result = await runOutputTextToSpeech({
       text: req.body?.text,
       language: req.body?.language,
-      conversationId: req.body?.conversationId,
-      userId: appUserId,
+      speechVoice: req.body?.speechVoice,
     });
 
     if (!result.ok) {
@@ -1370,7 +1166,7 @@ app.post("/speech/output", async (req, res) => {
     res.setHeader("Content-Type", result.contentType);
     res.setHeader(
       "Content-Disposition",
-      'inline; filename="stringphone-output-speech.mp3"',
+      'inline; filename="stringphone-output-speech.wav"',
     );
     return res.status(200).send(result.audioBuffer);
   } catch (error) {

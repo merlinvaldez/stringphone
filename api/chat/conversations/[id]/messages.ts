@@ -85,7 +85,7 @@ export default {
         const message = await createMessage({
           conversationId,
           sender: body.sender,
-          messageOrigin: body.messageOrigin ?? "human",
+          messageOrigin: "human",
           originalText: body.originalText,
           originalPronunciation: body.originalPronunciation ?? null,
           translatedText: body.translatedText,

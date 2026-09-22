@@ -1,4 +1,3 @@
-import "../../../src/lib/mistral.js";
 import { runTextChatMessage } from "../../../src/lib/runTextChatMessage.js";
 
 export const config = {

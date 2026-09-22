@@ -1,5 +1,3 @@
-import "../../src/lib/mistral.js";
-import { getOptionalAuthenticatedVercelAppRequest } from "../../src/auth/vercel.js";
 import { bufferToUint8Array } from "../../src/lib/binary.js";
 import { runOutputTextToSpeech } from "../../src/lib/runOutputTextToSpeech.js";
 
@@ -33,15 +31,11 @@ export default {
     }
 
     try {
-      const authenticatedRequest = await getOptionalAuthenticatedVercelAppRequest(
-        request,
-      );
       const body = await request.json().catch(() => null);
       const result = await runOutputTextToSpeech({
         text: body?.text,
         language: body?.language,
-        conversationId: body?.conversationId,
-        userId: authenticatedRequest?.appUser?.id ?? null,
+        speechVoice: body?.speechVoice,
       });
 
       if (result.ok === false) {
@@ -53,7 +47,7 @@ export default {
         headers: {
           "Content-Type": result.contentType,
           "Content-Disposition":
-            'inline; filename="stringphone-output-speech.mp3"',
+            'inline; filename="stringphone-output-speech.wav"',
         },
       });
     } catch (error) {

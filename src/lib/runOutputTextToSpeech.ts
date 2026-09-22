@@ -3,23 +3,21 @@ import {
   getSupportedTtsLanguage,
 } from "./languages.js";
 import { generateSpeech } from "../services/generateSpeech.js";
-import { resolveOutputSpeechVoiceId } from "../services/resolveOutputSpeechVoiceId.js";
-import { resolveSavedUserVoiceReference } from "../services/resolveSavedUserVoiceReference.js";
+import type { OpenAiSpeechVoice } from "../services/generateOpenAiSpeech.js";
 
 const MAX_OUTPUT_SPEECH_CHARACTERS = 500;
 
 export type RunOutputTextToSpeechInput = {
   text: unknown;
   language: unknown;
-  conversationId?: unknown;
-  userId?: number | null;
+  speechVoice?: unknown;
 };
 
 export type RunOutputTextToSpeechResult =
   | {
       ok: true;
       audioBuffer: Buffer;
-      contentType: "audio/mpeg";
+      contentType: "audio/wav";
       language: string;
     }
   | {
@@ -66,24 +64,30 @@ export async function runOutputTextToSpeech(
     };
   }
 
-  const voiceSample = await resolveSavedUserVoiceReference({
-    userId: input.userId,
-    targetLanguage: supportedLanguage,
-  });
-  const voiceIdOverride = voiceSample
-    ? null
-    : await resolveOutputSpeechVoiceId(supportedLanguage);
+  if (
+    input.speechVoice !== undefined &&
+    input.speechVoice !== null &&
+    input.speechVoice !== "marin" &&
+    input.speechVoice !== "onyx"
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "speechVoice is not supported" },
+    };
+  }
+
+  const speechVoice = input.speechVoice as OpenAiSpeechVoice | undefined;
   const audioBuffer = await generateSpeech({
     text,
     targetLanguage: supportedLanguage,
-    voiceSample,
-    voiceIdOverride,
+    speechVoice,
   });
 
   return {
     ok: true,
     audioBuffer,
-    contentType: "audio/mpeg",
+    contentType: "audio/wav",
     language: supportedLanguage.name,
   };
 }

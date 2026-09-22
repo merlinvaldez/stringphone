@@ -10,7 +10,7 @@ The top mode switcher exposes these surfaces:
 
 | Mode | Current behavior |
 | --- | --- |
-| Chat | Sends bilingual text messages and starts live voice capture from the existing mic button. Chat also supports shared rooms, saved conversations, phrasebook saves, and the `/aipartner` command. |
+| Chat | Sends bilingual text messages and starts live voice capture from the existing mic button. Chat also supports shared rooms, saved conversations, and phrasebook saves. |
 | Single | One-phone turn-taking UI with separate Speak and Listen controls. Each active turn has a 30-second limit. |
 | Conversation | Paired turn-taking UI with top/bottom portrait layout and side-by-side landscape layout. Each active speaker has a 30-second limit and the other side is locked during the turn. |
 | Phrasebook | Lesson generation plus saved phrasebook browsing. |
@@ -31,7 +31,7 @@ Chat language selectors and the invert button are disabled while capture or shar
 
 Persian is available anywhere the shared language list is used, including Chat, Single, Conversation, Live capture, lessons, and phrasebook flows. The current UI language list includes English, Spanish, French, German, Portuguese, Italian, Dutch, Hindi, Arabic, Persian, Chinese, Japanese, Korean, Polish, Russian, Swedish, Turkish, Tagalog, Bulgarian, Romanian, Czech, Greek, Finnish, Croatian, Malay, Slovak, Danish, Tamil, Ukrainian, Hungarian, Norwegian, Vietnamese, Bengali, Thai, Hebrew, Georgian, Indonesian, Telugu, Gujarati, Kannada, Malayalam, Marathi, and Punjabi.
 
-Translation and speech providers are selected by language. OpenAI handles text translation and live transcription/translation. Mistral, ElevenLabs, and Cartesia remain in the speech and learning paths according to the language/provider map; Persian uses the ElevenLabs path.
+OpenAI is the only AI provider used by the app. Text translation, lessons, conversation titles, UI translations, transcription, and synthesized TTS audio all use OpenAI APIs. TTS supports the selectable `marin` and `onyx` voices.
 
 ## Project layout
 
@@ -43,7 +43,7 @@ Translation and speech providers are selected by language. OpenAI handles text t
 Important client surfaces:
 
 - `client/src/StringPhoneApp.jsx` — mode, language, message, persistence, and live-capture orchestration
-- `client/src/components/chat/` — Chat header, thread, bubbles, composer, and command menu
+- `client/src/components/chat/` — Chat header, thread, bubbles, and composer
 - `client/src/components/live/useLiveConversationCapture.js` — WebRTC microphone capture, silence detection, and transcript events
 - `client/src/components/live/useLiveTurnFlow.js` — maps live capture state into Chat, Single, and Conversation turns
 
@@ -82,7 +82,6 @@ Build the client:
 Other repository checks:
 
 ```powershell
-& 'C:\Program Files\nodejs\npm.cmd' run verify:ai-partner-commands
 & 'C:\Program Files\nodejs\npm.cmd' run verify:tts-audio
 & 'C:\Program Files\nodejs\npm.cmd' run verify:saved-message-playback
 ```
@@ -98,10 +97,7 @@ Required server variables:
 | `DATABASE_URL` | PostgreSQL persistence for signed-in conversations, messages, rooms, lessons, and phrasebook entries |
 | `CLERK_SECRET_KEY` | Server-side Clerk verification |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk client configuration and server-side Clerk configuration |
-| `MISTRAL_API_KEY` | Speech/provider routing, conversation titles, lessons, and UI translations |
-| `OPENAI_API_KEY` | Chat translation, live transcription credentials, live draft translation, language classification, and pronunciation guidance |
-| `ELEVENLABS_API_KEY` | ElevenLabs speech and Persian speech path |
-| `CARTESIA_API_KEY` | Cartesia speech path |
+| `OPENAI_API_KEY` | Chat translation, transcription, live draft translation, pronunciation guidance, and all synthesized speech |
 
 Optional model and runtime variables:
 
@@ -112,14 +108,11 @@ Optional model and runtime variables:
 | `OPENAI_LIVE_LANGUAGE_MODEL` | `gpt-4o-mini` |
 | `OPENAI_PRONUNCIATION_MODEL` | `gpt-4o-mini` |
 | `OPENAI_TRANSCRIPTION_MODEL` | `gpt-transcribe` |
-| `MISTRAL_TRANSLATION_MODEL` | `mistral-small-latest` |
-| `MISTRAL_CONVERSATION_TITLE_MODEL` | `MISTRAL_TRANSLATION_MODEL` or `mistral-small-latest` |
-| `MISTRAL_LESSON_MODEL` | `mistral-small-latest` |
-| `MISTRAL_AI_PARTNER_MODEL` | `mistral-large-latest` |
-| `ELEVENLABS_STT_MODEL_ID` | `scribe_v2` |
-| `ELEVENLABS_TTS_MODEL_ID` | `eleven_v3` |
-| `ELEVENLABS_FARSI_TEST_VOICE_ID` | `JBFqnCBsd6RMkjVDRZzb` |
-| `CARTESIA_TTS_MODEL_ID` | `sonic-3.5` |
+| `OPENAI_TTS_MODEL` | `gpt-4o-mini-tts` |
+| `OPENAI_TTS_VOICE` | `marin` |
+| `OPENAI_UI_TRANSLATION_MODEL` | `OPENAI_TRANSLATION_MODEL` or `gpt-4o-mini` |
+| `OPENAI_CONVERSATION_TITLE_MODEL` | `OPENAI_TRANSLATION_MODEL` or `gpt-4o-mini` |
+| `OPENAI_LESSON_MODEL` | `OPENAI_TRANSLATION_MODEL` or `gpt-4o-mini` |
 | `PORT` | `3001` |
 | `CLIENT_ORIGIN` | local Vite origins |
 
@@ -143,10 +136,9 @@ The active Chat and live paths are:
 - `POST /chat/messages/live-transcript` — classify, translate, add pronunciation guidance, and optionally save a completed live utterance with its source audio
 - `POST /chat/messages/live-segment` — uploaded-segment compatibility path
 - `POST /speech/output` — generate playback for text when requested
-- `POST /chat/ai-partner/reply` — generate the AI partner's next reply
 
 The same orchestration is exposed through local Express routes and Vercel handlers under `api/`.
 
-One known parity gap remains: local Express live-transcript processing accepts the client's multipart form and captured audio, while `api/chat/messages/live-transcript.ts` currently parses JSON. Verify or align that Vercel handler before treating deployed live finalization and source-audio persistence as equivalent to local development.
+The Vercel live-transcript handler accepts the same multipart form and captured source audio as the local Express path. Verify deployed live finalization and source-audio persistence in a Vercel Preview before treating the two paths as equivalent in production.
 
-See [docs/chat-mode-feature-spec.md](docs/chat-mode-feature-spec.md), [docs/live-transcription-mode-feature-spec.md](docs/live-transcription-mode-feature-spec.md), and [docs/ai-partner-feature-spec.md](docs/ai-partner-feature-spec.md) for implementation details.
+See [docs/chat-mode-feature-spec.md](docs/chat-mode-feature-spec.md) and [docs/live-transcription-mode-feature-spec.md](docs/live-transcription-mode-feature-spec.md) for implementation details.

@@ -27,9 +27,9 @@ export default {
     }
 
     try {
-      const body = await request.json().catch(() => null);
       const authenticatedRequest =
         await getOptionalAuthenticatedVercelAppRequest(request);
+      const body = await request.json().catch(() => null);
       const result = await createLiveTranscriptionClientSecret({
         sourceLanguage: body?.sourceLanguage,
         targetLanguage: body?.targetLanguage,

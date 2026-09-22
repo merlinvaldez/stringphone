@@ -56,6 +56,7 @@ export default {
           transcript: getFormString(formData, "transcript"),
           translatedText: getFormString(formData, "translatedText"),
           liveMode: getFormString(formData, "liveMode"),
+          sender: getFormString(formData, "sender"),
           conversationId: getFormString(formData, "conversationId"),
         };
 
@@ -79,6 +80,7 @@ export default {
         transcript: body?.transcript,
         translatedText: body?.translatedText,
         liveMode: body?.liveMode,
+        sender: body?.sender,
         conversationId: body?.conversationId,
         userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile,

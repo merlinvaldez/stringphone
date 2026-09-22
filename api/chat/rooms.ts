@@ -1,4 +1,3 @@
-import "../../src/lib/mistral.js";
 import {
   assertRoomAccess,
   buildRoomSnapshot,
@@ -208,7 +207,6 @@ async function processRoomVoiceMessage({
       sourceLanguage: sourceLanguage.code,
       targetLanguage: targetLanguage.code,
       sourceAudioFile,
-      voiceSampleFile: sourceAudioFile,
     });
 
     if (result.ok === false) {

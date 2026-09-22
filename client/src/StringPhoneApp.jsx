@@ -34,7 +34,6 @@ import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
   createConversation,
   createLanguageLesson,
-  fetchAiPartnerSession,
   saveCollectionEntry,
   fetchOutputSpeech,
   fetchLessons,
@@ -42,10 +41,7 @@ import {
   processLiveConversationSegment,
   processLiveConversationDraftTranslation,
   processLiveConversationTranscript,
-  requestAiPartnerReply,
   saveMessage,
-  saveVoiceSample,
-  updateAiPartnerSession,
   updateConversationLanguages,
 } from "./chatApi.js";
 import {
@@ -70,6 +66,8 @@ import {
 } from "./sharedRoomApi.js";
 import stringPhoneLogo from "./assets/stringphone-logo.png";
 import { ChatScreen } from './components/chat/ChatScreen.jsx';
+import { TextToSpeechButton } from "./components/audio/TextToSpeechButton.jsx";
+import { VoiceMessagePlayer } from "./components/chat/VoiceMessagePlayer.jsx";
 import { useLiveTurnFlow } from "./components/live/useLiveTurnFlow.js";
 import { LearningScreen } from "./components/learning/LearningScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
@@ -79,24 +77,12 @@ import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
+const TTS_VOICE_STORAGE_KEY = "stringphone-tts-voice-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 const DEFAULT_CONVERSATION_TITLE = "New chat";
 const LIVE_TRANSLATION_DEBOUNCE_MS = 450;
 const LIVE_TRANSLATION_MIN_INTERVAL_MS = 850;
-const DEFAULT_AI_PARTNER_STATE = {
-  enabled: false,
-  seeded: false,
-  partnerLanguage: "",
-  displayName: "",
-  personaSummary: "",
-  scenarioSummary: "",
-  styleSummary: "",
-  voice: null,
-  status: "idle",
-  lastError: "",
-  metadata: {},
-};
 const DEFAULT_LIVE_CAPTURE_STATE = {
   status: "idle",
   sessionStartedAt: null,
@@ -108,6 +94,8 @@ const DEFAULT_LIVE_CAPTURE_STATE = {
   fallbackReason: "",
   lastError: "",
 };
+const DEFAULT_TTS_VOICE = "marin";
+const MALE_TTS_VOICE = "onyx";
 
 const RAW_LANGUAGES = [
   { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
@@ -293,6 +281,8 @@ function FloatingAuthControls({
   joinQueryToken,
   learningView,
   activeCollectionLanguageCode,
+  ttsVoice = DEFAULT_TTS_VOICE,
+  onTtsVoiceChange,
 }) {
   const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
   const { user } = useUser();
@@ -398,7 +388,32 @@ function FloatingAuthControls({
           </button>
 
           {isMenuOpen ? (
-            <div className="absolute right-0 mt-2 min-w-[9rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+            <div className="absolute right-0 mt-2 min-w-[13rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+              <div className="mb-2 border-b border-white/10 px-2 pb-2">
+                <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  AI TTS voice
+                </p>
+                <div className="grid grid-cols-2 gap-1 rounded-[0.7rem] bg-white/[0.04] p-1">
+                  {[
+                    { id: DEFAULT_TTS_VOICE, label: "Female" },
+                    { id: MALE_TTS_VOICE, label: "Male" },
+                  ].map((voiceOption) => (
+                    <button
+                      key={voiceOption.id}
+                      type="button"
+                      onClick={() => onTtsVoiceChange?.(voiceOption.id)}
+                      aria-pressed={ttsVoice === voiceOption.id}
+                      className={`rounded-[0.55rem] px-2 py-1.5 text-[0.7rem] font-semibold transition ${
+                        ttsVoice === voiceOption.id
+                          ? "bg-white/10 text-white"
+                          : "text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+                      }`}
+                    >
+                      {voiceOption.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={handleSignOut}
@@ -509,6 +524,18 @@ function buildLanguageSnapshot(language) {
   };
 }
 
+function getConversationSenderForSpeaker(speaker, fallback = "self") {
+  if (speaker === "top") {
+    return "partner";
+  }
+
+  if (speaker === "bottom") {
+    return "self";
+  }
+
+  return fallback;
+}
+
 function getInitialJoinToken() {
   if (typeof window === "undefined") {
     return "";
@@ -571,6 +598,30 @@ function readStoredChatLanguages() {
   } catch {
     return null;
   }
+}
+
+function normalizeTtsVoice(value) {
+  return value === MALE_TTS_VOICE ? MALE_TTS_VOICE : DEFAULT_TTS_VOICE;
+}
+
+function readStoredTtsVoice() {
+  if (typeof window === "undefined") {
+    return DEFAULT_TTS_VOICE;
+  }
+
+  try {
+    return normalizeTtsVoice(window.localStorage.getItem(TTS_VOICE_STORAGE_KEY));
+  } catch {
+    return DEFAULT_TTS_VOICE;
+  }
+}
+
+function persistTtsVoice(voice) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(TTS_VOICE_STORAGE_KEY, normalizeTtsVoice(voice));
 }
 
 function persistChatLanguages(myLanguageCode, theirLanguageCode) {
@@ -682,81 +733,6 @@ function getLessonTargetLanguageCode(lesson) {
     lesson?.targetLanguageCode ??
     null
   );
-}
-
-function buildDefaultAiPartnerState() {
-  return { ...DEFAULT_AI_PARTNER_STATE };
-}
-
-function normalizeAiPartnerState(session) {
-  if (!session || typeof session !== "object") {
-    return buildDefaultAiPartnerState();
-  }
-
-  return {
-    ...DEFAULT_AI_PARTNER_STATE,
-    enabled: session.enabled === true,
-    seeded: session.seeded === true,
-    partnerLanguage:
-      typeof session.partnerLanguage === "string" ? session.partnerLanguage : "",
-    displayName:
-      typeof session.displayName === "string" ? session.displayName : "",
-    personaSummary:
-      typeof session.personaSummary === "string" ? session.personaSummary : "",
-    scenarioSummary:
-      typeof session.scenarioSummary === "string" ? session.scenarioSummary : "",
-    styleSummary:
-      typeof session.styleSummary === "string" ? session.styleSummary : "",
-    voice:
-      session.voice && typeof session.voice === "object"
-        ? {
-            provider:
-              typeof session.voice.provider === "string"
-                ? session.voice.provider
-                : "",
-            voiceId:
-              typeof session.voice.voiceId === "string"
-                ? session.voice.voiceId
-                : "",
-            label:
-              typeof session.voice.label === "string" ? session.voice.label : "",
-          }
-        : null,
-    metadata:
-      session.metadata && typeof session.metadata === "object"
-        ? session.metadata
-        : {},
-  };
-}
-
-function buildAiPartnerDraft(state) {
-  return {
-    enabled: state.enabled,
-    seeded: state.seeded,
-    displayName: state.displayName,
-    personaSummary: state.personaSummary,
-    scenarioSummary: state.scenarioSummary,
-    styleSummary: state.styleSummary,
-    voice: state.voice,
-    metadata: state.metadata,
-  };
-}
-
-function buildAiPartnerContextMessages(messageList) {
-  return messageList
-    .filter(
-      (message) =>
-        message.status === "ready" &&
-        (message.originalText || message.translatedText),
-    )
-    .slice(-10)
-    .map((message) => ({
-      id: message.id,
-      sender: message.sender,
-      messageOrigin: message.messageOrigin === "ai_partner" ? "ai_partner" : "human",
-      originalText: message.originalText ?? "",
-      translatedText: message.translatedText ?? "",
-    }));
 }
 
 function mapSharedRoomMessages({
@@ -955,35 +931,6 @@ export function useCountdown({ active, onExpire }) {
   }, [active]);
 
   return recordingTimer;
-}
-
-function useIsLandscape() {
-  const [isLandscape, setIsLandscape] = useState(() =>
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function"
-      ? window.matchMedia("(orientation: landscape)").matches
-      : false,
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return undefined;
-    }
-
-    const mediaQuery = window.matchMedia("(orientation: landscape)");
-    const handleChange = (event) => {
-      setIsLandscape(event.matches);
-    };
-
-    setIsLandscape(mediaQuery.matches);
-    mediaQuery.addEventListener?.("change", handleChange);
-
-    return () => {
-      mediaQuery.removeEventListener?.("change", handleChange);
-    };
-  }, []);
-
-  return isLandscape;
 }
 
 function useVoiceModeFlow({ onSubmit, autoplayAudioUrl }) {
@@ -1434,14 +1381,17 @@ const TranscriptCard = React.forwardRef(
   (
     {
       message,
-      onClick,
       isActive = false,
       viewerLanguageCode = "",
       isRotated = false,
+      playbackMode = "both",
+      onActivate,
+      onAudioPlay,
+      onPlayTranslatedSpeech,
+      uiStrings,
     },
     ref,
   ) => {
-    const Component = onClick ? "button" : "div";
     const sourceLine = {
       label: message.sourceLanguageLabel ?? "Original",
       text: message.transcript || message.originalText || "",
@@ -1456,17 +1406,25 @@ const TranscriptCard = React.forwardRef(
         : [translatedLine, sourceLine];
     const lines = isRotated ? [...visualLines].reverse() : visualLines;
     const [primaryLine, secondaryLine] = lines;
+    const shouldPlayOriginal =
+      playbackMode === "original" || playbackMode === "both";
+    const shouldPlayTranslated =
+      playbackMode === "translated" || playbackMode === "both";
+    const translatedSpeechUiStrings = {
+      ...uiStrings,
+      playAudio: "Play AI-generated translated audio",
+      generatingAudio: "Generating AI-generated translated audio",
+      audioUnavailable: "Translated audio unavailable.",
+    };
 
     return (
-      <Component
+      <div
         ref={ref}
-        type={onClick ? "button" : undefined}
-        onClick={onClick}
         className={`w-full snap-center rounded-2xl border px-4 py-3 text-center shadow-lg transition-all duration-300 sm:rounded-[2rem] sm:px-7 sm:py-5 ${
           isActive
             ? "scale-100 border-emerald-500/30 bg-zinc-800 opacity-100 shadow-[0_0_40px_rgba(16,185,129,0.15)]"
             : "scale-[0.97] border-white/5 bg-zinc-800/60 opacity-80"
-        } ${onClick ? "cursor-pointer hover:border-white/10 hover:bg-zinc-700 hover:opacity-100" : ""}`}
+        }`}
       >
         <div className="mb-1 flex items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-zinc-500 sm:mb-2">
           <Phone
@@ -1481,7 +1439,36 @@ const TranscriptCard = React.forwardRef(
         <p className="text-xs text-zinc-400 md:text-base">
           &ldquo;{secondaryLine.text}&rdquo;
         </p>
-      </Component>
+        <div className="mt-3 flex items-center justify-center gap-2">
+          {shouldPlayOriginal && message.audioUrl ? (
+            <VoiceMessagePlayer
+              audioUrl={message.audioUrl}
+              onAudioPlay={(audioElement) => {
+                onActivate?.();
+                onAudioPlay?.(audioElement);
+              }}
+              isSelf={message.sender === "self"}
+              uiStrings={{
+                ...uiStrings,
+                playAudio: "Play original voice note",
+                preparingAudio: "Loading original voice note",
+              }}
+            />
+          ) : null}
+          {shouldPlayTranslated && message.translatedText && onPlayTranslatedSpeech ? (
+            <TextToSpeechButton
+              text={message.translatedText}
+              languageCode={message.targetLanguageCode}
+              onPlay={(input) => {
+                onActivate?.();
+                return onPlayTranslatedSpeech(input);
+              }}
+              uiStrings={translatedSpeechUiStrings}
+              className="shrink-0"
+            />
+          ) : null}
+        </div>
+      </div>
     );
   },
 );
@@ -1489,9 +1476,13 @@ const TranscriptCard = React.forwardRef(
 function TranscriptCarousel({
   history,
   activeMessageId,
-  onReplay,
   viewerLanguageCode = "",
   isRotated = false,
+  playbackMode = "both",
+  onAudioPlay,
+  onPlayTranslatedSpeech,
+  onActivate,
+  uiStrings,
   className = "",
 }) {
   const lastCardRef = useRef(null);
@@ -1539,10 +1530,18 @@ function TranscriptCarousel({
                 key={message.id}
                 ref={isLast ? lastCardRef : null}
                 message={message}
-                onClick={() => onReplay(message)}
                 isActive={message.id === activeMessageId}
                 viewerLanguageCode={viewerLanguageCode}
                 isRotated={isRotated}
+                playbackMode={
+                  typeof playbackMode === "function"
+                    ? playbackMode(message)
+                    : playbackMode
+                }
+                onActivate={() => onActivate?.(message)}
+                onAudioPlay={onAudioPlay}
+                onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+                uiStrings={uiStrings}
               />
             );
           })}
@@ -1565,13 +1564,15 @@ function UserSection({
   languageOptions = LANGUAGES,
   history,
   activeMessageId,
-  onReplay,
+  playbackMode = "both",
+  onAudioPlay,
+  onPlayTranslatedSpeech,
+  onActivate,
   onStartInteraction,
   onStopInteraction,
   captureStatus = "idle",
 }) {
   const uiStrings = useUiStrings(language);
-  const isLandscape = useIsLandscape();
   const recordingTimer = useCountdown({
     active: userState === "recording" && isActiveSpeaker,
     onExpire: onStopInteraction,
@@ -1701,9 +1702,13 @@ function UserSection({
           <TranscriptCarousel
             history={history}
             activeMessageId={activeMessageId}
-            onReplay={onReplay}
             viewerLanguageCode={language.code}
-            isRotated={isTop && !isLandscape}
+            isRotated={false}
+            playbackMode={playbackMode}
+            onAudioPlay={onAudioPlay}
+            onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+            onActivate={onActivate}
+            uiStrings={uiStrings}
             className="h-full"
           />
         </div>
@@ -1762,6 +1767,8 @@ function ConversationScreen({
   autoplayAudioUrl,
   submitVoiceMessage,
   replayVoiceMessage,
+  onAudioPlay,
+  onPlayTranslatedSpeech,
   onOpenSidebar,
   liveDrafts = [],
   captureState,
@@ -1784,9 +1791,10 @@ function ConversationScreen({
     onLiveCaptureClosed,
   });
   const activeSpeaker = flow.currentRun?.speaker ?? null;
-  const history = [...voiceHistory, ...liveDrafts.filter(
-    (draft) => draft.originMode === "conversation",
-  )].sort(
+  const history = [
+    ...voiceHistory,
+    ...liveDrafts.filter((draft) => draft.originMode === "conversation"),
+  ].sort(
     (left, right) =>
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
   );
@@ -1823,10 +1831,14 @@ function ConversationScreen({
         }}
         history={history}
         activeMessageId={flow.activeMessageId}
-        onReplay={(message) => {
-          flow.setActiveMessageId(message.id);
-          replayVoiceMessage(message);
-        }}
+        playbackMode={(message) =>
+          message.sender === "partner"
+            ? "original"
+            : "translated"
+        }
+        onAudioPlay={onAudioPlay}
+        onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+        onActivate={(message) => flow.setActiveMessageId(message.id)}
         onStartInteraction={() =>
           flow.startRecording({
             speaker: "top",
@@ -1864,10 +1876,14 @@ function ConversationScreen({
         }}
         history={history}
         activeMessageId={flow.activeMessageId}
-        onReplay={(message) => {
-          flow.setActiveMessageId(message.id);
-          replayVoiceMessage(message);
-        }}
+        playbackMode={(message) =>
+          message.sender === "self"
+            ? "original"
+            : "translated"
+        }
+        onAudioPlay={onAudioPlay}
+        onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+        onActivate={(message) => flow.setActiveMessageId(message.id)}
         onStartInteraction={() =>
           flow.startRecording({
             speaker: "bottom",
@@ -1998,6 +2014,8 @@ function SingleModeScreen({
   autoplayAudioUrl,
   submitVoiceMessage,
   replayVoiceMessage,
+  onAudioPlay,
+  onPlayTranslatedSpeech,
   onOpenSidebar,
   liveDrafts = [],
   captureState,
@@ -2092,11 +2110,12 @@ function SingleModeScreen({
               <TranscriptCarousel
                 history={history}
                 activeMessageId={flow.activeMessageId}
-                onReplay={(message) => {
-                  flow.setActiveMessageId(message.id);
-                  replayVoiceMessage(message);
-                }}
                 viewerLanguageCode={myLang.code}
+                playbackMode="translated"
+                onAudioPlay={onAudioPlay}
+                onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+                onActivate={(message) => flow.setActiveMessageId(message.id)}
+                uiStrings={screenUiStrings}
                 className="h-full min-h-[12rem] max-h-[28rem] sm:min-h-[18rem]"
               />
             )}
@@ -2303,9 +2322,9 @@ export default function StringPhoneApp() {
   const [theirLang, setTheirLang] = useState(() =>
     getLanguageOption(storedChatLanguages?.theirLanguageCode ?? LANGUAGES[1].code),
   );
+  const [ttsVoice, setTtsVoice] = useState(readStoredTtsVoice);
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
-  const [aiPartnerState, setAiPartnerState] = useState(buildDefaultAiPartnerState);
   const [liveCaptureState, setLiveCaptureState] = useState(() => ({
     ...DEFAULT_LIVE_CAPTURE_STATE,
   }));
@@ -2316,9 +2335,6 @@ export default function StringPhoneApp() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [hasResolvedInitialLocation, setHasResolvedInitialLocation] = useState(false);
   const messagesRef = useRef(messages);
-  const aiPartnerStateRef = useRef(aiPartnerState);
-  const aiPartnerReplyQueueRef = useRef(Promise.resolve());
-  const aiPartnerContextVersionRef = useRef(0);
   const liveSegmentQueueRef = useRef(Promise.resolve());
   const liveTranscriptDraftsRef = useRef(new Map());
   const pendingConversationIdRef = useRef(null);
@@ -2369,10 +2385,6 @@ export default function StringPhoneApp() {
   }, [messages]);
 
   useEffect(() => {
-    aiPartnerStateRef.current = aiPartnerState;
-  }, [aiPartnerState]);
-
-  useEffect(() => {
     if (!isAuthLoaded || !isUserLoaded || hasRestoredAuthReturnStateRef.current) {
       return;
     }
@@ -2389,8 +2401,6 @@ export default function StringPhoneApp() {
       );
       setActiveLesson(null);
       setLessonBuilderConfig(null);
-      bumpAiPartnerContextVersion();
-      resetAiPartnerState();
       resetLiveCaptureState();
 
       if (!savedState.currentConversationId || !isSignedIn) {
@@ -2432,8 +2442,6 @@ export default function StringPhoneApp() {
       setLearningView("collections");
       setCurrentConversationId(savedState.currentConversationId ?? null);
       setLessonBuilderConfig(null);
-      bumpAiPartnerContextVersion();
-      resetAiPartnerState();
       resetLiveCaptureState();
       setActiveLesson(null);
       setActiveCollectionLanguageCode(
@@ -2450,8 +2458,6 @@ export default function StringPhoneApp() {
       setActiveLesson(null);
       setLessonBuilderConfig(null);
       setCurrentConversationId(savedState.currentConversationId ?? null);
-      bumpAiPartnerContextVersion();
-      resetAiPartnerState();
       resetLiveCaptureState();
       clearMessages();
     };
@@ -2865,13 +2871,14 @@ export default function StringPhoneApp() {
     });
   };
 
-  const playGeneratedSpeech = async ({ text, languageCode }) => {
+  const playGeneratedSpeech = async ({
+    text,
+    languageCode,
+    speechVoice = null,
+  }) => {
     const trimmedText = typeof text === "string" ? text.trim() : "";
     const normalizedLanguageCode =
       typeof languageCode === "string" ? languageCode.trim().toLowerCase() : "";
-    const preferredConversationId =
-      appMode === "lesson" ? getLessonConversationId(activeLesson) ?? null : currentConversationId;
-
     if (!trimmedText || !normalizedLanguageCode) {
       throw new Error("Audio unavailable.");
     }
@@ -2891,7 +2898,7 @@ export default function StringPhoneApp() {
       const audioBlob = await fetchOutputSpeech({
         text: trimmedText,
         language: normalizedLanguageCode,
-        conversationId: preferredConversationId,
+        speechVoice,
         authFetch: isSignedIn ? authFetch : undefined,
         signal: abortController.signal,
       });
@@ -2942,6 +2949,18 @@ export default function StringPhoneApp() {
     }
   };
 
+  const playTranslatedSpeech = (input) =>
+    playGeneratedSpeech({
+      ...input,
+      speechVoice: ttsVoice,
+    });
+
+  const handleTtsVoiceChange = (nextVoice) => {
+    const normalizedVoice = normalizeTtsVoice(nextVoice);
+    setTtsVoice(normalizedVoice);
+    persistTtsVoice(normalizedVoice);
+  };
+
   const stopAllPlayback = () => {
     pauseActiveAudio();
     domAudioRef.current = null;
@@ -2959,12 +2978,6 @@ export default function StringPhoneApp() {
   const replayVoiceMessage = (message) => {
     if (!message.audioUrl) return;
     autoplayAudioUrl(message.audioUrl);
-  };
-
-  const bumpAiPartnerContextVersion = () => {
-    aiPartnerContextVersionRef.current += 1;
-    aiPartnerReplyQueueRef.current = Promise.resolve();
-    return aiPartnerContextVersionRef.current;
   };
 
   const appendMessage = (message) => {
@@ -3030,21 +3043,6 @@ export default function StringPhoneApp() {
 
   const clearMessages = () => {
     replaceMessages([]);
-  };
-
-  const setAiPartnerStateWithPatch = (patch) => {
-    setAiPartnerState((previousState) => {
-      const nextState =
-        typeof patch === "function" ? patch(previousState) : { ...previousState, ...patch };
-      aiPartnerStateRef.current = nextState;
-      return nextState;
-    });
-  };
-
-  const resetAiPartnerState = () => {
-    const nextState = buildDefaultAiPartnerState();
-    aiPartnerStateRef.current = nextState;
-    setAiPartnerState(nextState);
   };
 
   const setLiveCaptureStateWithPatch = (patch) => {
@@ -3236,296 +3234,6 @@ export default function StringPhoneApp() {
     }
   };
 
-  useEffect(() => {
-    if (!isSignedIn || !currentConversationId) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    fetchAiPartnerSession(authFetch, currentConversationId)
-      .then((session) => {
-        if (cancelled) {
-          return;
-        }
-
-        setAiPartnerStateWithPatch({
-          ...normalizeAiPartnerState(session),
-          status: "idle",
-          lastError: "",
-        });
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.error("Failed to fetch AI partner session", error);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authFetch, currentConversationId, isSignedIn]);
-
-  const runAiPartnerReplyForContext = async ({
-    conversationId,
-    userLanguage,
-    partnerLanguage,
-    existingMessageId,
-    contextVersion,
-  }) => {
-    if (contextVersion !== aiPartnerContextVersionRef.current) {
-      return;
-    }
-
-    const userSnapshot = buildLanguageSnapshot(userLanguage);
-    const partnerSnapshot = buildLanguageSnapshot(partnerLanguage);
-    const retryPayload = {
-      kind: "ai_partner",
-      sourceLanguageCode: userLanguage.code,
-      targetLanguageCode: partnerLanguage.code,
-    };
-    const pendingMessageId =
-      existingMessageId ??
-      appendMessage({
-        kind: "text",
-        originMode: "chat",
-        sender: "partner",
-        messageOrigin: "ai_partner",
-        status: "translating",
-        originalText: "",
-        originalPronunciation: "",
-        translatedText: "",
-        translatedPronunciation: "",
-        transcript: "",
-        audioUrl: "",
-        errorMessage: "",
-        sourceLanguageCode: partnerSnapshot.code,
-        sourceLanguageLabel: partnerSnapshot.label,
-        sourceLanguageFlag: partnerSnapshot.flag,
-        targetLanguageCode: userSnapshot.code,
-        targetLanguageLabel: userSnapshot.label,
-        targetLanguageFlag: userSnapshot.flag,
-        retryPayload,
-      });
-
-    if (existingMessageId) {
-      updateMessage(existingMessageId, {
-        kind: "text",
-        originMode: "chat",
-        sender: "partner",
-        messageOrigin: "ai_partner",
-        status: "translating",
-        originalText: "",
-        originalPronunciation: "",
-        translatedText: "",
-        translatedPronunciation: "",
-        transcript: "",
-        audioUrl: "",
-        errorMessage: "",
-        sourceLanguageCode: partnerSnapshot.code,
-        sourceLanguageLabel: partnerSnapshot.label,
-        sourceLanguageFlag: partnerSnapshot.flag,
-        targetLanguageCode: userSnapshot.code,
-        targetLanguageLabel: userSnapshot.label,
-        targetLanguageFlag: userSnapshot.flag,
-        retryPayload,
-      });
-    }
-
-    try {
-      const data = await requestAiPartnerReply(
-        isSignedIn ? authFetch : fetch,
-        {
-          conversationId: conversationId ?? null,
-          userLanguage: userLanguage.code,
-          partnerLanguage: partnerLanguage.code,
-          recentMessages: buildAiPartnerContextMessages(messagesRef.current),
-          sessionDraft: buildAiPartnerDraft(aiPartnerStateRef.current),
-        },
-      );
-
-      if (contextVersion !== aiPartnerContextVersionRef.current) {
-        return;
-      }
-
-      let audioUrl = "";
-
-      if (data.message?.audio?.base64 && data.message?.audio?.mimeType) {
-        audioUrl = URL.createObjectURL(
-          base64ToBlob(data.message.audio.base64, data.message.audio.mimeType),
-        );
-      }
-
-      updateMessage(pendingMessageId, {
-        kind: data.message?.kind === "voice" ? "voice" : "text",
-        status: "ready",
-        sender: "partner",
-        messageOrigin: "ai_partner",
-        originalText: data.message?.originalText ?? "",
-        originalPronunciation: data.message?.originalPronunciation ?? "",
-        translatedText: data.message?.translatedText ?? "",
-        translatedPronunciation: data.message?.translatedPronunciation ?? "",
-        transcript:
-          data.message?.transcript ?? data.message?.originalText ?? "",
-        audioUrl,
-        errorMessage: "",
-        retryPayload,
-        sourceLanguageCode: partnerSnapshot.code,
-        sourceLanguageLabel: partnerSnapshot.label,
-        sourceLanguageFlag: partnerSnapshot.flag,
-        targetLanguageCode: userSnapshot.code,
-        targetLanguageLabel: userSnapshot.label,
-        targetLanguageFlag: userSnapshot.flag,
-      });
-
-      setAiPartnerStateWithPatch({
-        ...normalizeAiPartnerState(data.session),
-        status: "replying",
-        lastError: "",
-      });
-    } catch (error) {
-      if (contextVersion !== aiPartnerContextVersionRef.current) {
-        return;
-      }
-
-      updateMessage(pendingMessageId, {
-        status: "error",
-        errorMessage: error.message,
-        retryPayload,
-        messageOrigin: "ai_partner",
-      });
-      setAiPartnerStateWithPatch((previousState) => ({
-        ...previousState,
-        lastError: error.message,
-      }));
-    }
-  };
-
-  const queueAiPartnerReply = ({
-    conversationId,
-    userLanguage,
-    partnerLanguage,
-    existingMessageId,
-  }) => {
-    const contextVersion = aiPartnerContextVersionRef.current;
-
-    aiPartnerReplyQueueRef.current = aiPartnerReplyQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        if (
-          contextVersion !== aiPartnerContextVersionRef.current ||
-          !aiPartnerStateRef.current.enabled
-        ) {
-          return;
-        }
-
-        setAiPartnerStateWithPatch((previousState) => ({
-          ...previousState,
-          status: "replying",
-          lastError: "",
-          partnerLanguage: partnerLanguage.code,
-        }));
-
-        await runAiPartnerReplyForContext({
-          conversationId,
-          userLanguage,
-          partnerLanguage,
-          existingMessageId,
-          contextVersion,
-        });
-
-        if (contextVersion === aiPartnerContextVersionRef.current) {
-          setAiPartnerStateWithPatch((previousState) => ({
-            ...previousState,
-            status: "idle",
-          }));
-        }
-      });
-
-    return aiPartnerReplyQueueRef.current;
-  };
-
-  const executeChatSlashCommand = async ({
-    rawText,
-    command,
-    sourceLanguage,
-    targetLanguage,
-  }) => {
-    const normalizedCommand = (command || rawText || "").trim().toLowerCase();
-
-    if (normalizedCommand !== "/aipartner") {
-      return {
-        handled: true,
-        notice: "Unknown command.",
-      };
-    }
-
-    if (sharedRoomSession) {
-      return {
-        handled: true,
-        notice: "AI partner is unavailable while shared chat is active.",
-      };
-    }
-
-    const previousState = aiPartnerStateRef.current;
-    const nextEnabled = !previousState.enabled;
-
-    if (isSignedIn) {
-      const conversationId =
-        (await ensurePersistedConversationId({
-          sourceLanguage,
-          targetLanguage,
-        }).catch((error) => {
-          console.error("Failed to prepare conversation for AI partner", error);
-          return null;
-        })) ?? currentConversationId;
-
-      if (!conversationId) {
-        return {
-          handled: true,
-          notice: "Could not prepare this chat for AI partner.",
-        };
-      }
-
-      setAiPartnerStateWithPatch((currentState) => ({
-        ...currentState,
-        enabled: nextEnabled,
-        partnerLanguage: targetLanguage.code,
-        lastError: "",
-      }));
-
-      try {
-        const session = await updateAiPartnerSession(authFetch, conversationId, {
-          enabled: nextEnabled,
-        });
-        setAiPartnerStateWithPatch({
-          ...normalizeAiPartnerState(session),
-          status: "idle",
-          lastError: "",
-        });
-      } catch (error) {
-        aiPartnerStateRef.current = previousState;
-        setAiPartnerState(previousState);
-        return {
-          handled: true,
-          notice: error.message,
-        };
-      }
-    } else {
-      setAiPartnerStateWithPatch((currentState) => ({
-        ...currentState,
-        enabled: nextEnabled,
-        partnerLanguage: targetLanguage.code,
-        lastError: "",
-      }));
-    }
-
-    return {
-      handled: true,
-      notice: nextEnabled ? "AI partner on." : "AI partner off.",
-    };
-  };
-
   const sendTextMessage = async ({
     originMode,
     sender,
@@ -3622,15 +3330,13 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
-      let persistedUserMessagePromise = Promise.resolve(null);
-
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
           sourceLanguage,
           targetLanguage,
         );
-        persistedUserMessagePromise = saveMessage(authFetch, conversationId, {
+        void saveMessage(authFetch, conversationId, {
           sender,
           messageOrigin: "human",
           originalText: data.originalText,
@@ -3644,20 +3350,6 @@ export default function StringPhoneApp() {
         }).catch((error) => {
           console.error("Failed to save text message", error);
           return null;
-        });
-      }
-
-      if (
-        sender === "self" &&
-        originMode === "chat" &&
-        aiPartnerStateRef.current.enabled &&
-        !sharedRoomSession
-      ) {
-        await persistedUserMessagePromise;
-        void queueAiPartnerReply({
-          conversationId,
-          userLanguage: sourceLanguage,
-          partnerLanguage: targetLanguage,
         });
       }
     } catch (translationError) {
@@ -3757,7 +3449,13 @@ export default function StringPhoneApp() {
         authFetch: isSignedIn ? authFetch : undefined,
         conversationId,
       });
-      const audioBlob = base64ToBlob(data.audio.base64, data.audio.mimeType);
+      const originalAudio = data.sourceAudio?.base64
+        ? data.sourceAudio
+        : data.audio;
+      const audioBlob = base64ToBlob(
+        originalAudio.base64,
+        originalAudio.mimeType,
+      );
       const audioUrl = URL.createObjectURL(audioBlob);
 
       updateMessage(messageId, {
@@ -3772,15 +3470,13 @@ export default function StringPhoneApp() {
         errorMessage: "",
       });
 
-      let persistedUserMessagePromise = Promise.resolve(null);
-
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
           sourceLanguage,
           targetLanguage,
         );
-        persistedUserMessagePromise = saveMessage(authFetch, conversationId, {
+        void saveMessage(authFetch, conversationId, {
           sender,
           messageOrigin: "human",
           originalText: data.transcript,
@@ -3788,26 +3484,12 @@ export default function StringPhoneApp() {
           translatedText: data.translatedText,
           translatedPronunciation: data.translatedPronunciation ?? "",
           transcript: data.transcript,
-          audioUrl: data.audio.base64, // We might not want to save full base64 in real app, but this fits the schema for now
+          audioUrl: originalAudio.base64, // We might not want to save full base64 in real app, but this fits the schema for now
           sourceLanguage: sourceLanguage.code,
           targetLanguage: targetLanguage.code,
         }).catch((error) => {
           console.error("Failed to save voice message", error);
           return null;
-        });
-      }
-
-      if (
-        sender === "self" &&
-        originMode === "chat" &&
-        aiPartnerStateRef.current.enabled &&
-        !sharedRoomSession
-      ) {
-        await persistedUserMessagePromise;
-        void queueAiPartnerReply({
-          conversationId,
-          userLanguage: sourceLanguage,
-          partnerLanguage: targetLanguage,
         });
       }
 
@@ -3829,17 +3511,23 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    speaker = "",
     messageKind = "text",
   }) => {
     const sourceSnapshot = buildLanguageSnapshot(sourceLanguage);
     const targetSnapshot = buildLanguageSnapshot(targetLanguage);
+    const resolvedSender =
+      originMode === "conversation"
+        ? getConversationSenderForSpeaker(speaker, sender)
+        : sender;
     const draft = {
       utteranceId,
       id: utteranceId,
       messageId: existingMessageId,
       createdAt: new Date().toISOString(),
       originMode,
-      sender,
+      sender: resolvedSender,
+      speaker,
       messageKind,
       sourceLanguage,
       targetLanguage,
@@ -3899,6 +3587,7 @@ export default function StringPhoneApp() {
         transcript,
         sourceLanguage,
         targetLanguage,
+        sender: draft.sender,
         authFetch: isSignedIn ? authFetch : undefined,
       });
       const currentDraft = liveTranscriptDraftsRef.current.get(utteranceId);
@@ -3927,7 +3616,12 @@ export default function StringPhoneApp() {
         data.translatedText ?? currentDraft.translatedText;
       currentDraft.sourceLanguage = detectedSourceLanguage;
       currentDraft.targetLanguage = detectedTargetLanguage;
-      currentDraft.sender = data.sender === "partner" ? "partner" : "self";
+      currentDraft.sender =
+        currentDraft.originMode === "conversation"
+          ? currentDraft.sender
+          : data.sender === "partner"
+            ? "partner"
+            : "self";
 
       updateLiveDraft(utteranceId, {
         status: "transcribing",
@@ -4016,6 +3710,7 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    speaker = "",
     messageKind = "text",
   }) => {
     if (!itemId || (!transcriptDelta && !translatedTextDelta)) {
@@ -4031,6 +3726,7 @@ export default function StringPhoneApp() {
         liveMode,
         originMode,
         sender,
+        speaker,
         messageKind,
       });
 
@@ -4039,7 +3735,11 @@ export default function StringPhoneApp() {
     }
 
     draft.originMode = originMode;
-    draft.sender = sender;
+    draft.speaker = draft.speaker || speaker;
+    draft.sender =
+      originMode === "conversation"
+        ? getConversationSenderForSpeaker(draft.speaker, sender)
+        : sender;
     draft.liveMode = liveMode;
     draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
     draft.transcript = `${draft.transcript}${transcriptDelta}`;
@@ -4076,8 +3776,13 @@ export default function StringPhoneApp() {
     liveMode = "fallback-transcription",
     originMode = "live",
     sender = "self",
+    speaker = "",
     messageKind = "text",
   }) => {
+    const conversationSourceLanguage =
+      originMode === "conversation" ? myLang : sourceLanguage;
+    const conversationTargetLanguage =
+      originMode === "conversation" ? theirLang : targetLanguage;
     const utteranceId = itemId || createId();
     const draft =
       liveTranscriptDraftsRef.current.get(utteranceId) ??
@@ -4089,6 +3794,7 @@ export default function StringPhoneApp() {
         liveMode,
         originMode,
         sender,
+        speaker,
         messageKind,
       });
 
@@ -4105,7 +3811,11 @@ export default function StringPhoneApp() {
     draft.translatedText = translatedText || draft.translatedText;
     draft.liveMode = liveMode || draft.liveMode;
     draft.originMode = draft.originMode ?? originMode;
-    draft.sender = draft.sender ?? sender;
+    draft.speaker = draft.speaker || speaker;
+    draft.sender =
+      draft.originMode === "conversation"
+        ? getConversationSenderForSpeaker(draft.speaker, draft.sender ?? sender)
+        : draft.sender ?? sender;
     draft.messageKind = messageKind === "voice" ? "voice" : draft.messageKind;
     if (audioBlob && typeof audioBlob.size === "number" && !draft.audioUrl) {
       try {
@@ -4121,6 +3831,7 @@ export default function StringPhoneApp() {
       kind: "live-transcript",
       originMode: draft.originMode ?? originMode,
       sender: draft.sender ?? sender,
+      speaker: draft.speaker,
       messageOrigin: "human",
       sourceLanguageCode: sourceLanguage.code,
       targetLanguageCode: targetLanguage.code,
@@ -4150,8 +3861,8 @@ export default function StringPhoneApp() {
       .then(async () => {
         const conversationId =
           (await ensurePersistedConversationId({
-            sourceLanguage,
-            targetLanguage,
+            sourceLanguage: conversationSourceLanguage,
+            targetLanguage: conversationTargetLanguage,
           }).catch((error) => {
             console.error(
               "Failed to create a conversation before saving the live transcript",
@@ -4167,6 +3878,7 @@ export default function StringPhoneApp() {
             transcript: draft.transcript,
             sourceLanguage,
             targetLanguage,
+            sender: draft.sender,
             liveMode: draft.liveMode,
             translatedText:
               draft.liveMode === "realtime-translation"
@@ -4187,8 +3899,8 @@ export default function StringPhoneApp() {
           if (conversationId) {
             void persistConversationLanguages(
               conversationId,
-              sourceLanguage,
-              targetLanguage,
+              conversationSourceLanguage,
+              conversationTargetLanguage,
             );
           }
 
@@ -4209,7 +3921,12 @@ export default function StringPhoneApp() {
                 ? "voice"
                 : "text",
             originMode: draft.originMode ?? originMode,
-            sender: data.sender === "partner" ? "partner" : "self",
+            sender:
+              draft.originMode === "conversation"
+                ? getConversationSenderForSpeaker(draft.speaker, draft.sender)
+                : data.sender === "partner"
+                  ? "partner"
+                  : "self",
             messageOrigin: "human",
             status: "ready",
             originalText: data.transcript ?? draft.transcript,
@@ -4514,14 +4231,6 @@ export default function StringPhoneApp() {
       return;
     }
 
-    if (retryPayload.kind === "ai_partner") {
-      await queueAiPartnerReply({
-        conversationId: currentConversationId,
-        userLanguage: getLanguageOption(retryPayload.sourceLanguageCode),
-        partnerLanguage: getLanguageOption(retryPayload.targetLanguageCode),
-        existingMessageId: message.id,
-      });
-    }
   };
 
   const submitChatTextMessage = async ({
@@ -4591,8 +4300,7 @@ export default function StringPhoneApp() {
         kind: message.audio_url ? "voice" : "text",
         status: "ready",
         sender: message.sender,
-        messageOrigin:
-          message.message_origin === "ai_partner" ? "ai_partner" : "human",
+        messageOrigin: "human",
         originalText: message.original_text,
         originalPronunciation: message.original_pronunciation ?? "",
         translatedText: message.translated_text,
@@ -4622,8 +4330,6 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
-    bumpAiPartnerContextVersion();
-    resetAiPartnerState();
     resetLiveCaptureState();
     replaceMessages(mapConversationMessages(dbMessages, conversation));
     setCurrentConversationId(conversation.id);
@@ -4639,8 +4345,6 @@ export default function StringPhoneApp() {
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
     setTheirLang(getLanguageOption(conversation.target_language));
-    bumpAiPartnerContextVersion();
-    resetAiPartnerState();
     resetLiveCaptureState();
     clearMessages();
     setCurrentConversationId(conversation.id);
@@ -4656,8 +4360,6 @@ export default function StringPhoneApp() {
     clearMessages();
     setCurrentConversationId(null);
     setActiveLesson(null);
-    bumpAiPartnerContextVersion();
-    resetAiPartnerState();
     resetLiveCaptureState();
   };
 
@@ -4877,6 +4579,7 @@ export default function StringPhoneApp() {
         translatedPronunciation: message.translatedPronunciation ?? "",
         sourceLanguageCode: message.sourceLanguageCode ?? "",
         targetLanguageCode: message.targetLanguageCode ?? "",
+        sourceAudioUrl: message.audioUrl ?? "",
       },
     };
   };
@@ -5181,15 +4884,13 @@ export default function StringPhoneApp() {
     setActiveCollectionLanguageCode(null);
     setLearningView("collections");
     setLessonBuilderConfig(null);
-    bumpAiPartnerContextVersion();
-    resetAiPartnerState();
     resetLiveCaptureState();
     setAppMode("chat");
   };
 
   return (
     <main
-      className="relative flex min-h-screen w-full select-none flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
+      className="relative flex min-h-screen w-full select-text flex-col overflow-hidden bg-zinc-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 to-zinc-950 font-sans text-zinc-100"
       style={{ minHeight: "100svh", height: "100dvh" }}
     >
       <FloatingBrand onClick={handleReturnHome} />
@@ -5200,6 +4901,8 @@ export default function StringPhoneApp() {
         joinQueryToken={pendingInviteToken}
         learningView={learningView}
         activeCollectionLanguageCode={activeCollectionLanguageCode}
+        ttsVoice={ttsVoice}
+        onTtsVoiceChange={handleTtsVoiceChange}
       />
       <ModeSwitcher
         appMode={appMode}
@@ -5270,6 +4973,7 @@ export default function StringPhoneApp() {
           submitTextMessage={submitChatTextMessage}
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
+          onPlayTranslatedSpeech={playTranslatedSpeech}
           onSaveToCollection={handleSaveMessageToCollection}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
@@ -5282,8 +4986,6 @@ export default function StringPhoneApp() {
           onToggleSharedRoom={handleToggleSharedRoom}
           onCopySharedRoomInvite={handleCopySharedRoomInvite}
           onOpenSidebar={() => setIsSidebarOpen(true)}
-          aiPartnerState={aiPartnerState}
-          onExecuteSlashCommand={executeChatSlashCommand}
           liveCaptureState={liveCaptureState}
           setLiveCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}
@@ -5302,6 +5004,8 @@ export default function StringPhoneApp() {
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
           replayVoiceMessage={replayVoiceMessage}
+          onAudioPlay={handleThreadAudioPlay}
+          onPlayTranslatedSpeech={playTranslatedSpeech}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           liveDrafts={liveDrafts}
           captureState={liveCaptureState}
@@ -5326,6 +5030,7 @@ export default function StringPhoneApp() {
           onCreateLesson={createLessonFromCurrentContext}
           onStartNewLesson={openNewLesson}
           onOpenSidebar={() => setIsSidebarOpen(true)}
+          onAudioPlay={handleThreadAudioPlay}
           onPlayGeneratedSpeech={playGeneratedSpeech}
           onSaveLessonVocabularyToCollection={handleSaveLessonVocabularyToCollection}
           lessonBuilderConfig={lessonBuilderConfig}
@@ -5345,6 +5050,8 @@ export default function StringPhoneApp() {
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
           replayVoiceMessage={replayVoiceMessage}
+          onAudioPlay={handleThreadAudioPlay}
+          onPlayTranslatedSpeech={playTranslatedSpeech}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           liveDrafts={liveDrafts}
           captureState={liveCaptureState}

@@ -90,6 +90,8 @@ export function useLiveConversationCapture({
   const sessionLanguagesRef = useRef({
     sourceLanguage: myLang,
     targetLanguage: theirLang,
+    sender: "self",
+    speaker: "bottom",
   });
 
   useEffect(() => {
@@ -258,9 +260,13 @@ export function useLiveConversationCapture({
     });
   };
 
-  const handleRealtimeEvent = (event) => {
+  const handleRealtimeEvent = (
+    event,
+    sessionLanguages = sessionLanguagesRef.current,
+  ) => {
     const latest = latestValuesRef.current;
-    const sessionLanguages = sessionLanguagesRef.current;
+    const sessionSender = sessionLanguages.sender ?? "self";
+    const sessionSpeaker = sessionLanguages.speaker ?? "bottom";
 
     if (
       event?.type === "conversation.item.input_audio_transcription.delta" &&
@@ -274,6 +280,8 @@ export function useLiveConversationCapture({
         sourceLanguage: sessionLanguages.sourceLanguage,
         targetLanguage: sessionLanguages.targetLanguage,
         liveMode: "realtime-transcription",
+        sender: sessionSender,
+        speaker: sessionSpeaker,
       });
       patchCaptureState({ activeSegmentId: event.item_id });
       return;
@@ -295,6 +303,8 @@ export function useLiveConversationCapture({
           sourceLanguage: sessionLanguages.sourceLanguage,
           targetLanguage: sessionLanguages.targetLanguage,
           liveMode: "realtime-transcription",
+          sender: sessionSender,
+          speaker: sessionSpeaker,
         });
       });
       return;
@@ -358,7 +368,12 @@ export function useLiveConversationCapture({
     monitorFrameRef.current = requestAnimationFrame(monitorAudio);
   };
 
-  const startListening = async ({ sourceLanguage, targetLanguage } = {}) => {
+  const startListening = async ({
+    sourceLanguage,
+    targetLanguage,
+    sender,
+    speaker,
+  } = {}) => {
     if (isListeningRef.current || peerConnectionRef.current) {
       return;
     }
@@ -367,7 +382,13 @@ export function useLiveConversationCapture({
       sourceLanguage: sourceLanguage ?? latestValuesRef.current.myLang,
       targetLanguage: targetLanguage ?? latestValuesRef.current.theirLang,
     };
-    sessionLanguagesRef.current = sessionLanguages;
+    sessionLanguagesRef.current = {
+      ...sessionLanguages,
+      sender:
+        sender === "partner" || sender === "self" ? sender : "self",
+      speaker: speaker === "top" || speaker === "bottom" ? speaker : "bottom",
+    };
+    const activeSessionLanguages = sessionLanguagesRef.current;
 
     if (
       typeof navigator === "undefined" ||
@@ -421,7 +442,7 @@ export function useLiveConversationCapture({
 
       eventsChannel.addEventListener("message", ({ data }) => {
         try {
-          handleRealtimeEvent(JSON.parse(data));
+          handleRealtimeEvent(JSON.parse(data), activeSessionLanguages);
         } catch {
           // Ignore malformed non-protocol data without interrupting capture.
         }

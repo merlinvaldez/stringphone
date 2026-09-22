@@ -1,6 +1,3 @@
-import "../../../src/lib/mistral.js";
-import { getOptionalAuthenticatedVercelAppRequest } from "../../../src/auth/vercel.js";
-import { runSaveUserVoiceSample } from "../../../src/lib/runSaveUserVoiceSample.js";
 import { runVoiceChatMessage } from "../../../src/lib/runVoiceChatMessage.js";
 
 export const config = {
@@ -33,11 +30,8 @@ export default {
     }
 
     try {
-      const authenticatedRequest =
-        await getOptionalAuthenticatedVercelAppRequest(request);
       const formData = await request.formData();
       const sourceAudio = formData.get("sourceAudio");
-      const voiceSample = formData.get("voiceSample");
       const sourceAudioFile =
         sourceAudio instanceof File
           ? {
@@ -46,47 +40,14 @@ export default {
               mimeType: sourceAudio.type || undefined,
             }
           : undefined;
-      const voiceSampleFile =
-        voiceSample instanceof File
-          ? {
-              buffer: Buffer.from(await voiceSample.arrayBuffer()),
-              filename: voiceSample.name || "voice-sample.webm",
-              mimeType: voiceSample.type || undefined,
-            }
-          : undefined;
-
       const result = await runVoiceChatMessage({
         sourceLanguage: formData.get("sourceLanguage"),
         targetLanguage: formData.get("targetLanguage"),
-        userId: authenticatedRequest?.appUser?.id ?? null,
         sourceAudioFile,
-        voiceSampleFile,
       });
 
       if (result.ok === false) {
         return jsonResponse(result.body, result.status);
-      }
-
-      if (authenticatedRequest?.appUser && voiceSampleFile) {
-        try {
-          const voiceSampleSaveResult = await runSaveUserVoiceSample({
-            userId: authenticatedRequest.appUser.id,
-            conversationId: formData.get("conversationId"),
-            voiceSampleFile,
-          });
-
-          if (voiceSampleSaveResult.ok === false) {
-            console.warn(
-              "Failed to persist authenticated Vercel voice sample during chat translation",
-              voiceSampleSaveResult,
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "Voice sample persistence crashed during deployed chat translation; returning translation anyway",
-            error,
-          );
-        }
       }
 
       return jsonResponse({
@@ -99,6 +60,10 @@ export default {
         audio: {
           mimeType: result.audioMimeType,
           base64: result.audioBuffer.toString("base64"),
+        },
+        sourceAudio: {
+          mimeType: result.sourceAudioMimeType,
+          base64: result.sourceAudioBuffer.toString("base64"),
         },
       });
     } catch (error) {

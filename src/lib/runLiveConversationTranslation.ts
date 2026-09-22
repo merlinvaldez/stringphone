@@ -58,6 +58,7 @@ export async function runLiveConversationTranslation(input: {
   transcript: unknown;
   translatedText?: unknown;
   liveMode?: unknown;
+  sender?: unknown;
 }): Promise<RunLiveConversationTranslationResult> {
   const utteranceId = normalizeOptionalText(input.utteranceId);
   const revision = normalizePositiveRevision(input.revision);
@@ -65,6 +66,10 @@ export async function runLiveConversationTranslation(input: {
   const theirLanguage = getSupportedTtsLanguage(input.targetLanguage);
   const transcript = normalizeOptionalText(input.transcript);
   const translatedTextOverride = normalizeOptionalText(input.translatedText);
+  const requestedSender =
+    input.sender === "partner" || input.sender === "self"
+      ? input.sender
+      : null;
   const liveMode: LiveTranslationMode =
     input.liveMode === "realtime-translation"
       ? "realtime-translation"
@@ -137,9 +142,34 @@ export async function runLiveConversationTranslation(input: {
       },
       sourceLanguage: { code: myLanguage.code, label: myLanguage.name },
       targetLanguage: { code: theirLanguage.code, label: theirLanguage.name },
-      sender: "self",
+      sender: requestedSender ?? "self",
       transcript,
       translatedText: translatedTextOverride,
+    };
+  }
+
+  if (requestedSender) {
+    const translatedText = await translateLiveDraft({
+      text: transcript,
+      sourceLanguage: myLanguage.name,
+      targetLanguage: theirLanguage.name,
+    });
+
+    return {
+      ok: true,
+      utteranceId,
+      revision,
+      detectedSourceLanguage: {
+        code: myLanguage.code,
+        label: myLanguage.name,
+        confidence: 1,
+        ambiguous: false,
+      },
+      sourceLanguage: { code: myLanguage.code, label: myLanguage.name },
+      targetLanguage: { code: theirLanguage.code, label: theirLanguage.name },
+      sender: requestedSender,
+      transcript,
+      translatedText,
     };
   }
 
@@ -154,7 +184,8 @@ export async function runLiveConversationTranslation(input: {
     classification.languageCode === theirLanguage.code;
   const spokenLanguage = detectedIsTheirLanguage ? theirLanguage : myLanguage;
   const translationLanguage = detectedIsTheirLanguage ? myLanguage : theirLanguage;
-  const sender = detectedIsTheirLanguage ? "partner" : "self";
+  const sender =
+    requestedSender ?? (detectedIsTheirLanguage ? "partner" : "self");
   const translatedText = await translateLiveDraft({
     text: transcript,
     sourceLanguage: spokenLanguage.name,

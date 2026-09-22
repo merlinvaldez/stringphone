@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Bookmark, Check, Loader2 } from "lucide-react";
+import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
 import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
 import { formatTimestamp, formatPronunciationGuide } from "../../utils.js";
@@ -18,9 +19,9 @@ export function MessageBubble({
   message,
   onRetry,
   onAudioPlay,
+  onPlayTranslatedSpeech,
   onSaveToCollection,
   uiStrings,
-  aiPartnerDisplayName = "",
   baseLanguageCode = "",
 }) {
   const isSelf = message.sender === "self";
@@ -28,11 +29,6 @@ export function MessageBubble({
     message.kind === "voice" ||
     (message.originMode === "live" && Boolean(message.audioUrl));
   const showEmbeddedVoicePlayer = isVoice && Boolean(message.audioUrl);
-  const isAiPartnerMessage = message.messageOrigin === "ai_partner";
-  const aiPartnerTranslationFallback =
-    isAiPartnerMessage && message.status === "ready"
-      ? "Translation unavailable."
-      : uiStrings.translatingShort;
   const isLanguageOne = baseLanguageCode
     ? message.sourceLanguageCode === baseLanguageCode
     : isSelf;
@@ -45,8 +41,29 @@ export function MessageBubble({
     message.status === "ready" &&
     Boolean(
       (isSelf ? message.translatedText : message.originalText) &&
-        (isSelf ? message.originalText : message.translatedText),
+      (isSelf ? message.originalText : message.translatedText),
     );
+  const canPlayTranslatedSpeech =
+    message.status === "ready" &&
+    Boolean(message.translatedText) &&
+    typeof onPlayTranslatedSpeech === "function";
+  const canPlayOriginalTextSpeech =
+    !isVoice &&
+    message.status === "ready" &&
+    Boolean(message.originalText) &&
+    typeof onPlayTranslatedSpeech === "function";
+  const originalTextSpeechUiStrings = {
+    ...uiStrings,
+    playAudio: "Play original-language text audio",
+    generatingAudio: "Generating original-language text audio",
+    audioUnavailable: "Original-language audio unavailable.",
+  };
+  const translatedSpeechUiStrings = {
+    ...uiStrings,
+    playAudio: "Play AI-generated translated audio",
+    generatingAudio: "Generating AI-generated translated audio",
+    audioUnavailable: "Translated audio unavailable.",
+  };
 
   useEffect(() => {
     setSaveState("idle");
@@ -82,11 +99,6 @@ export function MessageBubble({
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="pt-1">
-              {isAiPartnerMessage && !isSelf ? (
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                  {aiPartnerDisplayName || "AI partner"}
-                </p>
-              ) : null}
               <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
                 {formatTimestamp(message.createdAt)}
               </span>
@@ -130,12 +142,7 @@ export function MessageBubble({
               {message.transcript ? (
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-6 text-white">
-                      {message.transcript ||
-                        (isAiPartnerMessage && message.status !== "ready"
-                          ? "AI partner is replying..."
-                          : "")}
-                    </p>
+                    <p className="text-sm leading-6 text-white">{message.transcript}</p>
                     {!isSelf ? (
                       <PronunciationGuide
                         value={message.originalPronunciation}
@@ -158,12 +165,12 @@ export function MessageBubble({
                 </p>
               ) : null}
 
-              {message.translatedText || (isAiPartnerMessage && message.status === "ready") ? (
+              {message.translatedText ? (
                 <div className="border-t border-white/10 pt-3">
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-end gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-6 text-zinc-200">
-                        {message.translatedText || aiPartnerTranslationFallback}
+                        {message.translatedText}
                       </p>
                       {isSelf ? (
                         <PronunciationGuide
@@ -172,6 +179,15 @@ export function MessageBubble({
                         />
                       ) : null}
                     </div>
+                    {canPlayTranslatedSpeech ? (
+                      <TextToSpeechButton
+                        text={message.translatedText}
+                        languageCode={message.targetLanguageCode}
+                        onPlay={onPlayTranslatedSpeech}
+                        uiStrings={translatedSpeechUiStrings}
+                        className="shrink-0"
+                      />
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -182,10 +198,7 @@ export function MessageBubble({
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-white">
-                      {message.originalText ||
-                        (isAiPartnerMessage && message.status !== "ready"
-                          ? "AI partner is replying..."
-                          : "")}
+                      {message.originalText}
                     </p>
                     {!isSelf ? (
                       <PronunciationGuide
@@ -194,17 +207,26 @@ export function MessageBubble({
                       />
                     ) : null}
                   </div>
+                  {canPlayOriginalTextSpeech ? (
+                    <TextToSpeechButton
+                      text={message.originalText}
+                      languageCode={message.sourceLanguageCode}
+                      onPlay={onPlayTranslatedSpeech}
+                      uiStrings={originalTextSpeechUiStrings}
+                      className="shrink-0"
+                    />
+                  ) : null}
                 </div>
               </div>
 
               <div className="border-t border-white/10 pt-3">
-                <div className="flex items-start gap-3">
+                <div className="flex items-end gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-zinc-200">
                       {message.translatedText ||
                         (message.status === "error"
                           ? uiStrings.translationFailed
-                          : aiPartnerTranslationFallback)}
+                          : uiStrings.translatingShort)}
                     </p>
                     {isSelf ? (
                       <PronunciationGuide
@@ -213,6 +235,15 @@ export function MessageBubble({
                       />
                     ) : null}
                   </div>
+                  {canPlayTranslatedSpeech ? (
+                    <TextToSpeechButton
+                      text={message.translatedText}
+                      languageCode={message.targetLanguageCode}
+                      onPlay={onPlayTranslatedSpeech}
+                      uiStrings={translatedSpeechUiStrings}
+                      className="shrink-0"
+                    />
+                  ) : null}
                 </div>
               </div>
             </div>

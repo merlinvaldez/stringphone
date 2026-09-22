@@ -6,9 +6,9 @@ export function ChatThread({
   messages,
   onRetry,
   onAudioPlay,
+  onPlayTranslatedSpeech,
   onSaveToCollection,
   uiStrings,
-  aiPartnerDisplayName,
   baseLanguageCode,
 }) {
   const threadRef = useRef(null);
@@ -46,9 +46,9 @@ export function ChatThread({
             message={message}
             onRetry={onRetry}
             onAudioPlay={onAudioPlay}
+            onPlayTranslatedSpeech={onPlayTranslatedSpeech}
             onSaveToCollection={onSaveToCollection}
             uiStrings={uiStrings}
-            aiPartnerDisplayName={aiPartnerDisplayName}
             baseLanguageCode={baseLanguageCode}
           />
         ))}

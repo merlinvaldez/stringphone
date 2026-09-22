@@ -4,10 +4,6 @@ import { ChatThread } from "./ChatThread.jsx";
 import { ChatComposer } from "./ChatComposer.jsx";
 import { useLiveTurnFlow } from "../live/useLiveTurnFlow.js";
 import {
-  getChatCommandOptions,
-  resolveChatSlashSubmission,
-} from "./chatCommands.js";
-import {
   useCountdown,
   ErrorNotice,
 } from "../../StringPhoneApp.jsx";
@@ -23,6 +19,7 @@ export function ChatScreen({
   submitTextMessage,
   retryMessage,
   onAudioPlay,
+  onPlayTranslatedSpeech,
   onSaveToCollection,
   sharedRoomSession,
   sharedRoom,
@@ -35,8 +32,6 @@ export function ChatScreen({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
   onOpenSidebar,
-  aiPartnerState,
-  onExecuteSlashCommand,
   liveCaptureState,
   setLiveCaptureState,
   authFetch,
@@ -48,8 +43,6 @@ export function ChatScreen({
   const [composerText, setComposerText] = useState("");
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
-  const [commandNotice, setCommandNotice] = useState("");
-  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const recordingTimer = useCountdown({
     active: status === "recording",
     onExpire: () => {
@@ -77,15 +70,6 @@ export function ChatScreen({
     : sharedRoomStatus === "connecting"
       ? "Live room is reconnecting..."
       : "";
-  const normalizedComposerText = composerText.trim();
-  const showCommandMenu = normalizedComposerText.startsWith("/");
-  const commandOptions = getChatCommandOptions({
-    normalizedComposerText,
-    aiPartnerEnabled: Boolean(aiPartnerState?.enabled),
-  });
-  const partnerStatusLabel = aiPartnerState?.displayName
-    ? aiPartnerState.displayName
-    : "Partner";
   const addCaptureContext = (payload) => ({
     ...payload,
     messageKind: "voice",
@@ -134,86 +118,6 @@ export function ChatScreen({
     [],
   );
 
-  useEffect(() => {
-    setActiveCommandIndex(0);
-  }, [normalizedComposerText]);
-
-  useEffect(() => {
-    if (!commandNotice) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCommandNotice("");
-    }, 2200);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [commandNotice]);
-
-  const executeSlashCommand = async (commandValue) => {
-    const result = await onExecuteSlashCommand({
-      rawText: normalizedComposerText,
-      command: commandValue,
-      sourceLanguage,
-      targetLanguage,
-    });
-
-    if (!mountedRef.current) {
-      return;
-    }
-
-    if (result?.handled !== false) {
-      setComposerText(result?.nextText ?? "");
-    }
-
-    if (result?.notice) {
-      setCommandNotice(result.notice);
-    }
-  };
-
-  const handleComposerKeyDown = (event) => {
-    if (!showCommandMenu) {
-      return;
-    }
-
-    if (commandOptions.length > 0 && event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveCommandIndex((currentIndex) =>
-        (currentIndex + 1) % commandOptions.length,
-      );
-      return;
-    }
-
-    if (commandOptions.length > 0 && event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveCommandIndex((currentIndex) =>
-        currentIndex === 0 ? commandOptions.length - 1 : currentIndex - 1,
-      );
-      return;
-    }
-
-    if (
-      event.key === "Enter" ||
-      (event.key === "Tab" && !event.shiftKey)
-    ) {
-      event.preventDefault();
-      const submission = resolveChatSlashSubmission({
-        normalizedComposerText,
-        commandOptions,
-        activeIndex: activeCommandIndex,
-      });
-
-      if (submission.type === "notice") {
-        setCommandNotice(submission.notice);
-        return;
-      }
-
-      void executeSlashCommand(submission.command);
-    }
-  };
-
   const handleSendText = async () => {
     const text = composerText.trim();
 
@@ -222,22 +126,6 @@ export function ChatScreen({
     }
 
     setError("");
-
-    if (text.startsWith("/")) {
-      const submission = resolveChatSlashSubmission({
-        normalizedComposerText: text,
-        commandOptions,
-        activeIndex: activeCommandIndex,
-      });
-
-      if (submission.type === "notice") {
-        setCommandNotice(submission.notice);
-        return;
-      }
-
-      await executeSlashCommand(submission.command);
-      return;
-    }
 
     setComposerText("");
 
@@ -325,31 +213,14 @@ export function ChatScreen({
         </div>
       ) : null}
 
-      {aiPartnerState?.enabled || aiPartnerState?.lastError ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {aiPartnerState?.enabled ? (
-            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-100">
-              {aiPartnerState?.status === "replying"
-                ? `${partnerStatusLabel} replying`
-                : `${partnerStatusLabel} on`}
-            </span>
-          ) : null}
-          {aiPartnerState?.lastError ? (
-            <span className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-100">
-              {aiPartnerState.lastError}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="min-h-0 flex-1">
         <ChatThread
           messages={messages}
           onRetry={retryMessage}
           onAudioPlay={onAudioPlay}
+          onPlayTranslatedSpeech={onPlayTranslatedSpeech}
           onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
-          aiPartnerDisplayName={aiPartnerState?.displayName}
           baseLanguageCode={myLang.code}
         />
       </div>
@@ -367,17 +238,6 @@ export function ChatScreen({
         supportsVoiceInput={!liveIsActive}
         disabled={composerDisabled}
         disabledPlaceholder={composerDisabledPlaceholder}
-        commandNotice={commandNotice}
-        onInputKeyDown={handleComposerKeyDown}
-        commandMenu={{
-          visible: showCommandMenu && commandOptions.length > 0,
-          commands: commandOptions,
-          activeIndex: activeCommandIndex,
-          onHoverCommand: setActiveCommandIndex,
-          onSelectCommand: (commandValue) => {
-            void executeSlashCommand(commandValue);
-          },
-        }}
       />
 
       <ErrorNotice message={error} onDismiss={() => setError("")} />

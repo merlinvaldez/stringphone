@@ -69,8 +69,7 @@ StringPhone now exposes on-demand playback for generated lesson text and typed c
 - In lessons, the target-language title, vocabulary terms, vocabulary examples, phrases, and revealed sample answer each get their own speaker control.
 - Playback is manual and ephemeral. Audio is generated on demand, cached in the current client session, and not written into lesson history rows.
 - Saved chat hydration restores each message's language metadata, so the in-chat speaker control stays clickable after reopening history.
-- `POST /api/speech/output` reuses the existing speech-provider stack. When the signed-in user already has saved self-authored voice examples in the database, playback prefers the latest matching sample and prioritizes the active lesson or chat conversation when that ID is available. When no saved sample exists, playback falls back to the provider or model default voice instead of a bundled reference clip.
-- Authenticated self voice recordings are also persisted into a dedicated `public.voice_samples` table, so reusable voice cloning still works for unsaved chats and shared-room chats that never create a saved conversation message row.
+- `POST /api/speech/output` generates ephemeral `audio/wav` playback through OpenAI's TTS API. The request may select the configured `marin` or `onyx` voice, and no voice sample is persisted or cloned.
 - Saved lesson rows in History use the target-language flag as their visual marker instead of a generic lesson icon.
 
 ### Lesson builder
@@ -116,22 +115,9 @@ The initial release intentionally does not include answer grading, progress scor
 
 The history API returns structured lesson content so a prior lesson can open without another model call. The raw input transcript is not stored in the lesson row. A chat-derived lesson keeps only the generated lesson plus its optional conversation reference.
 
-### Voice sample record
-
-`public.voice_samples` is introduced by `supabase/migrations/20260728133000_create_voice_samples.sql`.
-
-| Field | Purpose |
-| --- | --- |
-| `id`, `user_id`, `created_at` | user-owned voice-sample identity and recency ordering |
-| `source_conversation_id` | optional link to the owned saved conversation when one exists |
-| `source_language`, `target_language` | lightweight matching hints for playback selection |
-| `audio_url` | persisted self-recorded source audio used as the preferred voice reference |
-
-This table is written whenever an authenticated user records their own voice in chat. For normal chat voice turns, the authenticated `/api/chat/messages/voice` request persists the exact uploaded source sample that was used for speech generation. Shared-room chat still uses the dedicated authenticated sample-upload path. Playback lookup uses `public.voice_samples` as the authoritative source of reusable voice references.
-
 ### Generation contract
 
-`src/services/generateLanguageLesson.ts` calls `mistral-large-latest` (Mistral Large via the rolling latest alias) with JSON-object output and validates it before persistence. `MISTRAL_LESSON_MODEL` can override that model for an intentional rollout change, but lesson generation no longer falls back to the translation model. The call limits output to 1100 tokens, uses low-variance sampling, and disables extra reasoning because this is a short schema-constrained generation task. The contract requires compact strings, a short home-language history label, at least two vocabulary items, at least one phrase, one tip, and a sample answer. It constrains topic and message lengths, passes only the latest twelve eligible messages, and tells the model to treat chat context as reference text rather than instructions. When the learner's home language and practice language use different writing systems, the generation contract also requires phonetic spellings for the lesson title, vocabulary terms, examples, phrases, and sample answer in the learner's own writing system; otherwise those transliteration fields remain blank. A Mistral request failure, blank response, invalid JSON, or incomplete lesson is logged server-side and returned to the client as a safe retryable error instead of being persisted.
+`src/services/generateLanguageLesson.ts` calls the configured OpenAI Responses API model with JSON-object output and validates it before persistence. `OPENAI_LESSON_MODEL` can override the shared translation model for an intentional rollout change. The call limits output to 1100 tokens and keeps the generation focused because this is a short schema-constrained task. The contract requires compact strings, a short home-language history label, at least two vocabulary items, at least one phrase, one tip, and a sample answer. It constrains topic and message lengths, passes only the latest twelve eligible messages, and tells the model to treat chat context as reference text rather than instructions. When the learner's home language and practice language use different writing systems, the generation contract also requires phonetic spellings for the lesson title, vocabulary terms, examples, phrases, and sample answer in the learner's own writing system; otherwise those transliteration fields remain blank. An OpenAI request failure, blank response, invalid JSON, or incomplete lesson is logged server-side and returned to the client as a safe retryable error instead of being persisted.
 
 `src/services/generatePronunciationGuidance.ts` applies the same cross-script rule to live chat bubbles. Pronunciation lines are only generated when the displayed text uses a different writing system than the reader's language, and the UI renders the result in parentheses under the foreign-script line only.
 
@@ -168,22 +154,11 @@ Accepts:
 {
   "text": "target-language text to speak",
   "language": "fr",
-  "conversationId": "optional owned conversation UUID"
+  "speechVoice": "marin | onyx"
 }
 ```
 
-The route is guest-accessible because it only generates ephemeral playback audio for already-visible UI text. It validates the requested language against the existing supported speech list, enforces a short text-length cap, and returns `audio/mpeg` bytes. When the request is authenticated, it may use the current app user plus the optional conversation ID to look up a saved voice example; otherwise it uses the configured provider default voice path. It does not persist audio.
-
-### `POST /api/users/me/voice-samples`
-
-Accepts multipart form data:
-
-- `voiceSample`: required recorded audio blob
-- `conversationId`: optional owned conversation UUID
-- `sourceLanguage`: optional ISO language code
-- `targetLanguage`: optional ISO language code
-
-The route requires StringPhone authentication. It persists the caller's self-recorded source audio into `public.voice_samples`, optionally links it to an owned conversation, and makes that recording eligible for later lesson and typed-chat playback voice selection. The current app still uses this route for shared-room voice samples, but normal chat now persists samples directly from the authenticated `/api/chat/messages/voice` request.
+The route is guest-accessible because it only generates ephemeral playback audio for already-visible UI text. It validates the requested language against the existing supported speech list, enforces a short text-length cap, and returns `audio/wav` bytes generated by OpenAI's TTS API. It does not persist audio.
 
 ## Implemented file map
 
@@ -195,11 +170,10 @@ The route requires StringPhone authentication. It persists the caller's self-rec
 | Mode icon, state, and lesson orchestration | `client/src/StringPhoneApp.jsx` |
 | Client API | `client/src/chatApi.js` |
 | Lesson server route and persistence | `api/lessons/index.ts`, `src/db/queries/lessons.ts` |
-| Output speech route and orchestration | `api/speech/output.ts`, `src/lib/runOutputTextToSpeech.ts`, `src/server.ts`, `src/services/resolveOutputSpeechVoiceId.ts`, `src/db/queries/voiceSamples.ts` |
-| Voice sample capture and persistence | `api/users/me/voice-samples.ts`, `src/lib/runSaveUserVoiceSample.ts`, `src/db/queries/voiceSamples.ts`, `src/server.ts`, `client/src/chatApi.js`, `client/src/StringPhoneApp.jsx` |
+| Output speech route and orchestration | `api/speech/output.ts`, `src/lib/runOutputTextToSpeech.ts`, `src/services/generateOpenAiSpeech.ts`, `src/server.ts` |
 | Structured generation | `src/services/generateLanguageLesson.ts`, `src/services/generatePronunciationGuidance.ts` |
 | Script-awareness | `src/lib/languages.ts` |
-| Database | `supabase/migrations/20260728093000_create_lessons.sql`, `supabase/migrations/20260728133000_create_voice_samples.sql` |
+| Database | `supabase/migrations/20260728093000_create_lessons.sql` |
 
 ## Acceptance and verification plan
 
@@ -221,8 +195,7 @@ The route requires StringPhone authentication. It persists the caller's self-rec
 - [x] Text chat exposes output-language playback from the bubble itself.
 - [x] Saved lesson content exposes target-language playback for title, vocabulary, examples, phrases, and sample answer.
 - [x] Reopened saved chats keep the text-message speaker control clickable because message language metadata is restored during hydration.
-- [x] Lesson and chat playback use a saved user-voice example when one exists and otherwise fall back to the provider default voice.
-- [x] Authenticated self voice recordings are persisted even when the user is in an unsaved chat or shared-room chat, so later lesson and typed-chat playback can still find a DB voice sample.
+- [x] Lesson and chat playback use the selected OpenAI TTS voice.
 - [x] Saved lesson rows in History show the target-language flag instead of a generic lesson icon.
 
 ### Required deployment checks

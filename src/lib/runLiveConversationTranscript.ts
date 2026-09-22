@@ -2,7 +2,11 @@ import {
   getSupportedTtsLanguage,
   requiresPhoneticGuide,
 } from "./languages.js";
-import { createMessage, getConversation } from "../db/queries/conversations.js";
+import {
+  createMessage,
+  getConversation,
+  updateConversationLanguages,
+} from "../db/queries/conversations.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 import { refreshConversationTitle } from "../services/refreshConversationTitle.js";
 import { runLiveConversationTranslation } from "./runLiveConversationTranslation.js";
@@ -59,6 +63,7 @@ export async function runLiveConversationTranscript(input: {
   transcript: unknown;
   translatedText?: unknown;
   liveMode?: unknown;
+  sender?: unknown;
   conversationId?: unknown;
   userId?: number | null;
   sourceAudioFile?: UploadedAudioFile;
@@ -91,6 +96,7 @@ export async function runLiveConversationTranscript(input: {
     transcript: input.transcript,
     translatedText: input.translatedText,
     liveMode: input.liveMode,
+    sender: input.sender,
   });
 
   if (!translation.ok) {
@@ -156,13 +162,31 @@ export async function runLiveConversationTranscript(input: {
           : null,
       });
 
+      const canonicalSourceLanguageCode =
+        translation.sender === "partner"
+          ? translation.targetLanguage.code
+          : translation.sourceLanguage.code;
+      const canonicalTargetLanguageCode =
+        translation.sender === "partner"
+          ? translation.sourceLanguage.code
+          : translation.targetLanguage.code;
+
+      await updateConversationLanguages({
+        conversationId,
+        userId: input.userId,
+        sourceLanguage: canonicalSourceLanguageCode,
+        targetLanguage: canonicalTargetLanguageCode,
+      }).catch((error) => {
+        console.error("Failed to persist canonical conversation languages", error);
+      });
+
       savedMessageId = typeof message?.id === "string" ? message.id : "";
 
       await refreshConversationTitle({
         conversationId,
         userId: input.userId,
-        sourceLanguageCode: myLanguage.code,
-        targetLanguageCode: theirLanguage.code,
+        sourceLanguageCode: canonicalSourceLanguageCode,
+        targetLanguageCode: canonicalTargetLanguageCode,
       });
     } catch (error) {
       console.error("Failed to persist live conversation transcript", error);

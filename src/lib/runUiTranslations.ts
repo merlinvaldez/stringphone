@@ -1,5 +1,5 @@
 import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
-import { mistral } from "./mistral.js";
+import { createOpenAiResponse } from "./openai.js";
 import { ENGLISH_UI_STRINGS, UI_STRING_KEYS, type UiStrings } from "./uiStrings.js";
 
 type TranslationLanguagePayload = {
@@ -81,29 +81,15 @@ export async function runUiTranslations(
     };
   }
 
-  const response = await mistral.chat.complete({
-    model: process.env.MISTRAL_TRANSLATION_MODEL ?? "mistral-small-latest",
-    responseFormat: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You localize compact mobile UI copy. Translate the JSON values into the requested target language. Keep the same keys. Preserve placeholders exactly, including {language} and {seconds}. Keep strings short, natural, and suitable for buttons, labels, and status messages. Return only a JSON object.",
-      },
-      {
-        role: "user",
-        content: `Target language: ${targetLanguage.name}\n\nSource JSON:\n${JSON.stringify(
-          ENGLISH_UI_STRINGS,
-        )}`,
-      },
-    ],
+  const content = await createOpenAiResponse({
+    model: process.env.OPENAI_UI_TRANSLATION_MODEL?.trim() || undefined,
+    jsonObject: true,
+    instructions:
+      "You localize compact mobile UI copy. Translate the JSON values into the requested target language. Keep the same keys. Preserve placeholders exactly, including {language} and {seconds}. Keep strings short, natural, and suitable for buttons, labels, and status messages. Return only a JSON object.",
+    input: `Target language: ${targetLanguage.name}\n\nSource JSON:\n${JSON.stringify(
+      ENGLISH_UI_STRINGS,
+    )}`,
   });
-
-  const content = response.choices[0]?.message?.content;
-
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("UI translation response did not contain JSON text.");
-  }
 
   const translatedStrings = coerceUiStrings(JSON.parse(content));
   uiTranslationCache.set(targetLanguage.code, translatedStrings);

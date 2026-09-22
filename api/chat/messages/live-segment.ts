@@ -1,4 +1,3 @@
-import "../../../src/lib/mistral.js";
 import { getOptionalAuthenticatedVercelAppRequest } from "../../../src/auth/vercel.js";
 import { runLiveConversationSegment } from "../../../src/lib/runLiveConversationSegment.js";
 

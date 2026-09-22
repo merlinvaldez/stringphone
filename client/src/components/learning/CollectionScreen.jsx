@@ -17,6 +17,7 @@ import {
   archiveCollectionEntry,
   fetchCollection,
   fetchCollections,
+  fetchMessages,
   saveCollectionEntry,
   translateTextMessage,
 } from "../../chatApi.js";
@@ -24,6 +25,25 @@ import { LanguageFlag, getFlagCountryCode } from "../../languageFlags.jsx";
 import { useUiStrings } from "../../uiStrings.js";
 import { formatPronunciationGuide } from "../../utils.js";
 import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
+import { VoiceMessagePlayer } from "../chat/VoiceMessagePlayer.jsx";
+
+function toPlayableStoredAudioUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  if (/^(blob:|data:|https?:)/i.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  return `data:audio/mpeg;base64,${trimmedValue}`;
+}
 
 function PronunciationGuide({ value, className = "" }) {
   const pronunciation = formatPronunciationGuide(value);
@@ -340,6 +360,8 @@ function CollectionDetailView({
   archivingEntryId,
   activeViewerEntryId,
   onActiveViewerEntryIdChange,
+  authFetch,
+  onAudioPlay,
   onPlayGeneratedSpeech,
   uiStrings,
 }) {
@@ -578,6 +600,8 @@ function CollectionDetailView({
               collection.entries[nextIndex]?.id ?? null,
             )
           }
+          authFetch={authFetch}
+          onAudioPlay={onAudioPlay}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
           uiStrings={uiStrings}
         />
@@ -591,6 +615,8 @@ function CollectionEntryViewer({
   activeEntryIndex,
   onClose,
   onSelectIndex,
+  authFetch,
+  onAudioPlay,
   onPlayGeneratedSpeech,
   uiStrings,
 }) {
@@ -598,27 +624,21 @@ function CollectionEntryViewer({
   const touchStartYRef = useRef(null);
   const touchCurrentXRef = useRef(null);
   const touchCurrentYRef = useRef(null);
+  const didSwipeRef = useRef(false);
   const [displayedIndex, setDisplayedIndex] = useState(activeEntryIndex);
-  const [dragOffsetX, setDragOffsetX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [isTrackTransitioning, setIsTrackTransitioning] = useState(false);
-  const [trackOffsetPercent, setTrackOffsetPercent] = useState(-100);
-  const [pendingIndex, setPendingIndex] = useState(null);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [originalAudioUrl, setOriginalAudioUrl] = useState("");
   const entry = entries[displayedIndex] ?? null;
-  const previousEntry = displayedIndex > 0 ? entries[displayedIndex - 1] : null;
-  const nextEntry =
-    displayedIndex < entries.length - 1 ? entries[displayedIndex + 1] : null;
-  const hasPrevious = displayedIndex > 0;
-  const hasNext = displayedIndex < entries.length - 1;
+  const sourceSnapshot = entry?.sourceSnapshot ?? null;
+  const canNavigate = entries.length > 1;
   const hasRandomAlternative = entries.length > 1;
 
   useEffect(() => {
-    if (!isTrackTransitioning && activeEntryIndex !== displayedIndex) {
+    if (activeEntryIndex !== displayedIndex) {
       setDisplayedIndex(activeEntryIndex);
-      setTrackOffsetPercent(-100);
-      setDragOffsetX(0);
     }
-  }, [activeEntryIndex, displayedIndex, isTrackTransitioning]);
+  }, [activeEntryIndex, displayedIndex]);
 
   useEffect(() => {
     if (!entry) {
@@ -631,12 +651,12 @@ function CollectionEntryViewer({
         return;
       }
 
-      if (event.key === "ArrowLeft" && hasPrevious) {
+      if (event.key === "ArrowLeft" && canNavigate) {
         triggerSlideNavigation(-1);
         return;
       }
 
-      if (event.key === "ArrowRight" && hasNext) {
+      if (event.key === "ArrowRight" && canNavigate) {
         triggerSlideNavigation(1);
       }
     };
@@ -646,27 +666,120 @@ function CollectionEntryViewer({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [entry, hasNext, hasPrevious, onClose]);
+  }, [canNavigate, entry, onClose]);
+
+  useEffect(() => {
+    setIsFlipped(false);
+  }, [activeEntryIndex, displayedIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fallbackAudioUrl = toPlayableStoredAudioUrl(
+      sourceSnapshot?.sourceAudioUrl,
+    );
+
+    setOriginalAudioUrl("");
+
+    if (
+      !entry ||
+      entry.sourceType !== "message" ||
+      entry.sourceMessageKind !== "voice"
+    ) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!authFetch || !entry.sourceConversationId) {
+      setOriginalAudioUrl(fallbackAudioUrl);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void fetchMessages(authFetch, entry.sourceConversationId)
+      .then((messages) => {
+        const sourceMessageId = sourceSnapshot?.messageId;
+        const sourceMessage = messages.find((message) => {
+          if (sourceMessageId && message.id === sourceMessageId) {
+            return true;
+          }
+
+          return (
+            message.sender === entry.sourceMessageSender &&
+            message.original_text === sourceSnapshot?.originalText &&
+            message.translated_text === sourceSnapshot?.translatedText
+          );
+        });
+        const nextAudioUrl = toPlayableStoredAudioUrl(sourceMessage?.audio_url);
+
+        if (!cancelled) {
+          setOriginalAudioUrl(nextAudioUrl || fallbackAudioUrl);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOriginalAudioUrl(fallbackAudioUrl);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, entry, sourceSnapshot]);
 
   if (!entry) {
     return null;
   }
 
+  const originalVoiceLanguageCode =
+    typeof sourceSnapshot?.sourceLanguageCode === "string"
+      ? sourceSnapshot.sourceLanguageCode
+      : "";
+  const originalVoiceIsPhrase =
+    Boolean(originalAudioUrl) &&
+    (originalVoiceLanguageCode
+      ? originalVoiceLanguageCode === entry.targetLanguageCode
+      : entry.sourceMessageSender === "partner");
+  const originalVoiceIsMeaning = Boolean(originalAudioUrl) && !originalVoiceIsPhrase;
+  const originalVoiceUiStrings = {
+    ...uiStrings,
+    playAudio: "Play original voice note",
+    preparingAudio: "Loading original voice note",
+  };
+  const phraseSpeechUiStrings = {
+    ...uiStrings,
+    playAudio: "Play learning-language audio",
+    generatingAudio: "Generating learning-language audio",
+    audioUnavailable: "Learning-language audio unavailable.",
+  };
+  const meaningSpeechUiStrings = {
+    ...uiStrings,
+    playAudio: "Play your-language audio",
+    generatingAudio: "Generating your-language audio",
+    audioUnavailable: "Your-language audio unavailable.",
+  };
+
+  const handleFlip = () => {
+    if (isDragging || didSwipeRef.current) {
+      didSwipeRef.current = false;
+      return;
+    }
+
+    setIsFlipped((currentValue) => !currentValue);
+  };
+
   const triggerSlideNavigation = (direction) => {
-    if (isTrackTransitioning || isDragging) {
+    if (isDragging || !canNavigate) {
       return;
     }
 
-    const nextIndex = displayedIndex + direction;
+    const nextIndex =
+      (displayedIndex + direction + entries.length) % entries.length;
 
-    if (nextIndex < 0 || nextIndex >= entries.length) {
-      return;
-    }
-
-    setPendingIndex(nextIndex);
-    setIsTrackTransitioning(true);
-    setTrackOffsetPercent(direction > 0 ? -200 : 0);
-    setDragOffsetX(0);
+    setDisplayedIndex(nextIndex);
+    setIsFlipped(false);
+    onSelectIndex(nextIndex);
   };
 
   const handleTouchStart = (event) => {
@@ -674,14 +787,11 @@ function CollectionEntryViewer({
     touchStartYRef.current = event.touches[0]?.clientY ?? null;
     touchCurrentXRef.current = touchStartXRef.current;
     touchCurrentYRef.current = touchStartYRef.current;
+    didSwipeRef.current = false;
     setIsDragging(false);
   };
 
   const handleTouchMove = (event) => {
-    if (isTrackTransitioning) {
-      return;
-    }
-
     const nextX = event.touches[0]?.clientX ?? touchCurrentXRef.current;
     const nextY = event.touches[0]?.clientY ?? touchCurrentYRef.current;
 
@@ -704,9 +814,8 @@ function CollectionEntryViewer({
       return;
     }
 
-    const clampedDeltaX = Math.max(Math.min(deltaX, 180), -180);
+    didSwipeRef.current = true;
     setIsDragging(true);
-    setDragOffsetX(clampedDeltaX);
   };
 
   const handleTouchEnd = () => {
@@ -725,97 +834,82 @@ function CollectionEntryViewer({
     touchCurrentXRef.current = null;
     touchCurrentYRef.current = null;
 
-    if (deltaX >= threshold && hasPrevious) {
+    if (deltaX >= threshold && canNavigate) {
       setIsDragging(false);
       triggerSlideNavigation(-1);
       return;
     }
 
-    if (deltaX <= -threshold && hasNext) {
+    if (deltaX <= -threshold && canNavigate) {
       setIsDragging(false);
       triggerSlideNavigation(1);
       return;
     }
 
-    if (isDragging) {
-      setIsDragging(false);
-      setIsTrackTransitioning(true);
-      setTrackOffsetPercent(-100);
-      setDragOffsetX(0);
-    }
+    setIsDragging(false);
   };
 
   const handleSelectRandomEntry = () => {
-    if (!hasRandomAlternative || isTrackTransitioning || isDragging) {
+    if (!hasRandomAlternative || isDragging) {
       return;
     }
 
     let nextIndex = displayedIndex;
 
-    while (nextIndex === activeEntryIndex) {
+    while (nextIndex === displayedIndex) {
       nextIndex = Math.floor(Math.random() * entries.length);
     }
 
     setDisplayedIndex(nextIndex);
-    setTrackOffsetPercent(-100);
-    setDragOffsetX(0);
+    setIsFlipped(false);
     onSelectIndex(nextIndex);
   };
-
-  const handleTrackTransitionEnd = () => {
-    if (!isTrackTransitioning) {
-      return;
-    }
-
-    if (pendingIndex == null) {
-      setIsTrackTransitioning(false);
-      setTrackOffsetPercent(-100);
-      setDragOffsetX(0);
-      return;
-    }
-
-    setDisplayedIndex(pendingIndex);
-    setIsTrackTransitioning(false);
-    setTrackOffsetPercent(-100);
-    setDragOffsetX(0);
-    onSelectIndex(pendingIndex);
-    setPendingIndex(null);
-  };
-
-  const viewerTrackTransform =
-    isDragging || dragOffsetX !== 0
-      ? `translateX(calc(${trackOffsetPercent}% + ${dragOffsetX}px))`
-      : `translateX(${trackOffsetPercent}%)`;
 
   return (
     <div
       className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div className="mx-auto flex h-full max-w-5xl items-center justify-center p-4 sm:p-6">
+      <div className="mx-auto flex h-full max-w-5xl items-center justify-center px-12 py-4 sm:px-0 sm:py-6">
         <div
-          className="w-full max-w-3xl rounded-[2.25rem] border border-white/10 bg-zinc-900/90 p-5 shadow-2xl backdrop-blur-xl sm:p-8"
+          className="relative h-[min(76vh,42rem)] w-full max-w-3xl [perspective:1200px]"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
-              aria-label="Close card viewer"
-              title="Close card viewer"
-            >
-              <X size={18} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleSelectRandomEntry}
+            disabled={!hasRandomAlternative || isDragging}
+            className={`absolute left-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/10 text-zinc-300 transition hover:bg-white/10 hover:text-white sm:left-5 sm:top-5 ${
+              !hasRandomAlternative || isDragging
+                ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
+                : ""
+            }`}
+            aria-label="Random card"
+            title="Random card"
+          >
+            <Dices size={18} />
+          </button>
 
-          <div className="relative mt-3 min-h-[min(70vh,40rem)]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/10 text-zinc-300 transition hover:bg-white/10 hover:text-white sm:right-5 sm:top-5"
+            aria-label="Close card viewer"
+            title="Close card viewer"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="relative h-full w-full">
             <button
               type="button"
-              onClick={() => triggerSlideNavigation(-1)}
-              disabled={!hasPrevious || isTrackTransitioning}
-              className={`absolute left-0 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                !hasPrevious || isTrackTransitioning
+              onClick={(event) => {
+                event.stopPropagation();
+                triggerSlideNavigation(-1);
+              }}
+              disabled={!canNavigate || isDragging}
+              className={`absolute -left-12 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white sm:-left-14 ${
+                !canNavigate || isDragging
                   ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
                   : ""
               }`}
@@ -827,10 +921,13 @@ function CollectionEntryViewer({
 
             <button
               type="button"
-              onClick={() => triggerSlideNavigation(1)}
-              disabled={!hasNext || isTrackTransitioning}
-              className={`absolute right-0 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                !hasNext || isTrackTransitioning
+              onClick={(event) => {
+                event.stopPropagation();
+                triggerSlideNavigation(1);
+              }}
+              disabled={!canNavigate || isDragging}
+              className={`absolute -right-12 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white sm:-right-14 ${
+                !canNavigate || isDragging
                   ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
                   : ""
               }`}
@@ -841,78 +938,90 @@ function CollectionEntryViewer({
             </button>
 
             <div
-              className="overflow-hidden px-12 sm:px-16"
+              className="relative h-full w-full cursor-pointer [transform-style:preserve-3d]"
+              onClick={handleFlip}
               onTouchStart={handleTouchStart}
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
             >
               <div
-                className="flex"
+                className="absolute inset-0 flex flex-col items-center justify-center rounded-[2.25rem] border border-emerald-400/20 bg-emerald-950 p-8 pt-20 text-center shadow-[0_0_60px_rgba(16,185,129,0.08)] [backface-visibility:hidden] sm:p-12 sm:pt-20"
                 style={{
-                  transform: viewerTrackTransform,
-                  transition:
-                    isTrackTransitioning && !isDragging
-                      ? "transform 260ms cubic-bezier(0.22, 1, 0.36, 1)"
-                      : "none",
+                  transform: isFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
+                  transition: "transform 500ms ease",
                 }}
-                onTransitionEnd={handleTrackTransitionEnd}
               >
-                {[previousEntry, entry, nextEntry].map((slideEntry, slideIndex) => (
-                  <div
-                    key={slideEntry?.id ?? `slide-${slideIndex}`}
-                    className="flex w-full shrink-0 justify-center"
-                  >
-                    <div className="flex min-h-[min(62vh,34rem)] w-full max-w-2xl flex-col items-center justify-center text-center">
-                      {slideEntry ? (
-                        <>
-                          <div className="flex max-w-full items-center justify-center gap-3">
-                            <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-                              {slideEntry.phraseText}
-                            </p>
-                            <TextToSpeechButton
-                              text={slideEntry.phraseText}
-                              languageCode={slideEntry.targetLanguageCode}
-                              onPlay={onPlayGeneratedSpeech}
-                              uiStrings={uiStrings}
-                              className="shrink-0"
-                            />
-                          </div>
-                          <PronunciationGuide
-                            value={slideEntry.phrasePronunciation}
-                            className="mt-4 text-base text-emerald-200/80 sm:text-lg"
-                          />
-                          <p className="mt-8 text-lg leading-8 text-zinc-200 sm:text-2xl sm:leading-10">
-                            {slideEntry.meaningText}
-                          </p>
-                          {slideEntry.noteText ? (
-                            <p className="mt-6 max-w-2xl text-sm leading-7 text-zinc-500 sm:text-base">
-                              {slideEntry.noteText}
-                            </p>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
+                <div className="flex max-w-full items-center justify-center gap-3">
+                  <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+                    {entry.phraseText}
+                  </p>
+                  <div onClick={(event) => event.stopPropagation()}>
+                    {originalVoiceIsPhrase ? (
+                      <VoiceMessagePlayer
+                        audioUrl={originalAudioUrl}
+                        onAudioPlay={onAudioPlay}
+                        isSelf={entry.sourceMessageSender === "self"}
+                        uiStrings={originalVoiceUiStrings}
+                      />
+                    ) : (
+                      <TextToSpeechButton
+                        text={entry.phraseText}
+                        languageCode={entry.targetLanguageCode}
+                        onPlay={onPlayGeneratedSpeech}
+                        uiStrings={phraseSpeechUiStrings}
+                        className="shrink-0"
+                      />
+                    )}
                   </div>
-                ))}
+                </div>
+                <PronunciationGuide
+                  value={entry.phrasePronunciation}
+                  className="mt-4 text-base text-emerald-200/80 sm:text-lg"
+                />
+              </div>
+
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center rounded-[2.25rem] border border-sky-400/20 bg-sky-950 p-8 pt-20 text-center shadow-[0_0_60px_rgba(56,189,248,0.08)] [backface-visibility:hidden] sm:p-12 sm:pt-20"
+                style={{
+                  transform: isFlipped ? "rotateY(0deg)" : "rotateY(-180deg)",
+                  transition: "transform 500ms ease",
+                }}
+              >
+                <p className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+                  {entry.meaningText}
+                </p>
+                <PronunciationGuide
+                  value={entry.meaningPronunciation}
+                  className="mt-4 text-base text-sky-200/80 sm:text-lg"
+                />
+                {entry.noteText ? (
+                  <p className="mt-8 max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
+                    {entry.noteText}
+                  </p>
+                ) : null}
+                <div
+                  className="mt-8"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {originalVoiceIsMeaning ? (
+                    <VoiceMessagePlayer
+                      audioUrl={originalAudioUrl}
+                      onAudioPlay={onAudioPlay}
+                      isSelf={entry.sourceMessageSender === "self"}
+                      uiStrings={originalVoiceUiStrings}
+                    />
+                  ) : (
+                    <TextToSpeechButton
+                      text={entry.meaningText}
+                      languageCode={entry.sourceLanguageCode}
+                      onPlay={onPlayGeneratedSpeech}
+                      uiStrings={meaningSpeechUiStrings}
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2">
-              <button
-                type="button"
-                onClick={handleSelectRandomEntry}
-                disabled={!hasRandomAlternative || isTrackTransitioning}
-                className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                  !hasRandomAlternative || isTrackTransitioning
-                    ? "cursor-default opacity-30 hover:bg-white/5 hover:text-zinc-300"
-                    : ""
-                }`}
-                aria-label="Random card"
-                title="Random card"
-              >
-                <Dices size={18} />
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -930,6 +1039,7 @@ export function CollectionScreen({
   onSelectLanguageCode,
   onOpenSidebar,
   onRequireSignIn,
+  onAudioPlay,
   onPlayGeneratedSpeech,
 }) {
   const [collections, setCollections] = useState([]);
@@ -1157,6 +1267,8 @@ export function CollectionScreen({
           archivingEntryId={archivingEntryId}
           activeViewerEntryId={activeViewerEntryId}
           onActiveViewerEntryIdChange={setActiveViewerEntryId}
+          authFetch={authFetch}
+          onAudioPlay={onAudioPlay}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
           uiStrings={uiStrings}
         />

@@ -1,8 +1,8 @@
-import { mistral } from "../lib/mistral.js";
 import {
   getWritingSystemLabel,
   requiresPhoneticGuide,
 } from "../lib/languages.js";
+import { createOpenAiResponse } from "../lib/openai.js";
 
 export type LessonSourceMessage = {
   originalText: string;
@@ -41,7 +41,7 @@ export type GeneratedLesson = {
 };
 
 const MAX_CONTEXT_CHARACTERS = 6000;
-const DEFAULT_LESSON_MODEL = "mistral-large-latest";
+const DEFAULT_LESSON_MODEL = "gpt-4o-mini";
 
 export class LessonGenerationError extends Error {
   status: number;
@@ -188,7 +188,9 @@ export async function generateLanguageLesson(input: {
   const practiceWritingSystem =
     getWritingSystemLabel(input.targetLanguageCode) ?? "the practice script";
   const model =
-    process.env.MISTRAL_LESSON_MODEL?.trim() || DEFAULT_LESSON_MODEL;
+    process.env.OPENAI_LESSON_MODEL?.trim() ||
+    process.env.OPENAI_TRANSLATION_MODEL?.trim() ||
+    DEFAULT_LESSON_MODEL;
   const chatContext = formatChatContext(input.messages);
   const learningContext =
     input.source === "chat"
@@ -198,15 +200,11 @@ export async function generateLanguageLesson(input: {
   let response;
 
   try {
-    response = await mistral.chat.complete({
+    response = await createOpenAiResponse({
       model,
-      responseFormat: { type: "json_object" },
-      maxTokens: 1100,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content: `You are a careful language tutor designing a three-minute, practical lesson. The learner's home language is ${sourceLanguage}; the language they are practicing is ${targetLanguage}. Make the target language the primary language of the title, all terms, examples, phrases, and the sample answer. Use the home language for concise translations and explanations. Prefer useful everyday wording over obscure vocabulary. Do not invent slang or cultural claims. Return only a JSON object with this exact shape:
+      jsonObject: true,
+      maxOutputTokens: 1100,
+      instructions: `You are a careful language tutor designing a three-minute, practical lesson. The learner's home language is ${sourceLanguage}; the language they are practicing is ${targetLanguage}. Make the target language the primary language of the title, all terms, examples, phrases, and the sample answer. Use the home language for concise translations and explanations. Prefer useful everyday wording over obscure vocabulary. Do not invent slang or cultural claims. Return only a JSON object with this exact shape:
 {
   "title": "short target-language lesson title",
   "historyTitle": "2 to 5 word home-language sidebar title",
@@ -223,15 +221,10 @@ Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every 
               ? `Because ${targetLanguage} uses ${practiceWritingSystem} and the learner reads ${learnerWritingSystem}, fill every transliteration field with a phonetic spelling in ${learnerWritingSystem}. Do not add parentheses, labels, or meaning translations inside those transliteration fields.`
               : `Because ${sourceLanguage} and ${targetLanguage} share the same writing system for this lesson, leave every transliteration field as an empty string.`
           }`,
-        },
-        {
-          role: "user",
-          content: learningContext,
-        },
-      ],
+      input: learningContext,
     });
   } catch (error) {
-    console.error("Mistral lesson generation request failed", {
+    console.error("OpenAI lesson generation request failed", {
       model,
       error,
     });
@@ -240,10 +233,10 @@ Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every 
     );
   }
 
-  const content = response.choices[0]?.message?.content;
+  const content = response;
 
   if (typeof content !== "string" || !content.trim()) {
-    console.error("Mistral lesson generation returned no JSON content", { model });
+    console.error("OpenAI lesson generation returned no JSON content", { model });
     throw new LessonGenerationError(
       "Lesson generation returned an empty response. Please try again.",
     );
@@ -254,7 +247,7 @@ Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every 
   try {
     parsedContent = JSON.parse(content);
   } catch (error) {
-    console.error("Mistral lesson generation returned invalid JSON", {
+    console.error("OpenAI lesson generation returned invalid JSON", {
       model,
       error,
     });
@@ -266,7 +259,7 @@ Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every 
   try {
     return coerceLesson(parsedContent);
   } catch (error) {
-    console.error("Mistral lesson generation returned incomplete content", {
+    console.error("OpenAI lesson generation returned incomplete content", {
       model,
       error,
     });

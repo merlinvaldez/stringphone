@@ -30,6 +30,7 @@ export function LearningScreen({
   onCreateLesson,
   onStartNewLesson,
   onOpenSidebar,
+  onAudioPlay,
   onPlayGeneratedSpeech,
   onSaveLessonVocabularyToCollection,
   onRequireSignIn,
@@ -82,6 +83,7 @@ export function LearningScreen({
           onSelectLanguageCode={onSelectCollectionLanguageCode}
           onOpenSidebar={onOpenSidebar}
           onRequireSignIn={onRequireSignIn}
+          onAudioPlay={onAudioPlay}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
         />
       ) : (

@@ -63,7 +63,7 @@ export function VoiceMessagePlayer({ audioUrl, onAudioPlay, isSelf, uiStrings })
         onPlaying={(event) => {
           setIsLoadingPlayback(false);
           setIsPlaying(true);
-          onAudioPlay(event.currentTarget);
+          onAudioPlay?.(event.currentTarget);
         }}
         onWaiting={() => {
           setIsLoadingPlayback(true);

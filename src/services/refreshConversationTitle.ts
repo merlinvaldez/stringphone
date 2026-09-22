@@ -1,6 +1,6 @@
 import { getMessages, updateConversationTitle } from "../db/queries/conversations.js";
 import { SUPPORTED_TTS_LANGUAGE_OPTIONS } from "../lib/languages.js";
-import { mistral } from "../lib/mistral.js";
+import { createOpenAiResponse } from "../lib/openai.js";
 
 type StoredConversationMessage = {
   sender: string;
@@ -92,26 +92,12 @@ async function generateConversationTopic(
     })
     .join("\n\n");
 
-  const response = await mistral.chat.complete({
-    model:
-      process.env.MISTRAL_CONVERSATION_TITLE_MODEL ??
-      process.env.MISTRAL_TRANSLATION_MODEL ??
-      "mistral-small-latest",
-    responseFormat: { type: "text" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You write very short conversation titles. Summarize the topic in 2 to 5 words. Return only the title text. Do not include quotes, emojis, punctuation-heavy formatting, arrows, or language names.",
-      },
-      {
-        role: "user",
-        content: `Source language: ${getLanguageName(sourceLanguageCode)}\nTarget language: ${getLanguageName(targetLanguageCode)}\n\nConversation excerpts:\n${messageSummary}`,
-      },
-    ],
+  const content = await createOpenAiResponse({
+    model: process.env.OPENAI_CONVERSATION_TITLE_MODEL?.trim() || undefined,
+    instructions:
+      "You write very short conversation titles. Summarize the topic in 2 to 5 words. Return only the title text. Do not include quotes, emojis, punctuation-heavy formatting, arrows, or language names.",
+    input: `Source language: ${getLanguageName(sourceLanguageCode)}\nTarget language: ${getLanguageName(targetLanguageCode)}\n\nConversation excerpts:\n${messageSummary}`,
   });
-
-  const content = response.choices[0]?.message?.content;
 
   if (typeof content !== "string") {
     return "";

@@ -1,4 +1,3 @@
-import "../../src/lib/mistral.js";
 import { bufferToUint8Array } from "../../src/lib/binary.js";
 import { runSpeechTranslation } from "../../src/lib/runSpeechTranslation.js";
 
@@ -33,7 +32,6 @@ export default {
 
     const formData = await request.formData();
     const sourceAudio = formData.get("sourceAudio");
-    const voiceSample = formData.get("voiceSample");
 
     const result = await runSpeechTranslation({
       responseMode: formData.get("responseMode"),
@@ -45,14 +43,6 @@ export default {
               buffer: Buffer.from(await sourceAudio.arrayBuffer()),
               filename: sourceAudio.name || "source-audio.webm",
               mimeType: sourceAudio.type || undefined,
-            }
-          : undefined,
-      voiceSampleFile:
-        voiceSample instanceof File
-          ? {
-              buffer: Buffer.from(await voiceSample.arrayBuffer()),
-              filename: voiceSample.name || "voice-sample.webm",
-              mimeType: voiceSample.type || undefined,
             }
           : undefined,
     });
@@ -67,7 +57,7 @@ export default {
         translation: result.translation,
         targetLanguage: result.targetLanguage,
         audio: {
-          mimeType: "audio/mpeg",
+          mimeType: "audio/wav",
           base64: result.audioBuffer.toString("base64"),
         },
       });
@@ -76,8 +66,8 @@ export default {
     return new Response(bufferToUint8Array(result.audioBuffer), {
       status: 200,
       headers: {
-        "Content-Type": "audio/mpeg",
-        "Content-Disposition": 'inline; filename="translated-speech.mp3"',
+        "Content-Type": "audio/wav",
+        "Content-Disposition": 'inline; filename="translated-speech.wav"',
       },
     });
   },

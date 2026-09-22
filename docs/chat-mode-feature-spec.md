@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Chat is StringPhone's primary bilingual message surface. It supports typed messages, live voice messages, saved conversations, shared rooms, phrasebook saves, and the optional AI partner. The app keeps the original Single and Conversation turn-taking screens instead of replacing them with a generic chat UI.
+Chat is StringPhone's primary bilingual message surface. It supports typed messages, live voice messages, saved conversations, shared rooms, and phrasebook saves. The app keeps the original Single and Conversation turn-taking screens instead of replacing them with a generic chat UI.
 
 ## Visible modes
 
@@ -39,7 +39,7 @@ Persian is part of the shared language list and is available in Chat, Single, Co
 4. The message is updated in place with the original text, translation, pronunciation guidance where applicable, and ready/error state.
 5. Signed-in messages are saved to the active conversation. A conversation is created on demand when a message needs persistence.
 
-Chat is translation-first, not a general-purpose assistant. The optional AI partner is activated separately with `/aipartner` and is documented in [ai-partner-feature-spec.md](ai-partner-feature-spec.md).
+Chat is translation-first and does not generate unsolicited assistant replies.
 
 ## Voice messages: current live path
 
@@ -80,7 +80,7 @@ Voice messages show:
 - pronunciation guidance where applicable;
 - processing/error/retry treatment.
 
-The message sender controls bubble alignment. Chat-originated user turns use `sender: "self"`; AI partner turns use `messageOrigin: "ai_partner"` and `sender: "partner"`. Shared-room messages are mapped from the room participant who authored them.
+The message sender controls bubble alignment. Chat-originated user turns use `sender: "self"`; shared-room messages are mapped from the room participant who authored them.
 
 ## Shared history and persistence
 
@@ -88,7 +88,7 @@ The root app owns the message list. Chat, Single, Conversation, and live callbac
 
 For signed-in users, completed messages are saved in the active `public.conversations` / `public.messages` records. Live finalization can save the captured source audio with the message. Signed-out messages remain in the current page session and are cleared on reload.
 
-Opening a saved conversation loads its language pair and messages into Chat. Starting a new conversation clears the active message list and resets the AI partner/live state.
+Opening a saved conversation loads its language pair and messages into Chat. Starting a new conversation clears the active message list and resets live state.
 
 ## Single and Conversation modes
 
@@ -124,10 +124,7 @@ Each deployed handler under `api/` shares orchestration with the Express route i
 
 ## Provider responsibilities
 
-- OpenAI: typed Chat translation, live transcription credentials, live draft translation, selected-pair language classification, and pronunciation guidance.
-- Mistral: provider-backed speech paths, conversation title refresh, lesson generation, AI partner generation, and UI translations where those services are used.
-- ElevenLabs: Persian speech and related speech operations.
-- Cartesia: the Cartesia-supported speech languages.
+- OpenAI: typed Chat translation, transcription, synthesized TTS audio, live transcription credentials, live draft translation, selected-pair language classification, and pronunciation guidance.
 
 The OpenAI model selectors are configurable through `OPENAI_TRANSLATION_MODEL`, `OPENAI_LIVE_TRANSLATION_MODEL`, `OPENAI_LIVE_LANGUAGE_MODEL`, `OPENAI_PRONUNCIATION_MODEL`, and `OPENAI_TRANSCRIPTION_MODEL`. Their current defaults are documented in the repository README.
 

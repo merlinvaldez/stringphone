@@ -36,11 +36,25 @@ export function authRouteOptionsResponse() {
   });
 }
 
+function createVercelAuthRequest(request: Request) {
+  // Clerk only needs the URL and request headers to resolve the session. Passing
+  // the original Request makes Clerk's Request wrapper try to reuse the body
+  // stream, which can fail with `TypeError: unusable` on Vercel. Keep the body
+  // available for the route handler by authenticating against a header-only
+  // request instead.
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+  });
+}
+
 export async function getOptionalAuthenticatedVercelAppRequest(
   request: Request,
 ): Promise<{ clerkUserId: string; appUser: AppUser | null } | null> {
   try {
-    const requestState = await clerkClient.authenticateRequest(request.clone());
+    const requestState = await clerkClient.authenticateRequest(
+      createVercelAuthRequest(request),
+    );
     const auth = requestState.toAuth();
 
     if (!auth?.userId) {
@@ -63,7 +77,9 @@ export async function requireAuthenticatedVercelAppRequest(
   request: Request,
 ): Promise<AuthenticatedVercelAppRequest> {
   try {
-    const requestState = await clerkClient.authenticateRequest(request.clone());
+    const requestState = await clerkClient.authenticateRequest(
+      createVercelAuthRequest(request),
+    );
     const auth = requestState.toAuth();
 
     if (!auth?.userId) {

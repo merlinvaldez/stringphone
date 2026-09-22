@@ -33,6 +33,7 @@ export default {
         sourceLanguage: body?.sourceLanguage,
         targetLanguage: body?.targetLanguage,
         transcript: body?.transcript,
+        sender: body?.sender,
       });
 
       if (!result.ok) {
