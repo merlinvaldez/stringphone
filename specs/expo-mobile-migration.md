@@ -4,7 +4,7 @@
 
 People install StringPhone on iPhone or Android and use a native interface to communicate across two selected languages. An Expo app lives in `mobile/` alongside the existing website. Conversation records live on the phone in SQLite; recordings and generated speech live in durable app files, with references stored in SQLite. The phone controls its microphone and speakers. A server handles cloud AI requests and protects permanent API keys.
 
-This is a planning document, not an implemented feature. Tracking issue: [GitHub #16](https://github.com/merlinvaldez/stringphone/issues/16). Source discussion: [shared architecture conversation](https://chatgpt.com/share/6aca805a-d240-83ea-b0ab-fb49ea09a47d). Baseline inspected: `main` at `15e19c4`, October 10, 2026. Working branch: `feat/expo-mobile-sqlite`.
+This is a phased implementation document. Completed checklist items identify implemented work; unchecked items remain planned. Tracking issue: [GitHub #16](https://github.com/merlinvaldez/stringphone/issues/16). Source discussion: [shared architecture conversation](https://chatgpt.com/share/6aca805a-d240-83ea-b0ab-fb49ea09a47d). Baseline inspected: `main` at `15e19c4`, October 10, 2026. Working branch: `feat/expo-mobile-sqlite`.
 
 ### Core flows
 
@@ -48,11 +48,11 @@ Outcome: a clear list of required mobile behavior and server requests before rew
 
 Outcome: one mobile codebase starts on iPhone and Android.
 
-- [ ] Scaffold a TypeScript Expo app under `mobile/`, with native navigation, safe areas, keyboard handling, and accessibility labels. Use a stable compatible SDK and record versions when implementation starts.
-- [ ] Add native audio, SQLite, and file-system dependencies using the SDK's supported installation workflow. Use a development build for custom native modules; do not assume Expo Go supports the final streaming stack.
-- [ ] Keep mobile scripts/install steps separate from the existing root postinstall and web build. Document Windows commands, device testing, and a reachable development API address; phone localhost is not the development PC.
-- [ ] Configure development/preview/production API URLs. Only public configuration belongs in the app bundle; permanent AI and server credentials remain on the server.
-- [ ] Configure app identity, icons, microphone permission descriptions, and reproducible development builds. Review Apple/Google developer-account and signing prerequisites before device distribution.
+- [x] Scaffold a TypeScript Expo app under `mobile/`, with native navigation, safe areas, keyboard handling, and accessibility labels. Implemented October 13, 2026 with SDK 57; see [mobile setup and recorded versions](../mobile/README.md). Native device acceptance remains unverified.
+- [x] Add native audio, SQLite, and file-system dependencies using the SDK's supported installation workflow. Installed SDK 57-compatible packages and `expo-dev-client` October 13, 2026; see [native dependencies and development-client workflow](../mobile/README.md#native-dependencies-and-development-client). Native compilation and device module checks remain unverified; final streaming requires a development build.
+- [x] Keep mobile scripts/install steps separate from the existing root postinstall and web build. Documented October 13, 2026 in [mobile/backend Windows setup](../mobile/README.md#separate-mobile-and-backend-development-on-windows), including LAN API addressing and phone health checks. Physical-device reachability remains a manual check.
+- [x] Configure development/preview/production API URLs. Implemented explicit public environment selection, validated API base resolution, and configuration checks October 13, 2026; existing Vercel preview serves development/preview and the production project domain serves production. See [API environment setup](../mobile/README.md#api-environments). Vercel SSO protection/native access remains unresolved before translation integration. Permanent credentials remain server-side; mobile requests and device transport checks are later milestones.
+- [x] Configure app identity, icons, microphone permission descriptions, and reproducible development builds. Configured October 13, 2026: `ai.stringphone.mobile`, branded icon, microphone plugin settings, pinned EAS development/simulator profiles and reviewed account/signing prerequisites. See [development-build guide](../mobile/docs/development-builds.md). Config/type/lint/Doctor checks pass; account linking, signed native compilation and device installation remain unverified.
 
 ### 3. Separate reusable logic from browser-specific code
 

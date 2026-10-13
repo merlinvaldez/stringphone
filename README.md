@@ -42,6 +42,7 @@ Shared rooms use an invite link and participant session token. They remain guest
 ## Project layout
 
 - `client/` — React + Vite frontend
+- `mobile/` — independent Expo + TypeScript mobile app; see [Windows setup, device testing, and development API access](mobile/README.md#separate-mobile-and-backend-development-on-windows)
 - `src/` — Express + TypeScript backend and shared orchestration
 - `api/` — Vercel-compatible serverless handlers that share the backend helpers
 - `docs/` — current feature and integration notes

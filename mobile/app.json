@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "StringPhone",
+    "slug": "stringphone-mobile",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "stringphone",
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow StringPhone to record your voice for transcription and translation.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-sqlite",
+      "expo-asset"
+    ],
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "ai.stringphone.mobile",
+      "buildNumber": "1",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "ai.stringphone.mobile",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
