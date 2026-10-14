@@ -1,75 +1,19 @@
-import {
-  CANONICAL_TTS_LANGUAGES,
-  getSupportedTtsLanguage,
-  requiresPhoneticGuide,
-} from "./languages.js";
+import { requiresPhoneticGuide } from "./languages.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 import { translateText } from "../services/translateText.js";
 
-type ChatLanguagePayload = {
-  code: string;
-  label: string;
-};
+import { validateTextChatMessage } from "../../shared/validation.js";
+import type { TextChatMessageInput, TextChatMessageResult } from "../../shared/messages.js";
 
-export type RunTextChatMessageInput = {
-  text: unknown;
-  sourceLanguage: unknown;
-  targetLanguage: unknown;
-};
-
-export type RunTextChatMessageResult =
-  | {
-      ok: true;
-      originalText: string;
-      translatedText: string;
-      originalPronunciation: string;
-      translatedPronunciation: string;
-      sourceLanguage: ChatLanguagePayload;
-      targetLanguage: ChatLanguagePayload;
-    }
-  | {
-      ok: false;
-      status: number;
-      body: Record<string, unknown>;
-    };
+export type RunTextChatMessageInput = TextChatMessageInput;
+export type RunTextChatMessageResult = TextChatMessageResult;
 
 export async function runTextChatMessage(
   input: RunTextChatMessageInput,
 ): Promise<RunTextChatMessageResult> {
-  const originalText =
-    typeof input.text === "string" ? input.text.trim() : "";
-  const sourceLanguage = getSupportedTtsLanguage(input.sourceLanguage);
-  const targetLanguage = getSupportedTtsLanguage(input.targetLanguage);
-
-  if (!originalText) {
-    return {
-      ok: false,
-      status: 400,
-      body: { error: "text is required" },
-    };
-  }
-
-  if (!sourceLanguage) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        error: "sourceLanguage is not supported",
-        supportedLanguages: CANONICAL_TTS_LANGUAGES,
-      },
-    };
-  }
-
-  if (!targetLanguage) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        error: "targetLanguage is not supported",
-        supportedLanguages: CANONICAL_TTS_LANGUAGES,
-      },
-    };
-  }
+  const validated = validateTextChatMessage(input);
+  if (validated.ok === false) return validated;
+  const { originalText, sourceLanguage, targetLanguage } = validated;
 
   const translatedText = await translateText({
     text: originalText,

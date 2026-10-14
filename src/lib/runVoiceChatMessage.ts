@@ -6,10 +6,7 @@ import {
 import { runSpeechTranslation } from "./runSpeechTranslation.js";
 import { generatePronunciationGuidance } from "../services/generatePronunciationGuidance.js";
 
-type ChatLanguagePayload = {
-  code: string;
-  label: string;
-};
+import type { ChatLanguagePayload } from "../../shared/messages.js";
 
 export type RunVoiceChatMessageInput = {
   sourceLanguage: unknown;

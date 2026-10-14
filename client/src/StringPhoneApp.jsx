@@ -1,3 +1,4 @@
+import { LANGUAGE_OPTIONS } from "../../shared/languageOptions.ts";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
@@ -97,51 +98,7 @@ const DEFAULT_LIVE_CAPTURE_STATE = {
 const DEFAULT_TTS_VOICE = "marin";
 const MALE_TTS_VOICE = "onyx";
 
-const RAW_LANGUAGES = [
-  { code: "en", englishName: "English", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
-  { code: "es", englishName: "Spanish", flag: "\uD83C\uDDEA\uD83C\uDDF8" },
-  { code: "fr", englishName: "French", flag: "\uD83C\uDDEB\uD83C\uDDF7" },
-  { code: "de", englishName: "German", flag: "\uD83C\uDDE9\uD83C\uDDEA" },
-  { code: "pt", englishName: "Portuguese", flag: "\uD83C\uDDF5\uD83C\uDDF9" },
-  { code: "it", englishName: "Italian", flag: "\uD83C\uDDEE\uD83C\uDDF9" },
-  { code: "nl", englishName: "Dutch", flag: "\uD83C\uDDF3\uD83C\uDDF1" },
-  { code: "hi", englishName: "Hindi", flag: "\uD83C\uDDEE\uD83C\uDDF3" },
-  { code: "ar", englishName: "Arabic", flag: "\uD83C\uDDF8\uD83C\uDDE6" },
-  { code: "fa", englishName: "Persian", flag: "\uD83C\uDDEE\uD83C\uDDF7" },
-  { code: "zh", englishName: "Chinese", flag: "CN" },
-  { code: "ja", englishName: "Japanese", flag: "JP" },
-  { code: "ko", englishName: "Korean", flag: "KR" },
-  { code: "pl", englishName: "Polish", flag: "PL" },
-  { code: "ru", englishName: "Russian", flag: "RU" },
-  { code: "sv", englishName: "Swedish", flag: "SE" },
-  { code: "tr", englishName: "Turkish", flag: "TR" },
-  { code: "tl", englishName: "Tagalog", flag: "PH" },
-  { code: "bg", englishName: "Bulgarian", flag: "BG" },
-  { code: "ro", englishName: "Romanian", flag: "RO" },
-  { code: "cs", englishName: "Czech", flag: "CZ" },
-  { code: "el", englishName: "Greek", flag: "GR" },
-  { code: "fi", englishName: "Finnish", flag: "FI" },
-  { code: "hr", englishName: "Croatian", flag: "HR" },
-  { code: "ms", englishName: "Malay", flag: "MY" },
-  { code: "sk", englishName: "Slovak", flag: "SK" },
-  { code: "da", englishName: "Danish", flag: "DK" },
-  { code: "ta", englishName: "Tamil", flag: "IN" },
-  { code: "uk", englishName: "Ukrainian", flag: "UA" },
-  { code: "hu", englishName: "Hungarian", flag: "HU" },
-  { code: "no", englishName: "Norwegian", flag: "NO" },
-  { code: "vi", englishName: "Vietnamese", flag: "VN" },
-  { code: "bn", englishName: "Bengali", flag: "BD" },
-  { code: "th", englishName: "Thai", flag: "TH" },
-  { code: "he", englishName: "Hebrew", flag: "IL" },
-  { code: "ka", englishName: "Georgian", flag: "GE" },
-  { code: "id", englishName: "Indonesian", flag: "ID" },
-  { code: "te", englishName: "Telugu", flag: "IN" },
-  { code: "gu", englishName: "Gujarati", flag: "IN" },
-  { code: "kn", englishName: "Kannada", flag: "IN" },
-  { code: "ml", englishName: "Malayalam", flag: "IN" },
-  { code: "mr", englishName: "Marathi", flag: "IN" },
-  { code: "pa", englishName: "Punjabi", flag: "IN" },
-];
+
 
 function getNativeLanguageName(code, fallbackName) {
   try {
@@ -155,7 +112,7 @@ function getNativeLanguageName(code, fallbackName) {
   }
 }
 
-const LANGUAGES = RAW_LANGUAGES.map((language) => ({
+const LANGUAGES = LANGUAGE_OPTIONS.map((language) => ({
   code: language.code,
   englishName: language.englishName,
   name: getNativeLanguageName(language.code, language.englishName),

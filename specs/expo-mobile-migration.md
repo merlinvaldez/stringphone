@@ -58,9 +58,9 @@ Outcome: one mobile codebase starts on iPhone and Android.
 
 Outcome: web and mobile share behavior without importing browser or server-only APIs into native screens.
 
-- [ ] Extract platform-independent language metadata, validation, message types, and formatting into a shared module where practical. Compare `client/src/utils.js` and `src/lib/languages.ts` before consolidating.
-- [ ] Use separate adapters for native storage, audio, navigation, and API requests. Browser localStorage, DOM components, CSS, Blob recording code, and WebRTC hooks cannot be copied wholesale.
-- [ ] Keep `src/lib/runTextChatMessage.ts`, `runVoiceChatMessage.ts`, `runOutputTextToSpeech.ts`, and AI services server-side. Never bundle Node database/provider code into the phone app.
+- [x] Extract platform-independent language metadata, validation, message types, and formatting into a shared module where practical. Compared `client/src/utils.js`, the web picker and `src/lib/languages.ts`; implemented October 14, 2026 in [shared logic](../shared/README.md) with compatibility re-exports, shared server text validation and a mobile entry point. Shared regression/API checks, mobile typecheck/lint and web build pass; native consumer/device integration remains a later milestone.
+- [x] Use separate adapters for native storage, audio, navigation, and API requests. Implemented October 14, 2026 in [native adapters](../mobile/src/adapters/README.md): SQLite/file handles, Expo audio hooks/session helpers, typed Expo Router navigation, and an allowlisted JSON processing transport. Adapter checks, native source boundary scan, mobile typecheck and lint pass. Feature wiring, schemas, multipart uploads and device acceptance remain their later milestones. Browser localStorage, DOM components, CSS, Blob recording code, and WebRTC hooks are excluded.
+- [x] Keep `src/lib/runTextChatMessage.ts`, `runVoiceChatMessage.ts`, `runOutputTextToSpeech.ts`, and AI services server-side. Enforced October 14, 2026 through [source checks and a Metro resolver boundary](../mobile/docs/server-boundary.md), covering shared/mobile imports, final resolved paths, Node modules and known database/provider packages. Negative fixtures, mobile typecheck/lint, adapter/shared regression checks and iOS/Android exports pass. Signed native compilation and device acceptance remain later milestones.
 
 ### 4. Build SQLite history and durable audio storage
 

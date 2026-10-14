@@ -154,3 +154,7 @@ Native bundle exports/typecheck/lint do not establish real-device acceptance. Re
 For configured app identifiers, icon assets, pinned EAS development profiles and Apple/Google prerequisites, see [development builds](docs/development-builds.md). Account linking, signed compilation and real-device testing remain pending; Vercel hosts the API, while EAS compiles the native app.
 
 Passed: TypeScript, Expo lint, Expo dependency compatibility check, Expo Doctor (21/21), and production bundle exports for iOS, Android, and web. The existing root website build also passed. Validation used the installed Node 25 toolchain; use LTS for ongoing development as Expo recommends. npm reported 28 dependency advisories (10 moderate, 18 high) in this SDK-compatible install; dependency remediation remains open and no forced major upgrades were applied.
+
+## Mobile/server dependency boundary
+
+Step 3, item 3 adds source checks and a Metro resolver guard that keeps server processing, PostgreSQL and provider dependencies outside the mobile bundle. `npm.cmd run lint` includes the boundary check; run `npm.cmd run check:server-boundary` independently. See [boundary rules and verification](docs/server-boundary.md).

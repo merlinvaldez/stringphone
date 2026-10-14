@@ -42,7 +42,8 @@
     "typecheck": "tsc --noEmit",
     "check:api-config": "node --env-file-if-exists=.env.local scripts/check-api-config.mjs",
     "test:api-config": "node scripts/check-api-config.mjs --self-test",
-    "lint": "expo lint"
+    "lint": "npm run check:server-boundary && expo lint",
+    "check:server-boundary": "node scripts/check-server-boundary.cjs"
   },
   "private": true
 }
