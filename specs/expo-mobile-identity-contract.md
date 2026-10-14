@@ -1,6 +1,6 @@
 # Mobile conversation and message identity contract
 
-Defined October 13, 2026 for Step 1, item 4 of [the Expo migration](expo-mobile-migration.md). This is the implementation contract for future mobile storage/API adapters, not a claim that SQLite or a native adapter exists yet. Complements [the API audit](expo-mobile-api-contract.md).
+Defined October 13, 2026 for Step 1, item 4 of [the Expo migration](expo-mobile-migration.md). Updated October 14, 2026 after implementing local storage and JSON transport foundations. Feature integration and device acceptance remain later milestones. Complements [the API audit](expo-mobile-api-contract.md) and [local-history/sync boundary](expo-mobile-sync-boundary.md).
 
 ## Separate identity domains
 
@@ -29,7 +29,7 @@ Participant session tokens and invite tokens are credentials, not record IDs. Ke
 - Draft/final updates target that same local row. A lower revision cannot overwrite newer text; after finalization, late draft updates cannot downgrade ready state. Processing retries are not server idempotency: the current server may repeat provider work.
 - For rooms, keep optional `roomId` and `roomMessageId` metadata alongside local IDs. Enforce a unique received-message key `(roomId, roomMessageId)` across the local message store, so reconnect snapshots update the same record. Reopening local history must not automatically rejoin an expired room.
 - Room messages received by two phones have the same relay ID but different local primary keys. Each phone saves only what it received while connected; the mapping is not cross-device sync.
-- Phrase entries keep their own text/direction snapshots and optional local source references. Archiving a source conversation does not remove the phrase. Permanent deletion/file ownership is still a separate Step 4/7 design task.
+- Phrase entries keep their own text/direction snapshots and optional local source references. Permanently deleting a source conversation preserves saved Phrasebook text/pronunciation, clears its source-message link and retains audio used by any saved entry. Unreferenced audio is cleaned up; there is no mobile archive/restore flow.
 
 ## Processing request boundary
 

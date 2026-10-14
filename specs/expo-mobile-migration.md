@@ -11,7 +11,7 @@ This is a phased implementation document. Completed checklist items identify imp
 - Choose My language and Their language, swap their direction, and send typed messages. Show original text, translation, and existing pronunciation guidance. Keep each message's language direction even after the conversation pair changes.
 - Open Chat, Single, Conversation, and Phrasebook using native controls. Preserve Single's Speak/Listen direction and Conversation's speaker ownership, portrait/landscape layout, and 30-second recording limit.
 - Record a voice turn, stop it, send it for transcription/translation, and replay saved source or translated audio. Speech playback is requested by the user, with the existing marin/onyx choice; it does not start automatically.
-- Reopen conversation history and phrasebook entries after closing the app. Browse, search, archive, restore archived items, and play already-saved audio without internet. Phone history is independent of website history; cross-device sync is outside the first release.
+- Reopen conversation history and phrasebook entries after closing the app. Browse, search, permanently delete items, and play already-saved audio without internet. Phone history is independent of website history; cross-device sync is outside the first release.
 - Show an explanatory empty history/phrasebook state. Show recording, processing, ready, and failed states. Permission denial leaves text chat usable and offers instructions for enabling microphone access.
 - When offline, preserve drafts and recordings and show that cloud translation is unavailable. Retry explicitly after reconnection without creating another message. Missing audio should leave readable text with an unavailable-audio indication. Storage errors must not claim that a message was saved.
 - Stop microphone capture when the app becomes inactive or a phone interruption occurs; retain any usable captured recording and explain whether the turn can be retried. Background recording is outside the first release.
@@ -27,6 +27,8 @@ Confirmed by the user through one-question-at-a-time UI choices on October 10, 2
 4. **Backup and transfer:** manual export/import is deferred to a later release. No first-release migration of existing website history is planned.
 5. **Live playback:** show live transcript and translation updates; translated audio plays only when the listener taps Play. There is no automatic translated speech playback.
 6. **App inactivity:** stop recording when the phone locks or the user switches apps; preserve usable captured audio. Returning starts a new turn rather than silently resuming capture. Phone interruptions also stop capture.
+
+7. **Deletion:** confirmed October 14, 2026: permanently delete instead of archive/restore to save phone storage. Independently saved Phrasebook text survives source-conversation deletion; audio is removed when no retained record references it.
 
 These decisions complete the first checklist item in step 1. On-device AI, account/sync features, export/import, hidden lessons, and voice cloning remain outside the first-release scope.
 
@@ -66,13 +68,13 @@ Outcome: web and mobile share behavior without importing browser or server-only 
 
 Outcome: local records survive restart without relying on an account or network under the confirmed local-history scope.
 
-- [ ] Create versioned database migrations for conversations, messages, phrasebook entries, and preferences. Use stable IDs, timestamps, speaker identity, origin mode, per-message language direction, original/translated text, pronunciation, status/error state, and archive markers.
-- [ ] Store source/translated audio references and metadata (format, duration, availability) in SQLite, with files in the persistent app document directory. Recordings must not remain only in purgeable cache.
-- [ ] Use parameterized SQL, foreign keys, indexes for history/search, and transactions for related record updates. Track pending requests with stable IDs so retries and restarts do not duplicate messages.
-- [ ] Save new drafts/recordings before remote processing; update the same row when results arrive. Recover interrupted requests without assuming the server operation can be resumed automatically.
-- [ ] Coordinate file writes and database changes so failed writes do not leave apparently playable records. Handle missing files, insufficient disk space, orphan cleanup, and database migration failures without silent history loss.
-- [ ] Separate archive from permanent deletion. Define removal of dependent audio and phrasebook references before exposing deletion controls.
-- [ ] Keep account-based sync outside the first release. Any future sync work needs a separate design for identity, offline conflicts, deletions, audio uploads, and web compatibility.
+- [x] Create versioned database migrations for conversations, messages, phrasebook entries, and preferences. Use stable IDs, timestamps, speaker identity, origin mode, per-message language direction, original/translated text, pronunciation, and status/error state. Implemented October 14, 2026 in [local history schema](../mobile/src/storage/README.md), with transactional version upgrades, foreign keys and permanent deletion ownership; no archive markers. Desktop SQLite checks, mobile typecheck and lint pass; native persistence/upgrade acceptance remains unverified.
+- [x] Store source/translated audio references and metadata (format, duration, availability) in SQLite, with files in the persistent app document directory. Implemented October 14, 2026 with schema version 2, message/Phrasebook audio links, recording copies and generated-byte writes; see [audio storage](../mobile/src/storage/README.md#durable-audio). Desktop SQLite/file restart and failure checks, mobile typecheck and lint pass. Native recording/playback integration and device acceptance remain later milestones.
+- [x] Use parameterized SQL, foreign keys, indexes for history/search, and transactions for related record updates. Track pending requests with stable IDs so retries and restarts do not duplicate messages. Implemented October 14, 2026 in [history repository](../mobile/src/storage/README.md#history-repository): schema v3 indexed search, transaction-scoped foreign keys, atomic message/conversation writes and stable request deduplication/retry. Desktop SQLite restart, rollback and query checks plus mobile typecheck/lint pass; native connection acceptance and feature wiring remain pending.
+- [x] Save new drafts/recordings before remote processing; update the same row when results arrive. Recover interrupted requests without assuming the server operation can be resumed automatically. Implemented October 14, 2026 in [saved-message processing](../mobile/src/storage/README.md#saved-message-processing): editable durable drafts, recording-before-dispatch gating, same-row finalization and cold-start interruption recovery with attempt guards. Desktop restart/failure/stale-result checks and mobile typecheck/lint pass. Screens, actual endpoint/capture integration and native device acceptance remain Step 5/6 work.
+- [x] Coordinate file writes and database changes so failed writes do not leave apparently playable records. Handle missing files, insufficient disk space, orphan cleanup, and database migration failures without silent history loss. Implemented October 14, 2026 in [storage reconciliation](../mobile/src/storage/README.md#storage-reconciliation): locked file/database writes, explicit save errors, retained-reference checks, retryable cleanup reports and migration rollback preservation. Desktop failure/recovery checks and mobile typecheck/lint pass; native disk-full/termination acceptance and app lifecycle wiring remain unverified.
+- [x] Implement confirmed permanent deletion with confirmation and no archive/restore flow. Remove audio files no longer referenced by retained records, preserve independently saved Phrasebook text, and reclaim SQLite space where appropriate before exposing deletion controls. Implemented October 14, 2026 in [permanent deletion](../mobile/src/storage/README.md#permanent-deletion): confirmation-gated service/native alert adapter, cascaded removal, shared-audio retention, cleanup reports and VACUUM with maintenance retry. Desktop deletion/rollback/compaction checks plus mobile typecheck/lint pass; history/Phrasebook controls and actual native alert/device acceptance remain Step 5/7 work.
+- [x] Keep account-based sync outside the first release. Any future sync work needs a separate design for identity, offline conflicts, deletions, audio uploads, and web compatibility. Reviewed October 14, 2026: current local storage and JSON transport preserve this boundary; see [first-release exclusions and future sync requirements](expo-mobile-sync-boundary.md). Existing adapter/source-boundary checks pass. Future voice/live/room endpoint integration still requires runtime no-history-write verification.
 
 ### 5. Connect text chat and simplify mobile backend processing
 
@@ -83,7 +85,7 @@ Outcome: typed mobile messages translate and are persisted locally.
 - [ ] Keep mobile history writes in SQLite rather than calling authenticated web conversation/collection APIs under the confirmed local-history scope.
 - [ ] Audit all selected mobile endpoints for unintended history writes and sensitive request logging. Keep request-lifetime processing separate from permanent application history, including live finalization.
 - [ ] Add appropriate input limits and abuse/cost controls to guest-accessible AI endpoints. Choose a mobile-compatible approach rather than treating browser CORS as authentication.
-- [ ] Add native language selection, swapping, chat list, conversation history, and archive/restore flows. Preserve RTL text rendering and screen-reader usability.
+- [ ] Add native language selection, swapping, chat list, conversation history, and permanent deletion flows. Preserve RTL text rendering and screen-reader usability.
 
 ### 6. Add recorded voice and playback
 
@@ -101,8 +103,8 @@ Outcome: a complete record-to-translation flow works on real devices.
 Outcome: users can keep learning material without cloud collection ownership under the confirmed local-history scope.
 
 - [ ] Save phrases from translated messages or manual entry to SQLite with language, text, translation, pronunciation, and optional available audio references.
-- [ ] Implement language grouping, search, edit, archive/restore, and playback. Local browsing and saved playback work offline; generating new speech requires internet.
-- [ ] Preserve local entries when their originating conversation is archived or deleted according to an explicitly defined ownership rule.
+- [ ] Implement language grouping, search, edit, permanent deletion, and playback. Local browsing and saved playback work offline; generating new speech requires internet.
+- [ ] Preserve local entries when their originating conversation is deleted: retain copied phrase text/pronunciation and clear the source-message link; remove audio only when no retained record needs it.
 - [ ] Keep currently hidden lesson-generation features outside the mobile UI unless separately requested.
 
 ### 8. Prove and implement native live streaming
@@ -150,12 +152,12 @@ Implementation should recheck current official guidance when selecting versions:
 ## How to check it works
 
 - [ ] Install on a real iPhone and Android device; select languages, swap direction, send text, and verify original/translation/pronunciation and speaker placement.
-- [ ] Kill/reopen the app and confirm history, message order, preferences, archive state, and local Phrasebook survive. Exercise a schema upgrade against existing records.
+- [ ] Kill/reopen the app and confirm history, message order, preferences and local Phrasebook survive. Exercise a schema upgrade against existing records.
 - [ ] In airplane mode, browse history and play saved audio; new AI requests show a clear offline state without losing input. Reconnect and retry without duplicates.
 - [ ] Deny microphone permission, then enable it; text remains usable. Test 30-second stops, app backgrounding, phone/audio interruptions, permission revocation, and headset routing.
 - [ ] Record in both language directions on both platforms. Verify the server accepts actual native formats and source/translated audio remains playable after restart.
 - [ ] Simulate network failures, slow responses, missing audio, disk-full writes, and app termination mid-request; show accurate errors and preserve recoverable input.
-- [ ] Save/search/archive/restore manual and message-derived phrases without an account under the local-history scope. Check RTL languages and accessibility.
+- [ ] Save/search/delete manual and message-derived phrases without an account under the local-history scope. Check RTL languages and accessibility.
 - [ ] Verify no permanent AI keys are bundled and mobile processing does not create permanent server conversation records under the confirmed local-history scope. Verify current web account/history and room flows still work.
 - [ ] For live streaming: see partial updates while speaking, finalize exactly once after silence/stop, preserve source audio, and reject stale updates on both real devices.
 - [ ] For rooms: join from iPhone/Android/web, exchange text/voice, reconnect without duplicates, and handle expired links. Reopen each phone's local history after leaving/restarting and verify both participants' received messages and available audio were automatically saved. Confirm temporary relay expiry and local record isolation.
