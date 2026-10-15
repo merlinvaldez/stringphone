@@ -1,6 +1,6 @@
 # StringPhone mobile scaffold
 
-Step 2, item 1 of [the migration spec](../specs/expo-mobile-migration.md), implemented October 13, 2026. This TypeScript Expo app has native Chat, Single, Conversation, and Phrasebook tabs, safe-area handling, a scrollable keyboard-aware Chat draft, and accessible headings/input/actions. These screens are placeholders for later steps. The draft is temporary; sending, recording, AI requests, and persistence are not implemented.
+This TypeScript Expo app has native Chat, Single, Conversation, and Phrasebook tabs, safe-area handling and accessible controls. Chat supports SQLite text translation, language selection/swap, separate conversations, local history search and confirmed permanent deletion. Single, Conversation and Phrasebook remain placeholders; recording is not wired. See [the migration spec](../specs/expo-mobile-migration.md).
 
 ## Versions
 
@@ -22,7 +22,40 @@ npm.cmd run dev
 
 The mobile package installs independently; root postinstall/build still target the website. Use Expo Go compatible with SDK 57 and scan the QR code with the phone and PC on the same network. If installed Expo Go does not support this SDK, use a compatible build from [Expo downloads](https://expo.dev/go) or a development build. The development client is now installed; final streaming will require a development build. App identifiers and EAS development profiles are configured; account linking and signing still require setup.
 
-`npm.cmd run android` opens a configured Android emulator/device. `npm.cmd run ios` can open a simulator on macOS; Windows cannot run the iOS simulator. No backend URL is needed for this scaffold.
+`npm.cmd run android` opens a configured Android emulator/device. `npm.cmd run ios` can open a simulator on macOS; Windows cannot run the iOS simulator. Chat translation now requires a reachable API URL configured below.
+
+## Text chat and explicit retry
+
+Step 5, updated October 15, 2026: Chat opens migrated local SQLite once per app lifetime and recovers interrupted requests without redispatching them. First use starts with English-to-Spanish. Searchable language controls, Swap, New chat and History now persist selections and reopen separate conversations. The message list loads the newest 50 messages with explicit older pages; history loads 50 conversations at a time. See [native Chat/history behavior and device checks](docs/chat-history.md).
+
+Tap Send to save the text before requesting translation. The saved row appears as pending while its translation is processed; repeated Send and Retry actions are disabled and guarded in the controller. A failed network request keeps the original text in history and offers Retry on that row. Retry reuses the message/request IDs and stored language direction. Pronunciation is shown when provided. SQLite failures show an unconfirmed-save error and retain typed input when the initial draft write fails. Reopening the app exposes unfinished requests for deliberate retry. Unsent composer typing remains temporary.
+
+The native session owns its SQLite connection for the app lifetime. Tab navigation subscribes/unsubscribes from the same controller and does not rerun request recovery. Translation continues across tab navigation; background microphone behavior belongs to Step 6. The text controller makes no authenticated history/collection requests.
+
+From the repository root:
+
+```powershell
+node --import tsx scripts/verify-mobile-chat-controller.mjs
+node --import tsx scripts/verify-mobile-history.mjs
+npm.cmd --prefix mobile run typecheck
+npm.cmd --prefix mobile run lint
+```
+
+Desktop SQLite/controller checks cover pending-before-dispatch, repeated taps, network failure, same-row retry, startup interruption and disk-write failure. Native UI, real backend/provider calls and phone restart acceptance remain unverified. Reviewed against [SDK 57 SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/) and [React Native Pressable](https://reactnative.dev/docs/pressable).
+
+On a phone with a reachable configured backend, open Chat, send `Hello`, and verify one original/translation row with Saved status. Try repeated taps while processing. Enable airplane mode, send another message and verify it remains with Retry; reconnect, tap Retry and verify that row updates without duplication. Close/reopen the app and check retained history; an interrupted turn must wait for explicit retry.
+
+## Local history boundary
+
+Step 5 item 3, October 14, 2026: the connected Chat flow uses SQLite for conversation creation, draft/pending messages, results, failures and retries. Opening/reopening history requires no account or cloud request. The text API sends only text and language codes; local ownership IDs remain on the phone. It makes no separate cloud-save request, and returned server ownership fields cannot replace local IDs. The processing transport rejects authenticated web conversation/collection endpoints before fetch. Website history remains independent.
+
+Run the full local Chat integration check from the repository root:
+
+```powershell
+npm.cmd --prefix mobile run test:local-history
+```
+
+This check runs the real controller, text-response mapper and transport against an on-disk SQLite database with injected HTTP responses. It covers successful translation persistence, HTTP 401 failure, same-record explicit retry, database close/reopen with no network calls, and rejected web history/collection endpoints. It makes no real cloud AI request and does not establish provider retention or server-side endpoint behavior. The broader endpoint audit is the next checklist item; native Phrasebook/voice/live wiring follows later phases.
 
 ## Separate mobile and backend development on Windows
 
@@ -66,7 +99,7 @@ Invoke-RestMethod http://192.168.1.42:3001/health
 
 Then open `http://192.168.1.42:3001/health` in the phone browser. Expect the health JSON response. A successful PC request alone does not establish phone reachability. If it fails on the phone, check both devices' network, guest-Wi-Fi isolation, VPN, and Windows Firewall access for Node on your trusted private network.
 
-Local Express routes have no `/api` prefix: the future text adapter will append `/chat/messages/text` to this base. Vite's website proxy supplies and removes `/api`; the native app does not use that proxy. Deployed Vercel handlers use an HTTPS base ending in `/api`. Environment-specific app URLs are configured in the next checklist item; this scaffold does not call the backend yet. See [the API contract](../specs/expo-mobile-api-contract.md).
+Local Express routes have no `/api` prefix: the text adapter appends `/chat/messages/text` to this base. Vite's website proxy supplies and removes `/api`; the native app does not use that proxy. Deployed Vercel handlers use an HTTPS base ending in `/api`. Environment-specific app URLs are configured in the next checklist item; Chat now calls the backend when Send or Retry is tapped. See [the API contract](../specs/expo-mobile-api-contract.md).
 
 An Expo Metro tunnel only exposes the development bundle server; it does not expose the separate Express API. Browser health success checks network reachability, not native HTTP transport compatibility. iOS/Android HTTP transport restrictions must be checked in a development build; HTTPS is preferred for deployed APIs. Native translation acceptance remains a later milestone.
 
@@ -78,7 +111,7 @@ Expo's [start-developing guide](https://docs.expo.dev/get-started/start-developi
 
 ## API environments
 
-Step 2, item 4 adds `src/config/api.ts`. Future native request adapters should call `getApiUrl('/chat/messages/text')` rather than browser-relative `/api` URLs. It reads only the selected public environment, preserves a deployment's `/api` base suffix, and removes trailing slashes. The current scaffold still makes no translation requests.
+Step 2, item 4 adds `src/config/api.ts`. Future native request adapters should call `getApiUrl('/chat/messages/text')` rather than browser-relative `/api` URLs. It reads only the selected public environment, preserves a deployment's `/api` base suffix, and removes trailing slashes. Chat requests translation through this configured URL.
 
 From `mobile/`, use Node 22.18+ or Node 24 LTS for the terminal checker:
 
@@ -99,7 +132,7 @@ The project's current SSO protection is enabled for `all_except_custom_domains`.
 | `EXPO_PUBLIC_API_URL_PREVIEW` | Actual deployed testing backend HTTPS base |
 | `EXPO_PUBLIC_API_URL_PRODUCTION` | Actual live backend HTTPS base |
 
-Express normally has no `/api` suffix. Vercel handlers need it, for example `https://your-actual-host/api`. Missing/invalid selected settings fail with an explanatory error when the API configuration is requested; they never silently select another backend. The UI scaffold can still open without configured API settings because it does not request them yet.
+Express normally has no `/api` suffix. Vercel handlers need it, for example `https://your-actual-host/api`. Missing/invalid selected settings fail with an explanatory error when the API configuration is requested; they never silently select another backend. Chat can open local history without API settings; Send and Retry require valid API configuration.
 
 ```powershell
 npm.cmd run test:api-config
@@ -141,11 +174,12 @@ References: [Audio](https://docs.expo.dev/versions/v57.0.0/sdk/audio/), [SQLite]
 
 ## Manual device checks still required
 
-- Open all four tabs; each shows its own heading and explanatory placeholder.
-- In Chat, type a long multiline draft. Scroll to the input and Done typing while the keyboard is open; tap Done typing to dismiss it. Switch tabs and return to Chat.
+- Open all four tabs; Chat has the working text/history interface and the other three remain placeholders.
+- In Chat, select languages, swap, send, start a new chat, search/reopen history and cancel/confirm permanent deletion. See [the detailed checklist](docs/chat-history.md#phone-verification).
+- Type a long multiline draft; tap Done typing to dismiss the keyboard. Switch chats and back: each unsent composer draft stays separate during this screen's lifetime.
 - Rotate, increase system text size, and check controls remain reachable without clipping at the notch, status bar, or tab bar.
 - With VoiceOver/TalkBack, check tab labels, selected tab, headings, Message draft, and Dismiss keyboard.
-- Restart: the temporary draft clears and no saved-message claim appears.
+- Restart: temporary composer typing clears; saved messages, language selections and the active conversation survive. Deleting the last conversation leaves an empty state after restart.
 
 Native bundle exports/typecheck/lint do not establish real-device acceptance. Record device/OS versions when these checks are run.
 

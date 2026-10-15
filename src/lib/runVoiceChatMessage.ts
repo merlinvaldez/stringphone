@@ -109,7 +109,7 @@ export async function runVoiceChatMessage(
       originalPronunciation = guidance.originalPronunciation;
       translatedPronunciation = guidance.translatedPronunciation;
     } catch (error) {
-      console.error("Voice pronunciation guidance failed", error);
+      console.error("Voice pronunciation guidance failed");
     }
   }
 

@@ -80,7 +80,7 @@ export async function translateLiveDraft(input: {
 
     return translatedText;
   } catch (error) {
-    console.warn("Low-latency Live translation failed; using the standard translator.", error);
+    console.warn("Low-latency Live translation failed; using the standard translator.");
     return translateText({
       text: input.text,
       sourceLanguage: input.sourceLanguage,

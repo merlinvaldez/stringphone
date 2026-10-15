@@ -39,3 +39,5 @@ npm.cmd --prefix mobile run check:server-boundary
 ```
 
 These verify current allowlists, excluded ownership fields and source boundaries. Actual mobile network captures and no-server-history-write checks remain the endpoint integration acceptance gates in the [identity contract](expo-mobile-identity-contract.md).
+
+Step 5 item 3 verification, October 14, 2026: `npm.cmd --prefix mobile run test:local-history` exercises the connected Chat controller through its processing transport into on-disk SQLite. It verifies success/failure/retry persistence, local identity preservation, offline reopening without cloud requests and runtime rejection of web conversation/collection endpoints. HTTP replies are injected; this verifies the client write boundary, while auditing backend persistence and logging remains Step 5 item 4.

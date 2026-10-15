@@ -82,6 +82,19 @@ assert.throws(() => assertResolvedFile(path.join(mobileRoot, 'node_modules/opena
 assert.throws(() => assertResolvedFile(path.join(mobileRoot, 'scripts/server-boundary.cjs'), screen), /outside/);
 assert.doesNotThrow(() => assertResolvedFile(path.join(mobileRoot, '\0polyfill:assets-registry'), screen));
 assert.throws(() => assertResolvedFile(path.join(mobileRoot, '\0polyfill:server-code'), screen), /outside/);
+for (const name of [
+  'react-native-web/dist/exports/BackHandler/index.js',
+  'react-native-web/dist/cjs/exports/BackHandler/index.js',
+  'react-native-web/dist/exports/AppRegistry/AppContainer.js',
+  'react-native-web/dist/cjs/exports/AppRegistry/AppContainer.js',
+]) {
+  assert.doesNotThrow(() => assertResolvedFile(path.join(mobileRoot, `\0shim:${name}`), screen));
+  assert.throws(() => assertResolvedFile(path.join(mobileRoot, `shim:${name}`), screen), /outside/);
+}
+for (const name of ['openai/index.js', '../src/lib/runTextChatMessage.ts',
+  'react-native-web/dist/exports/Unknown/index.js']) {
+  assert.throws(() => assertResolvedFile(path.join(mobileRoot, `\0shim:${name}`), screen), /outside/);
+}
 const allowed = createBoundaryResolver(() => ({ type: 'sourceFile', filePath: path.join(sharedRoot, 'languages.ts') }));
 assert.equal(allowed({ originModulePath: screen }, '../../shared/languages', 'ios').type, 'sourceFile');
 console.log(`Server boundary passed: ${count} mobile/shared source files and negative import/resolver fixtures.`);

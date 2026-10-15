@@ -40,7 +40,7 @@ export async function runTextChatMessage(
       originalPronunciation = guidance.originalPronunciation;
       translatedPronunciation = guidance.translatedPronunciation;
     } catch (error) {
-      console.error("Pronunciation guidance failed", error);
+      console.error("Pronunciation guidance failed");
     }
   }
 

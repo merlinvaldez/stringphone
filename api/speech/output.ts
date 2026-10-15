@@ -51,7 +51,7 @@ export default {
         },
       });
     } catch (error) {
-      console.error("Output speech generation failed", error);
+      console.error("Output speech generation failed");
       return jsonResponse({ error: "Output speech generation failed" }, 502);
     }
   },

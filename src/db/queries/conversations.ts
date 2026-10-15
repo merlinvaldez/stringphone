@@ -38,7 +38,7 @@ async function runEnsureConversationArchivingSchema() {
       `
     );
   } catch (error) {
-    console.warn("Failed to create conversation archiving index", error);
+    console.warn("Failed to create conversation archiving index");
   }
 }
 

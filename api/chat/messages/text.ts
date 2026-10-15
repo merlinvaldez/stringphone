@@ -31,16 +31,21 @@ export default {
 
     const body = await request.json().catch(() => null);
 
-    const result = await runTextChatMessage({
-      text: body?.text,
-      sourceLanguage: body?.sourceLanguage,
-      targetLanguage: body?.targetLanguage,
-    });
+    try {
+      const result = await runTextChatMessage({
+        text: body?.text,
+        sourceLanguage: body?.sourceLanguage,
+        targetLanguage: body?.targetLanguage,
+      });
 
-    if (result.ok === false) {
-      return jsonResponse(result.body, result.status);
+      if (result.ok === false) {
+        return jsonResponse(result.body, result.status);
+      }
+
+      return jsonResponse(result);
+    } catch {
+      console.error("Text chat translation failed");
+      return jsonResponse({ error: "Text chat translation failed" }, 502);
     }
-
-    return jsonResponse(result);
   },
 };

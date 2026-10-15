@@ -77,7 +77,7 @@ Use "${myLanguageCode}" only for ${input.myLanguage}. Use "${theirLanguageCode}"
       };
     }
   } catch (error) {
-    console.error("Live segment language classification failed", error);
+    console.error("Live segment language classification failed");
   }
 
   return fallback;

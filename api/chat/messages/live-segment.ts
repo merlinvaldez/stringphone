@@ -57,7 +57,7 @@ export default {
 
       return jsonResponse(result);
     } catch (error) {
-      console.error("Live conversation segment failed", error);
+      console.error("Live conversation segment failed");
       return jsonResponse({ error: "Live conversation segment failed" }, 502);
     }
   },

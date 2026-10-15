@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import connectionModule from '../mobile/src/storage/exclusiveConnection.ts';
+const { attachExclusiveConnection } = connectionModule;
+const events = [];
+const main = { async closeAsync() { events.push('close main'); } };
+const writer = { async execAsync(sql) { events.push(sql); }, async closeAsync() { events.push('close writer'); } };
+attachExclusiveConnection(main, writer);
+let release;
+const first = main.withExclusiveTransactionAsync(async tx => {
+  assert.equal(tx, writer);
+  events.push('first');
+  await new Promise(resolve => { release = resolve; });
+});
+const second = main.withExclusiveTransactionAsync(async tx => {
+  assert.equal(tx, writer); events.push('second');
+});
+while (!release) await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(events, ['BEGIN IMMEDIATE;', 'first']);
+release(); await Promise.all([first, second]);
+assert.deepEqual(events, ['BEGIN IMMEDIATE;', 'first', 'COMMIT;', 'BEGIN IMMEDIATE;', 'second', 'COMMIT;']);
+await assert.rejects(main.withExclusiveTransactionAsync(async () => { throw new Error('failed write'); }), /failed write/);
+assert.equal(events.at(-1), 'ROLLBACK;');
+await main.withExclusiveTransactionAsync(async () => { events.push('after rollback'); });
+assert.equal(events.at(-1), 'COMMIT;');
+const closing = main.closeAsync();
+await assert.rejects(main.withExclusiveTransactionAsync(async () => {}), /closing/);
+await closing;
+await main.closeAsync();
+assert.equal(events.filter(event => event === 'close writer').length, 1);
+assert.equal(events.filter(event => event === 'close main').length, 1);
+console.log('Exclusive writer checks passed: queued isolation, rollback recovery, no per-transaction close, drain before idempotent close.');

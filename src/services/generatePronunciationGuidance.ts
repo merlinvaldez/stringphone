@@ -188,17 +188,11 @@ export async function generatePronunciationGuidance(
     ]);
 
   if (originalPronunciationResult.status === "rejected") {
-    console.error(
-      "Original pronunciation guidance failed",
-      originalPronunciationResult.reason,
-    );
+    console.error("Original pronunciation guidance failed");
   }
 
   if (translatedPronunciationResult.status === "rejected") {
-    console.error(
-      "Translated pronunciation guidance failed",
-      translatedPronunciationResult.reason,
-    );
+    console.error("Translated pronunciation guidance failed");
   }
 
   return {

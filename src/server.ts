@@ -929,7 +929,7 @@ app.post("/chat/messages/text", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (error) {
-    console.error("Text chat translation failed", error);
+    console.error("Text chat translation failed");
     return res.status(502).json({ error: "Text chat translation failed" });
   }
 });
@@ -974,7 +974,7 @@ app.post(
         },
       });
     } catch (error) {
-      console.error("Voice chat translation failed", error);
+      console.error("Voice chat translation failed");
       return res.status(502).json({ error: "Voice chat translation failed" });
     }
   },
@@ -1014,7 +1014,7 @@ app.post(
 
       return res.status(200).json(result);
     } catch (error) {
-      console.error("Live conversation segment failed", error);
+      console.error("Live conversation segment failed");
       return res.status(502).json({ error: "Live conversation segment failed" });
     }
   },
@@ -1037,7 +1037,7 @@ app.post("/chat/live-transcription/token", async (req, res) => {
 
     return res.status(200).json(result.body);
   } catch (error) {
-    console.error("Live transcription token creation failed", error);
+    console.error("Live transcription token creation failed");
     return res.status(502).json({ error: "Unable to start live transcription." });
   }
 });
@@ -1074,7 +1074,7 @@ app.post(
 
       return res.status(200).json(result);
     } catch (error) {
-      console.error("Live transcript processing failed", error);
+      console.error("Live transcript processing failed");
       return res.status(502).json({ error: "Live transcription failed." });
     }
   },
@@ -1097,7 +1097,7 @@ app.post("/chat/messages/live-translation", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (error) {
-    console.error("Live draft translation failed", error);
+    console.error("Live draft translation failed");
     return res.status(502).json({ error: "Live draft translation failed." });
   }
 });
@@ -1145,7 +1145,7 @@ app.post(
       );
       return res.status(200).send(result.audioBuffer);
     } catch (error) {
-      console.error("Speech pipeline failed", error);
+      console.error("Speech pipeline failed");
       return res.status(502).json({ error: "Speech pipeline failed" });
     }
   },
@@ -1170,7 +1170,7 @@ app.post("/speech/output", async (req, res) => {
     );
     return res.status(200).send(result.audioBuffer);
   } catch (error) {
-    console.error("Output speech generation failed", error);
+    console.error("Output speech generation failed");
     return res.status(502).json({ error: "Output speech generation failed" });
   }
 });

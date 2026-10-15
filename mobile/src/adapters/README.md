@@ -8,7 +8,8 @@ Step 3, item 2 of the [migration checklist](../../../specs/expo-mobile-migration
 | `files.ts` | Document-directory audio handle, durable recording copies and byte writes | Step 4 deletion controls and Step 6 capture integration |
 | `audio.ts` | Native recording/player hooks, permission request and foreground audio-session configuration | Step 6 capture/playback controllers, interruption cleanup, duration cap and routing |
 | `navigation.ts` | Typed navigation to the four existing Expo Router screens | Feature-specific navigation and later room invite handling |
-| `api.ts` | Lazy absolute environment URL resolution plus processing transport | Step 5 text response mapping and UI integration |
+| `api.ts` | Lazy absolute environment URL resolution, processing transport and native `translateTextMessage` | Remaining Step 5 UI integration |
+| `textChat.ts` | Typed text input with language objects; response validation and text/language/pronunciation mapping | Remaining Step 5 saved-message controller and screen integration |
 | `processingTransport.ts` | JSON POST allowlists for text/speech, abort signal forwarding, status-aware errors and raw successful responses | Step 6 multipart URI upload and durable WAV/base64 decoding; later live/room transports |
 
 Use direct imports from the relevant adapter; do not add an eager barrel that loads all native modules when only an API request is needed. Shared code stays in the root `shared/` directory and contains no platform APIs.
@@ -22,9 +23,12 @@ References reviewed: [SDK 57 SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/
 From the repository root:
 
 ```powershell
+node --import tsx scripts/verify-mobile-text-chat.mjs
 node --import tsx scripts/verify-mobile-adapters.mjs
 npm.cmd --prefix mobile run typecheck
 npm.cmd --prefix mobile run lint
 ```
+
+Step 5 item 1, implemented October 14, 2026: import `translateTextMessage` from `./api` and call it with `{ text, sourceLanguage: { code: 'en' }, targetLanguage: { code: 'ar' }, signal }`. It posts only text and language codes to `/chat/messages/text` under the configured absolute API base (include `/api` in the base when the deployment requires it). The return value uses the shared `TranslatedMessage` shape, preserving both pronunciation strings, including empty ones. Malformed JSON or mismatched response language direction throws `TextTranslationResponseError`; non-success HTTP responses use `ProcessingApiError`. Network and abort errors propagate unchanged. No automatic retry, auth/history request, or storage write occurs. Screens remain placeholders until the following Step 5 items. Contract checks use injected fetch and cover LAN URL construction, identity exclusion, pronunciation, malformed/proxy responses and failure propagation; physical phone/provider checks remain unverified.
 
 Checks passed October 14, 2026: transport allowlists, request signal forwarding, binary response preservation, JSON/HTML error handling, network failures, rejected endpoints/field types, native source boundary scan, typecheck and lint. Transport checks use injected fetch responses and make no cloud AI calls. Native connection/file operations, actual microphone permissions/session behavior and navigation calls remain device checks when their consumers are connected.

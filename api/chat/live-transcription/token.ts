@@ -44,7 +44,7 @@ export default {
 
       return jsonResponse(result.body);
     } catch (error) {
-      console.error("Live transcription token creation failed", error);
+      console.error("Live transcription token creation failed");
       return jsonResponse({ error: "Unable to start live transcription." }, 502);
     }
   },

@@ -10,6 +10,14 @@ const serverPackages = new Set([
   'openai', '@anthropic-ai/sdk', '@google/genai', '@google/generative-ai',
   '@clerk/express', '@vercel/node',
 ]);
+// Exact virtual modules emitted by Expo CLI's static react-native-web shims.
+// Do not allow arbitrary shim prefixes: those could disguise server paths.
+const webShimNames = new Set([
+  '\0shim:react-native-web/dist/exports/BackHandler/index.js',
+  '\0shim:react-native-web/dist/cjs/exports/BackHandler/index.js',
+  '\0shim:react-native-web/dist/exports/AppRegistry/AppContainer.js',
+  '\0shim:react-native-web/dist/cjs/exports/AppRegistry/AppContainer.js',
+]);
 function inside(root, file) {
   const relative = path.relative(root, file);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
@@ -41,6 +49,7 @@ function assertResolvedFile(file, origin) {
   // SDK 57 synthesizes these modules; they have a NUL-prefixed virtual path.
   const virtualName = path.relative(mobileRoot, target);
   if (['\0polyfill:assets-registry', '\0polyfill:environment-variables', '\0polyfill:external-require'].includes(virtualName)) return;
+  if (webShimNames.has(virtualName.replaceAll('\\', '/'))) return;
   if (segments.includes('node_modules')) return;
   // Only app source/assets and pure shared source may enter from this checkout.
   // mobile/scripts and config are Node build tooling, not app code.

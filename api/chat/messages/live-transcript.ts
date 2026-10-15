@@ -92,7 +92,7 @@ export default {
 
       return jsonResponse(result);
     } catch (error) {
-      console.error("Live transcript processing failed", error);
+      console.error("Live transcript processing failed");
       return jsonResponse({ error: "Live transcription failed." }, 502);
     }
   },

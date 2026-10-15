@@ -12,7 +12,9 @@ export type MessageRow = {
   created_at: number; updated_at: number;
   input_kind: 'text' | 'voice'; processing_attempt: number;
 };
-type ConversationRow = { id: string; title: string; origin_mode: Mode; my_language: string; their_language: string; created_at: number; updated_at: number };
+export type ConversationRow = { id: string; title: string; origin_mode: Mode; my_language: string; their_language: string; created_at: number; updated_at: number };
+export type HistoryCursor = { updatedAt: number; id: string };
+export type MessageCursor = { createdAt: number; id: string };
 type SearchRow = { kind: 'conversation' | 'message' | 'phrase'; record_id: string; text: string };
 function boundedLimit(limit: number) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Limit must be between 1 and 200.');
@@ -21,6 +23,12 @@ function boundedLimit(limit: number) {
 function required(value: string) { if (!value.trim()) throw new Error('Required history value is empty.'); }
 
 export function createHistoryRepository(database: SQLiteDatabase, now: () => number = Date.now) {
+  async function saveSelection(transaction: SQLiteDatabase, id: string | null, myLanguage: string, theirLanguage: string) {
+    const time = now();
+    for (const [key, value] of [['chat.activeConversationId', id], ['chat.languagePair', { myLanguage, theirLanguage }]] as const) {
+      await transaction.runAsync('INSERT INTO preferences(key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at', key, JSON.stringify(value), time);
+    }
+  }
   async function touch(transaction: SQLiteDatabase, id: string, time: number) {
     const result = await transaction.runAsync('UPDATE conversations SET updated_at=max(updated_at,?) WHERE id=?', time, id);
     if (result.changes !== 1) throw new Error('Conversation does not exist.');
@@ -39,6 +47,9 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         if (row) {
           await transaction.runAsync('UPDATE messages SET original_text=?,updated_at=max(updated_at,?) WHERE id=?',input.originalText,time,input.id);
         } else {
+          if (input.inputKind === 'text' && input.originalText.trim()) {
+            await transaction.runAsync("UPDATE conversations SET title=? WHERE id=? AND title IN ('New chat','Text chat') AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id=?)", input.originalText.trim().slice(0, 80), input.conversationId, input.conversationId);
+          }
           await transaction.runAsync(`INSERT INTO messages (id,request_id,conversation_id,speaker,origin_mode,source_language,target_language,original_text,input_kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'draft',?,?)`,input.id,input.requestId,input.conversationId,input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.inputKind,time,time);
         }
       });
@@ -76,12 +87,65 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
       const time = now();
       await database.runAsync('INSERT INTO conversations (id,title,origin_mode,my_language,their_language,created_at,updated_at) VALUES (?,?,?,?,?,?,?)', input.id, input.title, input.originMode, input.myLanguage, input.theirLanguage, time, time);
     },
+    async startChatConversation(id: string, myLanguage: string, theirLanguage: string) {
+      required(id); required(myLanguage); required(theirLanguage);
+      await database.withExclusiveTransactionAsync(async transaction => {
+        const time = now();
+        await transaction.runAsync("INSERT INTO conversations (id,title,origin_mode,my_language,their_language,created_at,updated_at) VALUES (?,'New chat','chat',?,?,?,?)", id, myLanguage, theirLanguage, time, time);
+        await saveSelection(transaction, id, myLanguage, theirLanguage);
+      });
+    },
+    async getChatPreferences() {
+      const active = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.activeConversationId'");
+      const pair = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.languagePair'");
+      return { activeId: active ? JSON.parse(active.value_json) as unknown : undefined,
+        pair: pair ? JSON.parse(pair.value_json) as unknown : undefined };
+    },
+    async selectChatConversation(id: string | null, myLanguage: string, theirLanguage: string, updateLanguages = false) {
+      await database.withExclusiveTransactionAsync(async transaction => {
+        if (id !== null) {
+          if (!await transaction.getFirstAsync('SELECT id FROM conversations WHERE id=?', id)) throw new Error('Conversation does not exist.');
+          if (updateLanguages) {
+            await transaction.runAsync('UPDATE conversations SET my_language=?,their_language=?,updated_at=max(updated_at,?) WHERE id=?', myLanguage, theirLanguage, now(), id);
+          }
+        }
+        await saveSelection(transaction, id, myLanguage, theirLanguage);
+      });
+    },
+    async listConversationPage(query = '', cursor: HistoryCursor | null = null, limit = 50) {
+      boundedLimit(limit);
+      const text = query.trim();
+      if (text.length > 500) throw new Error('Search is too long.');
+      const match = `"${text.replace(/"/g, '""')}"`;
+      const rows = await database.getAllAsync<ConversationRow>(`SELECT * FROM conversations WHERE
+        (?='' OR id IN (SELECT record_id FROM history_search WHERE history_search MATCH ? AND kind='conversation')
+          OR id IN (SELECT conversation_id FROM messages WHERE id IN (SELECT record_id FROM history_search WHERE history_search MATCH ? AND kind='message')))
+        AND (? IS NULL OR updated_at < ? OR (updated_at=? AND id>?))
+        ORDER BY updated_at DESC,id LIMIT ?`, text,match,match,cursor?.updatedAt ?? null,cursor?.updatedAt ?? null,cursor?.updatedAt ?? null,cursor?.id ?? '',limit + 1);
+      const items = rows.slice(0, limit);
+      const last = items.at(-1);
+      return { items, cursor: rows.length > limit && last ? { updatedAt: last.updated_at, id: last.id } : null };
+    },
+    async listMessagePage(conversationId: string, cursor: MessageCursor | null = null, limit = 50) {
+      boundedLimit(limit);
+      const rows = await database.getAllAsync<MessageRow>(`SELECT * FROM messages WHERE conversation_id=?
+        AND (? IS NULL OR created_at < ? OR (created_at=? AND id<?))
+        ORDER BY created_at DESC,id DESC LIMIT ?`, conversationId,cursor?.createdAt ?? null,cursor?.createdAt ?? null,cursor?.createdAt ?? null,cursor?.id ?? '',limit + 1);
+      const items = rows.slice(0, limit);
+      const last = items.at(-1);
+      return { items: items.reverse(), cursor: rows.length > limit && last ? { createdAt: last.created_at, id: last.id } : null };
+    },
     getMessage(id: string) { return database.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id=?', id); },
+    getConversation(id: string) { return database.getFirstAsync<ConversationRow>('SELECT * FROM conversations WHERE id=?', id); },
     listConversations(limit = 50) {
       return database.getAllAsync<ConversationRow>('SELECT * FROM conversations ORDER BY updated_at DESC,id LIMIT ?', boundedLimit(limit));
     },
     listMessages(conversationId: string, limit = 200) {
       return database.getAllAsync<MessageRow>('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id LIMIT ?', conversationId, boundedLimit(limit));
+    },
+    async listRecentMessages(conversationId: string, limit = 200) {
+      const rows = await database.getAllAsync<MessageRow>('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at DESC,id DESC LIMIT ?', conversationId, boundedLimit(limit));
+      return rows.reverse();
     },
     listPending(limit = 200) {
       return database.getAllAsync<MessageRow>("SELECT * FROM messages WHERE status='pending' ORDER BY created_at,id LIMIT ?", boundedLimit(limit));
