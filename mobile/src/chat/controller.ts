@@ -1,5 +1,5 @@
 import type { createHistoryRepository, MessageRow, ConversationRow, HistoryCursor, MessageCursor } from '../storage/history';
-import type { createSavedMessageFlow } from '../storage/processing';
+import type { createSavedMessageFlow, SavedMessageProcessor } from '../storage/processing';
 import type { createDeletionService, DeletionReport } from '../storage/deletion';
 import type { TextTranslationInput } from '../adapters/textChat';
 import { getSupportedTtsLanguage, type TranslatedMessage } from '../shared';
@@ -9,10 +9,11 @@ export type ChatState = {
   myLanguage: string; theirLanguage: string; historyQuery: string;
   historyCursor: HistoryCursor | null; messageCursor: MessageCursor | null;
   busy: boolean; historyBusy: boolean; error: string | null; notice: string | null; maintenancePending: boolean;
+  voiceRequest: { id: string; phase: 'uploading' | 'processing' } | null;
 };
 export const INITIAL_CHAT_STATE: ChatState = { messages: [], conversation: null, conversations: [],
   myLanguage: 'en', theirLanguage: 'es', historyQuery: '', historyCursor: null, messageCursor: null,
-  busy: false, historyBusy: false, error: null, notice: null, maintenancePending: false };
+  busy: false, historyBusy: false, error: null, notice: null, maintenancePending: false, voiceRequest: null };
 
 export function createTextChatController(
   history: ReturnType<typeof createHistoryRepository>,
@@ -21,9 +22,11 @@ export function createTextChatController(
   newId: () => string,
   initialConversationId = 'mobile-text-chat',
   deletion?: Pick<ReturnType<typeof createDeletionService>, 'delete' | 'retryMaintenance'>,
+  voiceProcessor?: SavedMessageProcessor,
 ) {
   let state: ChatState = { ...INITIAL_CHAT_STATE };
   let searchRevision = 0;
+  let interruption = 0;
   const listeners = new Set<(state: ChatState) => void>();
   const locked = () => state.busy || state.historyBusy;
   function update(change: Partial<ChatState>) {
@@ -62,10 +65,18 @@ export function createTextChatController(
     finally { update({ busy: false }); }
   }
   async function process(id: string) {
+    const revision = interruption;
     try {
-      const outcome = await flow.processSaved(id, async ({ message }, signal) => {
+      const outcome = await flow.processSaved(id, async (input, signal) => {
+        const { message } = input;
         // The pending row is committed before displaying it or sending remotely.
         await refresh(id);
+        if (message.input_kind === 'voice') {
+          if (revision !== interruption) throw new Error('Voice translation interrupted. Tap Retry when you return.');
+          if (!voiceProcessor) throw new Error('Voice translation is unavailable.');
+          update({ voiceRequest: { id, phase: 'uploading' } });
+          return voiceProcessor(input, signal);
+        }
         return translate({ text: message.original_text, sourceLanguage: { code: message.source_language },
           targetLanguage: { code: message.target_language }, signal });
       });
@@ -75,6 +86,7 @@ export function createTextChatController(
       update({ error: error instanceof TypeError
         ? 'Could not reach the translation service. Check your connection and tap Retry on the saved message.' : detail });
     } finally {
+      update({ voiceRequest: null });
       try { await refresh(id); }
       catch { update({ error: 'Could not read local history. Message save status is unconfirmed. Reopen the app before retrying.' }); }
     }
@@ -86,6 +98,46 @@ export function createTextChatController(
       : 'Conversation permanently deleted.' });
   }
   return {
+    voiceResponseReceived() {
+      if (state.voiceRequest) update({ voiceRequest: { ...state.voiceRequest, phase: 'processing' } });
+    },
+    interruptVoiceRequest() { interruption++; if (state.voiceRequest) flow.cancel(state.voiceRequest.id); },
+    beginVoiceCapture(options?: {
+      originMode?: 'chat' | 'single' | 'conversation';
+      speaker?: 'me' | 'them';
+      sourceLanguage?: string;
+      targetLanguage?: string;
+    }) {
+      if (locked() || !state.conversation) return null;
+      const conversation = state.conversation;
+      const originMode = options?.originMode ?? (conversation.origin_mode === 'single' || conversation.origin_mode === 'conversation' ? conversation.origin_mode : 'chat');
+      const speaker = options?.speaker ?? 'me';
+      const sourceLanguage = options?.sourceLanguage ?? (speaker === 'me' ? conversation.my_language : conversation.their_language);
+      const targetLanguage = options?.targetLanguage ?? (speaker === 'me' ? conversation.their_language : conversation.my_language);
+      const id = newId(), requestId = newId();
+      let finished = false;
+      let saving = false;
+      update({ busy: true, error: null, notice: null });
+      return {
+        cancel() { if (!finished) { finished = true; update({ busy: false }); } },
+        async save(uri: string, durationMs: number, dispatch: boolean | (() => boolean) = true) {
+          if (finished || saving) return;
+          saving = true;
+          try {
+            if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('Recording is empty. Record again.');
+            // Keep the lease on failure so the same recording/IDs can be saved again.
+            await flow.saveVoiceDraft({ id, requestId, conversationId: conversation.id, speaker, originMode,
+              sourceLanguage, targetLanguage, originalText: '' },
+            { uri }, { format: 'm4a', mimeType: 'audio/mp4', durationMs });
+            finished = true;
+            try { await refresh(id); }
+            finally { update({ notice: 'Recording saved on this phone.' }); }
+            if ((typeof dispatch === 'function' ? dispatch() : dispatch) && voiceProcessor) await process(id);
+            update({ busy: false });
+          } finally { saving = false; if (finished) update({ busy: false }); }
+        },
+      };
+    },
     getState: () => state,
     subscribe(listener: (state: ChatState) => void) {
       listeners.add(listener); listener(state);
@@ -108,10 +160,45 @@ export function createTextChatController(
       await refreshHistory();
     },
     async newConversation() {
+      return this.newModeConversation('chat');
+    },
+    async newModeConversation(originMode: 'chat' | 'single' | 'conversation' = 'chat', title?: string) {
       return change(async () => {
         const id = newId();
-        await history.startChatConversation(id, state.myLanguage, state.theirLanguage);
+        const defaultTitle = originMode === 'single' ? 'Single session' : originMode === 'conversation' ? 'Two-way conversation' : 'New chat';
+        await history.createConversation({
+          id,
+          title: title || defaultTitle,
+          originMode,
+          myLanguage: state.myLanguage,
+          theirLanguage: state.theirLanguage,
+        });
+        await history.selectChatConversation(id, state.myLanguage, state.theirLanguage, false);
         await activate(await history.getConversation(id));
+        await refreshHistory();
+      });
+    },
+    async ensureConversationForMode(mode: 'chat' | 'single' | 'conversation') {
+      if (state.conversation?.origin_mode === mode) return true;
+      return change(async () => {
+        const recent = await history.listConversations(50);
+        const existing = recent.find(c => c.origin_mode === mode);
+        if (existing) {
+          await activate(existing);
+          return;
+        }
+        const id = newId();
+        const defaultTitle = mode === 'single' ? 'Single session' : mode === 'conversation' ? 'Two-way conversation' : 'New chat';
+        await history.createConversation({
+          id,
+          title: defaultTitle,
+          originMode: mode,
+          myLanguage: state.myLanguage,
+          theirLanguage: state.theirLanguage,
+        });
+        await history.selectChatConversation(id, state.myLanguage, state.theirLanguage, false);
+        const created = await history.getConversation(id);
+        await activate(created);
         await refreshHistory();
       });
     },
@@ -122,20 +209,27 @@ export function createTextChatController(
         await activate(conversation);
       });
     },
-    async setLanguages(myLanguage: string, theirLanguage: string) {
+    async setLanguages(myLanguage: string, theirLanguage: string, mode: 'chat' | 'single' | 'conversation' = 'chat') {
+      if (state.conversation && state.conversation.origin_mode !== mode) {
+        update({ error: `This saved ${state.conversation.origin_mode} conversation is read-only here. Open its matching mode to change languages.` });
+        return false;
+      }
       return change(async () => {
         const mine = getSupportedTtsLanguage(myLanguage), theirs = getSupportedTtsLanguage(theirLanguage);
         if (!mine || !theirs) throw new Error('Choose supported languages.');
-        if (state.conversation && state.conversation.origin_mode !== 'chat') throw new Error('This saved conversation is read-only in Chat. Start a new chat to send messages.');
         await history.selectChatConversation(state.conversation?.id ?? null, mine.code, theirs.code, true);
         update({ myLanguage: mine.code, theirLanguage: theirs.code,
           conversation: state.conversation ? { ...state.conversation, my_language: mine.code, their_language: theirs.code } : null });
         await refreshHistory();
       });
     },
-    async swapLanguages() {
+    async swapLanguages(mode: 'chat' | 'single' | 'conversation' = 'chat') {
+      if (state.conversation && state.conversation.origin_mode !== mode) {
+        update({ error: `This saved ${state.conversation.origin_mode} conversation is read-only here. Open its matching mode to change languages.` });
+        return false;
+      }
       if (state.myLanguage === state.theirLanguage) return !locked();
-      return this.setLanguages(state.theirLanguage, state.myLanguage);
+      return this.setLanguages(state.theirLanguage, state.myLanguage, mode);
     },
     async searchHistory(query: string) {
       if (state.busy) return false;
@@ -209,7 +303,7 @@ export function createTextChatController(
       update({ busy: true, error: null, notice: null });
       try {
         const message = await history.getMessage(id);
-        if (!message || message.conversation_id !== state.conversation?.id || message.input_kind !== 'text' ||
+        if (!message || message.conversation_id !== state.conversation?.id ||
             !['draft', 'failed', 'interrupted'].includes(message.status)) return;
         await process(id);
       } catch { update({ error: 'Could not load the saved message. No retry was sent.' }); }

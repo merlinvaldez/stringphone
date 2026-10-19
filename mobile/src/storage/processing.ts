@@ -33,15 +33,16 @@ export function createSavedMessageFlow(history: History, audio: Audio) {
       if (recovering || active.has(id)) return 'busy' as const;
       const controller = new AbortController();
       active.set(id,controller);
+      const timeout = setTimeout(() => controller.abort(), 60000);
       try {
         const draft = await history.getMessage(id);
         if (!draft) throw new Error('Saved message does not exist.');
         const sourceAudio = draft.input_kind === 'voice' ? await audio.resolve({ kind:'message',id,role:'source' }) : null;
-        if (draft.input_kind === 'voice' && !sourceAudio?.uri) throw new Error('Saved source recording is unavailable.');
         const message = await history.beginAttempt(id);
         if (!message) return 'not-claimed' as const;
         let result: ProcessingResult;
         try {
+          if (draft.input_kind === 'voice' && !sourceAudio?.uri) throw new Error('Saved source recording is unavailable. Record a new message.');
           if (controller.signal.aborted) throw new Error('Processing was interrupted.');
           result = await processor({ message,sourceAudio },controller.signal);
           if (controller.signal.aborted) throw new Error('Processing was interrupted.');
@@ -54,7 +55,7 @@ export function createSavedMessageFlow(history: History, audio: Audio) {
         // expose a still-pending row for deliberate retry if this write fails.
         const saved = await history.finishRequest(id,message.request_id!,{ status:'ready',...result },message.processing_attempt);
         return saved ? 'ready' as const : 'stale' as const;
-      } finally { active.delete(id); }
+      } finally { clearTimeout(timeout); active.delete(id); }
     },
     cancel(id: string) { active.get(id)?.abort(); },
   };

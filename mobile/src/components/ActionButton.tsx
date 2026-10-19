@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-type Props = { label: string; onPress: () => void; disabled?: boolean;
+type Props = { label: string; accessibilityLabel?: string; onPress: () => void; disabled?: boolean;
   tone?: 'primary' | 'secondary' | 'danger'; hint?: string; selected?: boolean };
-export function ActionButton({ label, onPress, disabled = false, tone = 'primary', hint, selected }: Props) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint}
+export function ActionButton({ label, accessibilityLabel, onPress, disabled = false, tone = 'primary', hint, selected }: Props) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} accessibilityHint={hint}
     accessibilityState={{ disabled, selected }} disabled={disabled} onPress={onPress}
     style={[styles.button, tone === 'secondary' && styles.secondary, tone === 'danger' && styles.danger, disabled && styles.disabled]}>
     <Text style={[styles.label, tone === 'secondary' && styles.secondaryLabel]}>{label}</Text>

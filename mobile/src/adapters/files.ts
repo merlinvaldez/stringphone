@@ -25,7 +25,8 @@ export function createNativeAudioFiles(): AudioFiles {
           if (!input.uri.startsWith('file://')) throw new Error('Expected a local recording URI.');
           const source = new File(input.uri);
           if (!source.exists || source.size <= 0) throw new Error('Recording is missing or empty.');
-          source.copy(destination);
+          // SDK 57 copy is asynchronous: validate only after the file is closed.
+          await source.copy(destination);
           if (destination.size !== source.size) throw new Error('Incomplete recording copy.');
         } else {
           if (!input.bytes.byteLength) throw new Error('Audio is empty.');

@@ -5,13 +5,14 @@ import { LANGUAGE_OPTIONS } from '../shared';
 import { ActionButton } from './ActionButton';
 import { languageName } from '../chat/presentation';
 
-type Props = { label: string; value: string; disabled: boolean; onSelect: (code: string) => void };
-export function LanguagePicker({ label, value, disabled, onSelect }: Props) {
+type Props = { label: string; value: string; disabled: boolean; compact?: boolean; onSelect: (code: string) => void };
+export function LanguagePicker({ label, value, disabled, compact = false, onSelect }: Props) {
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState('');
   const close = () => setVisible(false);
-  return <View style={styles.field}>
-    <ActionButton label={`${label}: ${languageName(value)}`} disabled={disabled} tone="secondary"
+  const currentLanguage = languageName(value);
+  return <View style={[styles.field, compact && styles.compactField]}>
+    <ActionButton label={compact ? currentLanguage : `${label}: ${currentLanguage}`} accessibilityLabel={`${label}: ${currentLanguage}`} disabled={disabled} tone="secondary"
       hint="Opens a searchable language list" onPress={() => { setQuery(''); setVisible(true); }} />
     <Modal visible={visible} animationType="slide" onRequestClose={close} supportedOrientations={['portrait', 'landscape']}>
       <SafeAreaView style={styles.modal}>
@@ -30,7 +31,7 @@ export function LanguagePicker({ label, value, disabled, onSelect }: Props) {
   </View>;
 }
 const styles = StyleSheet.create({
-  field: { flex: 1, minWidth: 140 }, modal: { flex: 1, backgroundColor: '#F8F7F2', padding: 20, gap: 16 },
+  field: { flex: 1, minWidth: 140 }, compactField: { minWidth: 0 }, modal: { flex: 1, backgroundColor: '#F8F7F2', padding: 20, gap: 16 },
   title: { fontSize: 26, fontWeight: '700', color: '#182A23' },
   search: { minHeight: 48, fontSize: 18, padding: 12, borderWidth: 1, borderRadius: 10, borderColor: '#66736C', backgroundColor: '#FFF', color: '#182A23' },
   option: { paddingVertical: 6 },

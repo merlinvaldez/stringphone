@@ -34,6 +34,7 @@
     "build:android:local": "expo run:android",
     "build:ios:local": "expo run:ios",
     "build:android:dev": "npx eas-cli@24.13.0 build --platform android --profile development",
+    "build:android:apk": "npx eas-cli@24.13.0 build --platform android --profile preview",
     "build:ios:dev": "npx eas-cli@24.13.0 build --platform ios --profile development",
     "start": "expo start",
     "android": "expo start --android",

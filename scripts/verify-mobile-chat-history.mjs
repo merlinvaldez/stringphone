@@ -10,6 +10,7 @@ import controllerModule from '../mobile/src/chat/controller.ts';
 import deletionModule from '../mobile/src/storage/deletion.ts';
 import audioModule from '../mobile/src/storage/audio.ts';
 import presentation from '../mobile/src/chat/presentation.ts';
+import voiceProcessing from '../mobile/src/storage/voiceProcessing.ts';
 import migrations from '../mobile/src/storage/migrations.ts';
 
 const directory = mkdtempSync(join(tmpdir(), 'stringphone-chat-history-'));
@@ -34,7 +35,7 @@ const calls = [];
 const prompts = [];
 const files = new Map();
 const audio = audioModule.createAudioStorage(connection, {
-  async save(name, input) { files.set(name, input.bytes); return input.bytes.length; },
+  async save(name, input) { const bytes = input.bytes ?? new Uint8Array([1, 2, 3]); files.set(name, bytes); return bytes.length; },
   async stat(name) { return files.has(name) ? { uri: `file://${name}`, size: files.get(name).length } : null; },
   async list() { return [...files.keys()]; },
   async remove(name) { if (removalFails) throw Error('disk busy'); files.delete(name); },
@@ -186,13 +187,80 @@ try {
   assert.equal(restarted.getState().conversation, null);
   assert.equal(await restarted.send('No active conversation'), false);
   await restarted.newConversation();
+  assert.equal(restarted.getState().conversation?.origin_mode, 'chat');
+  assert.equal(restarted.getState().busy, false);
   assert.equal(restarted.getState().myLanguage, 'en');
   assert.equal(restarted.getState().theirLanguage, 'ar');
+  // Recording leases freeze ownership/direction and save one local draft before any network request.
+  const beforeVoiceCalls = calls.length;
+  const voice = restarted.beginVoiceCapture();
+  assert.ok(voice);
+  assert.equal(restarted.beginVoiceCapture(), null);
+  assert.equal(await restarted.swapLanguages(), false);
+  assert.equal(await restarted.newConversation(), false);
+  assert.equal(await restarted.send('Blocked during capture'), false);
+  await voice.save('file:///native-recording.m4a', 30000);
+  await voice.save('file:///native-recording.m4a', 30000);
+  assert.equal(restarted.getState().busy, false);
+  const voiceRows = restarted.getState().messages.filter(row => row.input_kind === 'voice');
+  assert.equal(voiceRows.length, 1);
+  assert.equal(voiceRows[0].status, 'draft');
+  assert.equal(voiceRows[0].target_language, 'ar');
+  assert.ok((await audio.resolve({ kind: 'message', id: voiceRows[0].id, role: 'source' })).uri);
+  assert.equal(calls.length, beforeVoiceCalls);
+  const cancelledVoice = restarted.beginVoiceCapture();
+  cancelledVoice.cancel();
+  await cancelledVoice.save('file:///cancelled.m4a', 1000);
+  assert.equal(restarted.getState().messages.filter(row => row.input_kind === 'voice').length, 1);
+  assert.equal(restarted.getState().busy, false);
+  // Real SQLite voice retries retain ownership, reject duplicate actions and ignore late cancelled results.
+  let voiceCalls = 0, offline = true, releaseVoice;
+  const voiceApi = async input => {
+    voiceCalls++;
+    assert.equal(input.targetLanguage, 'ar');
+    if (offline) throw new TypeError('offline');
+    if (releaseVoice === null) await new Promise(resolve => { releaseVoice = resolve; });
+    input.onResponse?.();
+    return { originalText: 'Spoken words', translatedText: 'Voice translation', originalPronunciation: '', translatedPronunciation: '', translatedAudio: { bytes: new Uint8Array([7,8]), format: 'wav', mimeType: 'audio/wav' } };
+  };
+  const voiceProcessor = voiceProcessing.createVoiceMessageProcessor(audio, voiceApi, () => voiceChat.voiceResponseReceived());
+  const voiceChat = controllerModule.createTextChatController(history, processingModule.createSavedMessageFlow(history, audio), translate, () => `voice_${++id}`, undefined, deletion, voiceProcessor);
+  await voiceChat.initialize();
+  await voiceChat.retry(voiceRows[0].id);
+  assert.equal((await history.getMessage(voiceRows[0].id)).status, 'failed');
+  assert.equal(voiceCalls, 1);
+  offline = false;
+  releaseVoice = null;
+  const retryVoice = voiceChat.retry(voiceRows[0].id);
+  while (releaseVoice === null) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(voiceChat.getState().voiceRequest.phase, 'uploading');
+  await voiceChat.retry(voiceRows[0].id);
+  assert.equal(voiceCalls, 2);
+  voiceChat.interruptVoiceRequest();
+  releaseVoice();
+  await retryVoice;
+  assert.equal((await history.getMessage(voiceRows[0].id)).status, 'failed');
+  assert.equal(await audio.resolve({ kind: 'message', id: voiceRows[0].id, role: 'translated' }), null);
+  await voiceChat.retry(voiceRows[0].id);
+  assert.equal((await history.getMessage(voiceRows[0].id)).status, 'ready');
+  assert.equal(voiceChat.getState().messages.filter(row => row.id === voiceRows[0].id).length, 1);
+  assert.ok((await audio.resolve({ kind: 'message', id: voiceRows[0].id, role: 'translated' })).uri);
+  const paused = voiceChat.beginVoiceCapture();
+  await paused.save('file:///background.m4a', 1000, () => false);
+  assert.equal(voiceCalls, 3, 'Background finalization saves without dispatch');
+  assert.equal(voiceChat.getState().busy, false);
   await history.createConversation({ id: 'saved-single', title: 'Saved voice mode', originMode: 'single', myLanguage: 'en', theirLanguage: 'fa' });
   await restarted.openConversation('saved-single');
   assert.equal(await restarted.send('Read only'), false);
   assert.equal(await restarted.setLanguages('fr', 'es'), false);
   assert.match(restarted.getState().error, /read-only/);
+  assert.equal(await restarted.setLanguages('it', 'fr', 'single'), true);
+  assert.equal(restarted.getState().myLanguage, 'it');
+  assert.equal(restarted.getState().theirLanguage, 'fr');
+  assert.equal(await restarted.swapLanguages(), false);
+  assert.equal(await restarted.swapLanguages('single'), true);
+  assert.equal(restarted.getState().myLanguage, 'fr');
+  assert.equal(restarted.getState().theirLanguage, 'it');
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   console.log('PASS native chat history: language snapshots/retry, restart/offline preferences, search, 200+ pagination, action guards, deletion confirmation, retained Phrasebook/audio and cleanup retry');
 } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }

@@ -63,7 +63,7 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         if (row.input_kind === 'text' && !row.original_text.trim()) throw new Error('Text draft is empty.');
         if (row.input_kind === 'voice') {
           const source = await transaction.getFirstAsync<{ availability: string }>("SELECT a.availability FROM audio_assets a JOIN message_audio r ON r.audio_id=a.id WHERE r.message_id=? AND r.role='source'",id);
-          if (source?.availability !== 'available') throw new Error('Save a source recording before processing.');
+          if (source?.availability !== 'available') throw new Error('Source recording is unavailable before processing.');
         }
         const time = now();
         await transaction.runAsync("UPDATE messages SET status='pending',processing_attempt=processing_attempt+1,error_code=NULL,error_message=NULL,updated_at=max(updated_at,?) WHERE id=?",time,id);

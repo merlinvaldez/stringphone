@@ -1,7 +1,6 @@
 import { requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 
 // Hook ownership gives Expo responsibility for releasing native objects on unmount.
-// Capture/interruption/30-second policy belongs to the later voice controller.
 export {
   useAudioPlayer as useNativeAudioPlayer,
   useAudioPlayerStatus as useNativeAudioPlayerStatus,
@@ -19,5 +18,10 @@ export async function configureNativeAudioSession(recording: boolean) {
     allowsRecording: recording,
     playsInSilentMode: true,
     shouldPlayInBackground: false,
+    allowsBackgroundRecording: false,
+    interruptionMode: 'doNotMix',
+    shouldRouteThroughEarpiece: false,
   });
 }
+
+export { AudioPlaybackCoordinator } from './playbackCoordinator';

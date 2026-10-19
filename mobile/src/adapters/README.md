@@ -10,7 +10,7 @@ Step 3, item 2 of the [migration checklist](../../../specs/expo-mobile-migration
 | `navigation.ts` | Typed navigation to the four existing Expo Router screens | Feature-specific navigation and later room invite handling |
 | `api.ts` | Lazy absolute environment URL resolution, processing transport and native `translateTextMessage` | Remaining Step 5 UI integration |
 | `textChat.ts` | Typed text input with language objects; response validation and text/language/pronunciation mapping | Remaining Step 5 saved-message controller and screen integration |
-| `processingTransport.ts` | JSON POST allowlists for text/speech, abort signal forwarding, status-aware errors and raw successful responses | Step 6 multipart URI upload and durable WAV/base64 decoding; later live/room transports |
+| `processingTransport.ts` | JSON POST allowlists for text/speech, bounded native multipart file upload for voice, abort signal forwarding and status-aware responses | Later live/room transports |
 
 Use direct imports from the relevant adapter; do not add an eager barrel that loads all native modules when only an API request is needed. Shared code stays in the root `shared/` directory and contains no platform APIs.
 

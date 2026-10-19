@@ -63,3 +63,18 @@ npx.cmd expo config --type introspect
 Expect the configured app identifiers, icon path, microphone description and Android recording permission. These checks do not compile a signed app. Real Android/iPhone builds and device acceptance remain release gates.
 
 Sources: [EAS profiles](https://docs.expo.dev/build/eas-json/), [worker images](https://docs.expo.dev/build-reference/infrastructure/), [first build and accounts](https://docs.expo.dev/build/setup/), [internal distribution](https://docs.expo.dev/build/internal-distribution/), [signing credentials](https://docs.expo.dev/app-signing/app-credentials/).
+
+## Standalone Android APK
+
+The `preview` profile creates an internally distributed release APK with its JavaScript bundled (`developmentClient: false`). It opens without Expo Go or a running Metro server. It uses the reachable production processing API, `https://stringphone-orcin.vercel.app/api`; the development profile remains unchanged. On October 15, 2026, an empty text POST returned the expected 400 validation response from production while the old preview returned 401 Protected deployment. This verifies reachability, not successful provider processing.
+
+From `mobile/`, sign in and build:
+
+```powershell
+npx.cmd eas-cli@24.13.0 login
+npm.cmd run build:android:apk
+```
+
+On first use, EAS needs a real linked project and Android signing credentials. Keep the keystore recoverable for future updates. Download the APK from the completed build page, transfer it to the phone, and open it to install. This is a testing build, not a store release. It shares `ai.stringphone.mobile` with development builds; do not uninstall an existing installation to bypass a signing conflict without backing up any local data.
+
+Build completed October 15, 2026: Expo project `@merlinvaldez/stringphone-mobile` (`cadb69a8-b3e2-4e2c-b6a2-8b3ce05475a7`), preview Android build `b1edf5b7-ddcc-42e8-99fe-982e3675d731`. EAS-managed signing key created. First attempt failed because npm 10.9.8 required missing optional @emnapi lock entries; repaired the mobile lockfile with the matching npm version and verified clean-install dry run. Corrected build finished successfully. Downloaded `output/StringPhone-1.0.0-preview.apk` (108191541 bytes), SHA-256 `58d0f61d6e556a698148fc479365d5b77d329d13d54f6be7e9d8a20e329f9445`. Typecheck/lint and Android JS export passed. Bluetooth send to Pixel 10a was rejected as an unsupported file type; a subsequent attempt remained connecting, and the transfer window closed without confirmed delivery. Installation and standalone runtime acceptance remain unverified. Build page: https://expo.dev/accounts/merlinvaldez/projects/stringphone-mobile/builds/b1edf5b7-ddcc-42e8-99fe-982e3675d731

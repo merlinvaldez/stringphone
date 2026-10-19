@@ -8,11 +8,14 @@ import type { ChatState, createTextChatController } from './controller';
 import { MessageCard } from './MessageCard';
 import { HistorySheet } from './HistorySheet';
 import { languageName, messageDirection } from './presentation';
+import { VoiceControls } from './VoiceControls';
+import { useAudioPlayback } from './useAudioPlayback';
 
 type Props = { chat: ReturnType<typeof createTextChatController> | null; state: ChatState; loadError: string | null };
 export function ChatView({ chat, state, loadError }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyVisible, setHistoryVisible] = useState(false);
+  const audioPlayback = useAudioPlayback();
   const list = useRef<FlatList<MessageRow>>(null);
   const input = useRef<TextInput>(null);
   const scrollAfterSend = useRef(false);
@@ -57,11 +60,27 @@ export function ChatView({ chat, state, loadError }: Props) {
           {state.messageCursor && <ActionButton label="Load older messages" tone="secondary" disabled={locked} onPress={() => { void chat?.loadOlderMessages(); }} />}
         </View>}
         ListEmptyComponent={chat ? <Text style={styles.note}>{id ? 'No messages yet. Type a message to start.' : 'No saved conversations. Tap New chat to begin.'}</Text> : null}
-        renderItem={({ item }) => <MessageCard message={item} disabled={locked} onRetry={messageId => { void chat?.retry(messageId); }} />} />
+        renderItem={({ item }) => <MessageCard
+          message={item}
+          disabled={locked}
+          onRetry={messageId => { void chat?.retry(messageId); }}
+          onPlaySource={audioPlayback.playSource}
+          onPlayTranslated={audioPlayback.playTranslated}
+          isPlayingSource={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'source'}
+          isPlayingTranslated={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'translated'}
+          isGeneratingSpeech={audioPlayback.generatingId === item.id}
+          onStopPlayback={audioPlayback.stop}
+        />} />
       <View style={styles.composer}>
+        {audioPlayback.errorNotice && <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>{audioPlayback.errorNotice}</Text>}
         {(loadError || state.error) && <Text accessibilityRole="alert" style={styles.error}>{loadError || state.error}</Text>}
         {!!state.notice && <Text accessibilityLiveRegion="polite" style={styles.note}>{state.notice}</Text>}
+        {state.voiceRequest && <View>
+          <Text accessibilityLiveRegion="polite">{state.voiceRequest.phase === 'uploading' ? 'Uploading recording and waiting for translation...' : 'Processing translation and saving audio...'}</Text>
+          <ActionButton label="Cancel voice translation" tone="secondary" onPress={() => chat?.interruptVoiceRequest()} />
+        </View>}
         {state.maintenancePending && <ActionButton label="Retry storage cleanup" disabled={locked} onPress={() => { void chat?.retryStorageCleanup(); }} />}
+        {chat && <VoiceControls chat={chat} disabled={locked || !id || readOnly} messageIds={state.messages.filter(message => message.input_kind === 'voice').map(message => message.id)} />}
         <TextInput ref={input} accessibilityLabel={`Message draft in ${languageName(state.myLanguage)}`} placeholder={id ? 'Type a message...' : 'Start a new chat first'}
           value={draft} onChangeText={text => { if (id) setDrafts(current => ({ ...current, [id]: text })); }}
           editable={!!chat && !!id && !readOnly} multiline textAlignVertical="top"

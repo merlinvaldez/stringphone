@@ -31,7 +31,7 @@ function ownerTable(owner: AudioOwner) {
 
 export function createAudioStorage(database: SQLiteDatabase, files: AudioFiles, newId: () => string) {
   return {
-    async save(owner: AudioOwner, input: { uri: string } | { bytes: Uint8Array }, metadata: { format: AudioFormat; mimeType: string; durationMs?: number }) {
+    async save(owner: AudioOwner, input: { uri: string } | { bytes: Uint8Array }, metadata: { format: AudioFormat; mimeType: string; durationMs?: number }, replace = false) {
       const { table, column } = ownerTable(owner);
       if (!['wav','m4a','mp3','aac','ogg','webm','caf'].includes(metadata.format) || !metadata.mimeType.trim() ||
           (metadata.durationMs !== undefined && (!Number.isSafeInteger(metadata.durationMs) || metadata.durationMs < 0))) {
@@ -50,7 +50,8 @@ export function createAudioStorage(database: SQLiteDatabase, files: AudioFiles, 
           written = true;
           if (!Number.isSafeInteger(size) || size <= 0) throw new Error('Audio file is empty.');
           await transaction.runAsync('INSERT INTO audio_assets VALUES (?,?,?,?,?,?,?,?)', id, name, metadata.format, metadata.mimeType, metadata.durationMs ?? null, size, 'available', Date.now());
-          // No silent replacement: callers must explicitly manage existing audio ownership.
+          // Explicit replacement is atomic; retained Phrasebook links keep old assets.
+          if (replace) await transaction.runAsync(`DELETE FROM ${table} WHERE ${column}=? AND role=?`, owner.id, owner.role);
           await transaction.runAsync(`INSERT INTO ${table} (${column},role,audio_id) VALUES (?,?,?)`, owner.id, owner.role, id);
         });
       } catch (error) {
