@@ -10,7 +10,7 @@ Migrations run in an exclusive transaction with `PRAGMA user_version`. Failure r
 
 Permanent deletion replaces archive/restore. Deleting a conversation cascades to its messages; a saved Phrasebook entry owns its copied text and pronunciation, and its source link becomes null. Deleting a phrase does not delete its originating message. No archive flags or soft-delete rows exist. Future deletion controls must confirm the action and coordinate removal of audio files no longer referenced by any retained record. Shared audio references and unreferenced-file cleanup are now implemented; confirmation-gated deletion and database compaction are now implemented; SQL row deletion alone does not guarantee the database file shrinks.
 
-History/Phrasebook screen integration remains later checklist work. Native restart/upgrade acceptance remains unverified. Schema checks use real desktop SQLite through Node; they do not substitute for native device checks.
+The History screen is a later UI item; the local Phrasebook UI is implemented in Step 7. Native restart/upgrade acceptance remains unverified here. Schema checks use real desktop SQLite through Node; they do not substitute for native device checks.
 
 Reviewed [Expo SDK 57 SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/).
 
@@ -90,7 +90,7 @@ The result distinguishes committed deletion from maintenance: `status: 'deleted'
 
 After cleanup, `VACUUM` runs outside the deletion transaction to shrink the SQLite file. It can need substantial temporary disk space and can fail under concurrent writes or low storage. In that case freed database pages remain reusable and retry is explicit. It is a storage-reclamation operation, not a secure-erasure/backup guarantee. See [SQLite VACUUM](https://www.sqlite.org/lang_vacuum.html).
 
-The app-owned Chat session now owns one deletion service and wires it to History's confirmed Delete actions. The controller blocks overlapping send/retry, selection, navigation, deletion and maintenance and reports cleanup failures separately from committed deletion. Phrasebook controls and recording/playback lifecycle wiring remain Steps 6/7; future integrations must stop active capture/playback before deleting their records.
+The app-owned Chat session owns one deletion service and wires it to confirmed History and Phrasebook Delete actions. The controller blocks overlapping send/retry, selection, navigation, deletion and maintenance and reports cleanup failures separately from committed deletion. Phrasebook playback uses the shared audio coordinator and stops when its tab loses focus. Future capture integrations must stop active recording before deleting their records.
 
 Step 5 also adds cursor-paged conversation search/message reads and transactional active-chat/language preferences to the repository. No schema version change is required. See [Chat/history behavior and verification](../../docs/chat-history.md).
 

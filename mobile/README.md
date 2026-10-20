@@ -1,6 +1,6 @@
 # StringPhone mobile scaffold
 
-This TypeScript Expo app has native Chat, Single, Conversation, and Phrasebook tabs, safe-area handling and accessible controls. Chat supports SQLite text translation, language selection/swap, separate conversations, local history search and confirmed permanent deletion. Single, Conversation and Phrasebook remain placeholders; recording is not wired. See [the migration spec](../specs/expo-mobile-migration.md).
+This TypeScript Expo app has native Chat, Single, Conversation, and Phrasebook tabs, safe-area handling and accessible controls. Chat supports SQLite text translation, language selection/swap, separate conversations, local history search and confirmed permanent deletion. Single and Conversation support recorded turns. Phrasebook stores editable phrases in SQLite with local search and playback. See [the migration spec](../specs/expo-mobile-migration.md).
 
 ## Versions
 
@@ -55,7 +55,17 @@ Run the full local Chat integration check from the repository root:
 npm.cmd --prefix mobile run test:local-history
 ```
 
-This check runs the real controller, text-response mapper and transport against an on-disk SQLite database with injected HTTP responses. It covers successful translation persistence, HTTP 401 failure, same-record explicit retry, database close/reopen with no network calls, and rejected web history/collection endpoints. It makes no real cloud AI request and does not establish provider retention or server-side endpoint behavior. The broader endpoint audit is the next checklist item; native Phrasebook/voice/live wiring follows later phases.
+This check runs the real controller, text-response mapper and transport against an on-disk SQLite database with injected HTTP responses. It covers successful translation persistence, HTTP 401 failure, same-record explicit retry, database close/reopen with no network calls, and rejected web history/collection endpoints. It makes no real cloud AI request and does not establish provider retention or server-side endpoint behavior. The broader endpoint audit is the next checklist item; voice and live integrations remain separate phases.
+
+## Local Phrasebook
+
+Step 7 is implemented in [the Phrasebook guide](docs/phrasebook.md). Ready translated messages can be saved from Chat, Single, or Conversation; manual entries support optional translation/pronunciation; and the Phrasebook tab groups entries by language pair with offline search, editing, confirmed permanent deletion, and source/translation playback. Existing audio links survive deletion of the originating conversation. Missing speech can be generated online and is saved for later offline playback.
+
+Run the Phrasebook storage verification from the repository root:
+
+```powershell
+node --import tsx scripts/verify-mobile-phrasebook.mjs
+```
 
 ## Separate mobile and backend development on Windows
 
@@ -146,35 +156,43 @@ For cloud builds/updates, supply these same public variables in the chosen EAS e
 
 All `EXPO_PUBLIC_` values are visible in the app bundle. Only environment names and API addresses belong here. Permanent AI keys, database credentials, and server secrets stay in server configuration. `.env.local` is ignored by Git. This config module imports no server/database/provider code. See [Expo public environment variables](https://docs.expo.dev/guides/environment-variables/).
 
-## Native dependencies and development client
+## Local Android testing and Expo production builds
 
-Step 2, item 2 installed with `npx.cmd expo install expo-audio expo-sqlite expo-file-system expo-dev-client`: Audio 57.0.5, SQLite 57.0.4, FileSystem 57.0.7, development client 57.0.20. These packages prepare later voice and storage work; no recording, database schema, or durable file flow has been implemented yet.
+Testing uses a local Android development build with a separate app identity (`ai.stringphone.mobile.debug`). It can stay installed beside the EAS preview app, so its SQLite data remains separate. The installed development client loads JavaScript from Metro while the PC and phone are on the same network.
 
-The audio plugin configures microphone permissions and disables background recording/playback. Permission requests must still be implemented at runtime in the voice phase. SQLite uses its default configuration; installing it does not provide encryption. Later recordings must use the app document directory rather than relying on cache.
-
-Audio's required peer dependency `expo-asset` 57.0.19 is also installed directly. Item 2 validation passed dependency compatibility and Expo Doctor (21/21); native config introspection confirmed the iOS microphone description, Android recording permission, and no iOS background audio mode. Native compilation and audio/SQLite/file-system device operations remain unverified.
-
-After a development build is installed:
+Install Android Studio with Android SDK command-line tools and JDK 17, connect the Pixel over USB, and allow USB debugging when prompted. From the repository root, build and install the debug app:
 
 ```powershell
-npm.cmd run dev:client
+npm.cmd --prefix mobile run build:android:debug
 ```
 
-This explicitly connects to your installed development client. Installing `expo-dev-client` makes Expo CLI prefer development builds by default, so `npm.cmd run dev` still starts Metro but now normally targets that client. For the current scaffold in compatible Expo Go, run `npm.cmd run dev -- --go`. Expo Go does not establish support for the final custom streaming modules.
+This selects the connected device automatically when only one is authorized, generates the ignored Android native project if needed, builds the debug APK locally, and installs it through ADB without starting Metro. On Windows the debug app config puts app CMake outputs under `C:\sp` to keep Ninja paths within the native filename limit. The APK is at `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 
-For local compilation on Windows, install Android Studio, the Android SDK and a compatible JDK, then use an emulator or connected Android device:
+After install, start Metro with the debug variant selected (use the same command for later JavaScript-only sessions):
 
 ```powershell
-npm.cmd run build:android:local
+npm.cmd --prefix mobile run dev:client:debug
 ```
 
-For a physical Android device, append `-- --device`. This generates native projects and compiles/installs your development app. On macOS with Xcode, use `npm.cmd run build:ios:local`; local iOS compilation is unavailable on Windows. Native directories remain generated and ignored. App identifiers and cloud EAS development profiles are configured in [the build guide](docs/development-builds.md); account linking, signing, and device distribution remain prerequisites. No cloud build or account/signing operation was performed in this item. Rebuild your development client after adding custom native dependencies or changing native plugin settings.
+Rebuild after changing native dependencies, app config, or config plugins. Keep generated `mobile/android/` files ignored and configure native behavior through Expo app config.
 
-References: [Audio](https://docs.expo.dev/versions/v57.0.0/sdk/audio/), [SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/), [development client](https://docs.expo.dev/versions/v57.0.0/sdk/dev-client/), [development builds](https://docs.expo.dev/develop/development-builds/introduction/).
+Production artifacts are built on Expo EAS, not on the local Android toolchain. From the repository root, run the requested cloud profile:
+
+```powershell
+npm.cmd --prefix mobile run build:android:production
+npm.cmd --prefix mobile run build:android:production-apk
+```
+
+The first profile produces a Play Store AAB; the second produces an internally distributed APK for direct-install QA. Both use the production API URL and release app identity. The APK is not the Play update channel because Google Play can sign delivered APKs with a different key. See [the build guide](docs/development-builds.md) for profile and signing details.
+
+References: [SDK 57 development client](https://docs.expo.dev/versions/v57.0.0/sdk/dev-client/), [local app builds](https://docs.expo.dev/guides/local-app-development/), [EAS profiles](https://docs.expo.dev/eas/json/), [EAS APKs](https://docs.expo.dev/build-reference/apk/).
 
 ## Manual device checks still required
 
-- Open all four tabs; Chat has the working text/history interface and the other three remain placeholders.
+- Open Chat, Single, Conversation, and Phrasebook after a cold start; confirm each screen loads its controls without requiring prior navigation.
+- In Single, confirm Speak/Listen and language controls are available before the first recording. In Conversation, confirm both speaker controls and language labels are visible.
+- Rotate Conversation to landscape and confirm the two speaker panes stay side by side with both microphone controls reachable.
+- Keep the release app installed beside `ai.stringphone.mobile.debug`; confirm the release app's saved Phrasebook data remains present after installing or updating the debug app.
 - In Chat, select languages, swap, send, start a new chat, search/reopen history and cancel/confirm permanent deletion. See [the detailed checklist](docs/chat-history.md#phone-verification).
 - Type a long multiline draft; tap Done typing to dismiss the keyboard. Switch chats and back: each unsent composer draft stays separate during this screen's lifetime.
 - Rotate, increase system text size, and check controls remain reachable without clipping at the notch, status bar, or tab bar.

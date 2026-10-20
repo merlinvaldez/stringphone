@@ -103,10 +103,12 @@ Android acceptance, October 19, 2026: installed preview APK 1.0.4 (version code 
 
 Outcome: users can keep learning material without cloud collection ownership under the confirmed local-history scope.
 
-- [ ] Save phrases from translated messages or manual entry to SQLite with language, text, translation, pronunciation, and optional available audio references.
-- [ ] Implement language grouping, search, edit, permanent deletion, and playback. Local browsing and saved playback work offline; generating new speech requires internet.
-- [ ] Preserve local entries when their originating conversation is deleted: retain copied phrase text/pronunciation and clear the source-message link; remove audio only when no retained record needs it.
-- [ ] Keep currently hidden lesson-generation features outside the mobile UI unless separately requested.
+- [x] Save phrases from translated messages or manual entry to SQLite with language, text, translation, pronunciation, and optional available audio references. Implemented in [Phrasebook storage](../mobile/src/storage/phrasebook.ts) and the native phrasebook screen; translated-message actions are wired through Chat, Single, and Conversation message cards.
+- [x] Implement language grouping, search, edit, permanent deletion, and playback. Local browsing and saved playback work offline; generating new speech requires internet. Verified by the Android acceptance run below.
+- [x] Preserve local entries when their originating conversation is deleted: retain copied phrase text/pronunciation and clear the source-message link; remove audio only when no retained record needs it. Verified by saving a translated message, deleting its fresh source conversation, and reopening the retained Phrasebook entry.
+- [x] Keep currently hidden lesson-generation features outside the mobile UI unless separately requested.
+
+Android acceptance, October 20, 2026: installed preview APK 1.0.5 (version code 6, EAS build `607e284b-8b14-4e85-8fb6-72f6b8b1eb67`) in place on the connected Pixel 10a (Android 17/API 37), preserving phone history. Added a manual English-to-Spanish phrase, edited its translation, searched by translation text, generated source and translation speech, and permanently deleted the test entry. After force-stop/relaunch with airplane mode enabled and Wi-Fi disabled, both saved audio clips entered the active Stop state. In a fresh chat, sent “Good morning,” received “Buenos días,” and saved the translation to Phrasebook; after permanently deleting that chat, the copied phrase remained. Removed both test phrases and the temporary chat, left preexisting history/Phrasebook entries intact, and restored Wi-Fi and airplane-mode settings. Then installed final-source preview APK 1.0.5 (version code 6, EAS build `2865038e-a03b-45cd-81ac-1f42cd7bc616`) in place. It launched without a crash, retained the preexisting Phrasebook item, passed a manual add/delete smoke check, and right-aligned phrase text when Arabic was selected; all temporary inputs were discarded or removed.
 
 ### 8. Prove and implement native live streaming
 

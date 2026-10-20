@@ -8,6 +8,7 @@ import { createSavedMessageFlow } from '../storage/processing';
 import { createTextChatController } from './controller';
 import { createDeletionService } from '../storage/deletion';
 import { confirmNativeDeletion } from '../adapters/deletionConfirmation';
+import { createPhrasebookRepository } from '../storage/phrasebook';
 
 // Local IDs are never credentials or cloud ownership IDs.
 let sequence = 0;
@@ -15,6 +16,8 @@ const newId = () => `${Date.now().toString(36)}_${(++sequence).toString(36)}_${M
 let session: Promise<ReturnType<typeof createTextChatController>> | undefined;
 let audioSession: ReturnType<typeof createAudioStorage> | undefined;
 let historySession: ReturnType<typeof createHistoryRepository> | undefined;
+let phrasebookSession: ReturnType<typeof createPhrasebookRepository> | undefined;
+let deletionSession: ReturnType<typeof createDeletionService> | undefined;
 
 export async function resolveNativeSourceAudio(id: string) {
   await getNativeTextChat();
@@ -63,11 +66,14 @@ export function getNativeTextChat() {
       const history = createHistoryRepository(database);
       const audio = createAudioStorage(database, createNativeAudioFiles(), newId);
       const deletion = createDeletionService(database, audio, confirmNativeDeletion);
+      const phrasebook = createPhrasebookRepository(database, newId);
       const voice = createVoiceMessageProcessor(audio, translateVoiceMessage, () => controller.voiceResponseReceived());
       const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice);
       await controller.initialize();
       audioSession = audio;
       historySession = history;
+      phrasebookSession = phrasebook;
+      deletionSession = deletion;
       return controller;
     } catch (error) {
       await database.closeAsync().catch(() => undefined);
@@ -75,4 +81,9 @@ export function getNativeTextChat() {
     }
   })().catch(error => { session = undefined; throw error; });
   return session;
+}
+
+export async function getNativePhrasebookServices() {
+  await getNativeTextChat();
+  return { phrasebook: phrasebookSession!, audio: audioSession!, deletion: deletionSession! };
 }

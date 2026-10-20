@@ -9,6 +9,9 @@ export type MessageCardProps = {
   onRetry: (id: string) => void;
   onPlaySource?: (id: string) => void;
   onPlayTranslated?: (id: string) => void;
+  onSaveToPhrasebook?: (id: string) => void;
+  isSavedInPhrasebook?: boolean;
+  isSavingPhrase?: boolean;
   isPlayingSource?: boolean;
   isPlayingTranslated?: boolean;
   isGeneratingSpeech?: boolean;
@@ -21,6 +24,9 @@ export function MessageCard({
   onRetry,
   onPlaySource,
   onPlayTranslated,
+  onSaveToPhrasebook,
+  isSavedInPhrasebook = false,
+  isSavingPhrase = false,
   isPlayingSource = false,
   isPlayingTranslated = false,
   isGeneratingSpeech = false,
@@ -28,7 +34,8 @@ export function MessageCard({
 }: MessageCardProps) {
   const retryable = ['draft', 'failed', 'interrupted'].includes(message.status);
   const canPlaySource = message.input_kind === 'voice' && message.status !== 'pending';
-  const canPlayTranslated = message.translated_text !== null && message.status === 'ready';
+  const canPlayTranslated = Boolean(message.translated_text?.trim()) && message.status === 'ready';
+  const canSaveToPhrasebook = canPlayTranslated && Boolean(message.original_text.trim());
 
   return <View style={[styles.message, message.speaker === 'them' && styles.partner]}>
     <Text style={styles.note}>{message.speaker === 'me' ? 'You' : 'Partner'} · {message.origin_mode} · {new Date(message.created_at).toLocaleString()}</Text>
@@ -58,6 +65,14 @@ export function MessageCard({
           disabled={disabled || isGeneratingSpeech}
           tone="secondary"
           onPress={() => (isPlayingTranslated ? onStopPlayback?.() : onPlayTranslated(message.id))}
+        />
+      )}
+      {canSaveToPhrasebook && onSaveToPhrasebook && (
+        <ActionButton
+          label={isSavedInPhrasebook ? 'Saved to Phrasebook' : isSavingPhrase ? 'Saving phrase...' : 'Save to Phrasebook'}
+          disabled={disabled || isSavedInPhrasebook || isSavingPhrase}
+          tone="secondary"
+          onPress={() => onSaveToPhrasebook(message.id)}
         />
       )}
     </View>

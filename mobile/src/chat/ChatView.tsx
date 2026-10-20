@@ -10,12 +10,14 @@ import { HistorySheet } from './HistorySheet';
 import { languageName, messageDirection } from './presentation';
 import { VoiceControls } from './VoiceControls';
 import { useAudioPlayback } from './useAudioPlayback';
+import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 
 type Props = { chat: ReturnType<typeof createTextChatController> | null; state: ChatState; loadError: string | null };
 export function ChatView({ chat, state, loadError }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyVisible, setHistoryVisible] = useState(false);
   const audioPlayback = useAudioPlayback();
+  const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
   const list = useRef<FlatList<MessageRow>>(null);
   const input = useRef<TextInput>(null);
   const scrollAfterSend = useRef(false);
@@ -66,12 +68,19 @@ export function ChatView({ chat, state, loadError }: Props) {
           onRetry={messageId => { void chat?.retry(messageId); }}
           onPlaySource={audioPlayback.playSource}
           onPlayTranslated={audioPlayback.playTranslated}
+          onSaveToPhrasebook={phrasebook.save}
+          isSavedInPhrasebook={phrasebook.isSaved(item.id)}
+          isSavingPhrase={phrasebook.isSaving(item.id)}
           isPlayingSource={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'source'}
           isPlayingTranslated={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'translated'}
           isGeneratingSpeech={audioPlayback.generatingId === item.id}
           onStopPlayback={audioPlayback.stop}
         />} />
       <View style={styles.composer}>
+        {(phrasebook.error || phrasebook.notice) && <Text accessibilityRole={phrasebook.error ? 'alert' : undefined}
+          accessibilityLiveRegion="polite" style={phrasebook.error ? styles.error : styles.note} onPress={phrasebook.clearNotices}>
+          {phrasebook.error || phrasebook.notice}
+        </Text>}
         {audioPlayback.errorNotice && <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>{audioPlayback.errorNotice}</Text>}
         {(loadError || state.error) && <Text accessibilityRole="alert" style={styles.error}>{loadError || state.error}</Text>}
         {!!state.notice && <Text accessibilityLiveRegion="polite" style={styles.note}>{state.notice}</Text>}

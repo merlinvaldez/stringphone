@@ -27,6 +27,7 @@ import { HistorySheet } from './HistorySheet';
 import { MessageCard } from './MessageCard';
 import { languageName } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
+import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -45,6 +46,7 @@ export function SingleView({ chat, state, loadError }: Props) {
   const [denied, setDenied] = useState(false);
 
   const audioPlayback = useAudioPlayback();
+  const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
   const listRef = useRef<FlatList<MessageRow>>(null);
 
   const chatRef = useRef(chat);
@@ -295,6 +297,9 @@ export function SingleView({ chat, state, loadError }: Props) {
             onRetry={messageId => { void chat?.retry(messageId); }}
             onPlaySource={audioPlayback.playSource}
             onPlayTranslated={audioPlayback.playTranslated}
+            onSaveToPhrasebook={phrasebook.save}
+            isSavedInPhrasebook={phrasebook.isSaved(item.id)}
+            isSavingPhrase={phrasebook.isSaving(item.id)}
             isPlayingSource={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'source'}
             isPlayingTranslated={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'translated'}
             isGeneratingSpeech={audioPlayback.generatingId === item.id}
@@ -305,6 +310,12 @@ export function SingleView({ chat, state, loadError }: Props) {
 
       {/* Status banner */}
       <View style={styles.statusSection}>
+        {(phrasebook.error || phrasebook.notice) && (
+          <Text accessibilityRole={phrasebook.error ? 'alert' : undefined} accessibilityLiveRegion="polite"
+            style={phrasebook.error ? styles.error : styles.noticeText} onPress={phrasebook.clearNotices}>
+            {phrasebook.error || phrasebook.notice}
+          </Text>
+        )}
         {audioPlayback.errorNotice && (
           <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>
             {audioPlayback.errorNotice}

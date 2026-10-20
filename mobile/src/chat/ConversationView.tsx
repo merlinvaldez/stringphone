@@ -24,6 +24,7 @@ import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
 import { languageName, messageDirection } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
+import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -232,6 +233,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
   // Filter messages for conversation mode
   const messages = state.messages;
   const latestMessage = messages[messages.length - 1] ?? null;
+  const phrasebook = useSaveToPhrasebook(latestMessage ? [latestMessage.id] : []);
 
   function renderSideContent(side: 'partner' | 'self') {
     const isPartner = side === 'partner';
@@ -302,7 +304,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
                     />
                   )}
                   {/* Option to play translated speech */}
-                  {latestMessage.translated_text && (
+                  {latestMessage.translated_text?.trim() && (
                     <ActionButton
                       label={
                         audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'translated'
@@ -320,6 +322,14 @@ export function ConversationView({ chat, state, loadError }: Props) {
                           void audioPlayback.playTranslated(latestMessage.id);
                         }
                       }}
+                    />
+                  )}
+                  {!isPartner && latestMessage.translated_text?.trim() && latestMessage.original_text.trim() && (
+                    <ActionButton
+                      label={phrasebook.isSaved(latestMessage.id) ? 'Saved to Phrasebook' : phrasebook.isSaving(latestMessage.id) ? 'Saving phrase...' : 'Save phrase'}
+                      tone="secondary"
+                      disabled={locked || phrasebook.isSaved(latestMessage.id) || phrasebook.isSaving(latestMessage.id)}
+                      onPress={() => { void phrasebook.save(latestMessage.id); }}
                     />
                   )}
                 </View>
@@ -401,6 +411,12 @@ export function ConversationView({ chat, state, loadError }: Props) {
       {audioPlayback.errorNotice && (
         <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>
           {audioPlayback.errorNotice}
+        </Text>
+      )}
+      {(phrasebook.error || phrasebook.notice) && (
+        <Text accessibilityRole={phrasebook.error ? 'alert' : undefined} accessibilityLiveRegion="polite"
+          style={phrasebook.error ? styles.error : styles.notice} onPress={phrasebook.clearNotices}>
+          {phrasebook.error || phrasebook.notice}
         </Text>
       )}
       {(loadError || state.error) && <Text accessibilityRole="alert" style={styles.error}>{loadError || state.error}</Text>}
