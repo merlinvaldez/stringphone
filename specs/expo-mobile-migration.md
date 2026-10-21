@@ -42,7 +42,7 @@ Outcome: a clear list of required mobile behavior and server requests before rew
 
 - [x] Resolve the release and account/sync choices above and update this spec and its issue.
 - [x] Map current behavior from `client/src/StringPhoneApp.jsx`, Chat components, `useLiveTurnFlow.js`, and the feature docs into native screen acceptance criteria. See [native screen acceptance criteria](expo-mobile-screen-acceptance.md), reviewed against the current checkout on October 13, 2026.
-- [x] Document text, multipart audio, speech response, and error contracts for both Express and Vercel handlers. Audit body limits, recording size/duration, audio formats, and provider compatibility on both phones. See [API contract audit](expo-mobile-api-contract.md), reviewed October 13, 2026; local validation passed on both handler paths. Actual phone/provider compatibility remains explicitly unverified until the Step 6 and Step 8 device checks.
+- [x] Document text, multipart audio, speech response, and error contracts for both Express and Vercel handlers. Audit body limits, recording size/duration, audio formats, and provider compatibility on both phones. See [API contract audit](expo-mobile-api-contract.md), reviewed October 13, 2026; local validation passed on both handler paths. Android recorded-voice and live-stream compatibility are verified; iPhone and failure/recovery cases remain unverified.
 - [x] Distinguish phone conversation IDs from server-owned conversation IDs. Local IDs must not be submitted as cloud ownership/persistence IDs. See [mobile identity contract](expo-mobile-identity-contract.md), defined October 13, 2026; native request allowlists, retry mapping and storage constraints remain implementation acceptance checks.
 - [x] Preserve the web app and its PostgreSQL/Clerk routes while adding mobile processing behavior. Removing web storage is a separate decision. See [web compatibility requirements](expo-mobile-web-compatibility.md), defined October 13, 2026; current web build and processing validation pass. Future runtime changes must satisfy the documented web regression gates.
 
@@ -114,12 +114,14 @@ Android acceptance, October 20, 2026: installed preview APK 1.0.5 (version code 
 
 Outcome: partial transcript and translation updates work in native development builds, then finalize into local history once.
 
-- [ ] First run a small real-device spike for native WebRTC/audio capture and the short-lived token route. Verify compatibility with the chosen Expo/React Native versions before committing to a library.
-- [ ] Adapt the behavior in `useLiveConversationCapture.js`, `useLiveTurnFlow.js`, `runLiveConversationTranslation.ts`, and `runLiveConversationTranscript.ts`. Browser getUserMedia, RTCPeerConnection, and audio recording require native equivalents.
-- [ ] Preserve selected-pair constraints, 30-second limit, silence-based commits, pronunciation, captured source audio, and user-requested playback. Keep partial drafts separate from final durable records.
-- [ ] Use utterance IDs/revisions to reject stale translations and deduplicate finalization; stop/release capture and connections on navigation, interruptions, and app inactivity.
-- [ ] Verify native source-audio recording alongside streaming. File recording alone is not evidence that live streaming works.
-- [ ] Document the supported fallback when the streaming spike fails. Recorded-turn voice remains usable; do not label it live streaming.
+- [x] First run a small real-device spike for native WebRTC/audio capture and the short-lived token route. Verified October 21, 2026 with a locally packaged APK on the Pixel 10a (Android 17/API 37): the app obtained a short-lived session, opened the WebRTC channel, and streamed spoken English for live transcription.
+- [x] Adapt the behavior in `useLiveConversationCapture.js`, `useLiveTurnFlow.js`, `runLiveConversationTranslation.ts`, and `runLiveConversationTranscript.ts`. Native WebRTC and Expo Audio wiring is implemented in [native live translation](../mobile/docs/live-translation.md); mobile typecheck and lint passed before device packaging.
+- [x] Preserve selected-pair constraints, 30-second limit, silence-based commits, pronunciation, captured source audio, and user-requested playback. English-to-Spanish live turns appeared on the Pixel; a long capture ended at the configured limit, and a later brief capture returned to idle before the limit.
+- [x] Use utterance IDs/revisions to reject stale translations and deduplicate finalization; stop/release capture and connections on navigation, interruptions, and app inactivity. The implementation has per-utterance revision and finalization guards plus focus/app-state teardown; live utterances appeared once in saved message cards.
+- [x] Verify native source-audio recording alongside streaming. The Pixel showed the live transcript and translation with a separate saved-recording control; source playback entered its active Stop state, and the saved message/recording remained after force-stop and relaunch.
+- [x] Document the supported fallback when the streaming spike fails. Recorded-turn voice remains usable; connection failures are reported as errors or saved voice drafts rather than live translations. Offline/failure recovery remains a separate unverified device scenario.
+
+Android live acceptance, October 21, 2026: built local standalone APK 1.0.6 (version code 7, ARM64) with Android Gradle and installed it in place using ADB on a Pixel 10a running Android 17/API 37. The debug signer matched the existing `ai.stringphone.mobile.debug` installation, preserving app data; production package `ai.stringphone.mobile` remained installed at version 1.0.5/code 6. The user spoke English into the live session: a transcript and Spanish preview appeared while capture was active, then the completed English/Spanish turn appeared as a Saved history card. A separate source recording played, and the saved turn remained after force-stop/relaunch. A long second capture ended at the configured 30-second limit and finalized its utterance(s); a later brief capture returned to the stopped state before the limit but had no speech. The final APK was produced locally; no EAS APK was used. Offline retry, background/navigation interruption with a draft, and iPhone acceptance remain unverified.
 
 ### 9. Add shared rooms and app invite links
 
@@ -140,7 +142,7 @@ Outcome: verified native builds can be distributed and maintained on both platfo
 - [ ] Run device acceptance tests and backend/web regressions before releasing. Use real microphone and playback tests on iPhone and Android, not only a web preview or simulator.
 - [ ] Prepare store metadata, screenshots, privacy disclosures covering AI processing and local storage, support contacts, and permission descriptions.
 - [ ] Document environment setup, schema upgrades, release/rollback procedures, and the limits of local backup/uninstall recovery. Accounts, payments, credentials, and store submission remain explicit release actions.
-- [ ] Treat steps 8 and 9 as first-release blockers: live streaming and shared rooms must pass their acceptance checks before release. Defer export/import and cross-device sync.
+- [ ] Treat outstanding Step 8 iPhone acceptance and Step 9 shared rooms as first-release blockers. Android live-stream acceptance is recorded above. Defer export/import and cross-device sync.
 
 ### Source references
 

@@ -16,6 +16,7 @@
 **/*.key
 **/*.pem
 output/**
+mobile/output/**
 *.wav
 *.mp3
 mobile/android/**

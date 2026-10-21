@@ -4,6 +4,11 @@ type Mode = 'chat' | 'single' | 'conversation' | 'room';
 export type ConversationInput = { id: string; title: string; originMode: Mode; myLanguage: string; theirLanguage: string };
 export type PendingMessageInput = { id: string; requestId: string; conversationId: string; speaker: 'me' | 'them'; originMode: Mode; sourceLanguage: string; targetLanguage: string; originalText: string };
 export type DraftMessageInput = PendingMessageInput & { inputKind: 'text' | 'voice' };
+export type ReadyLiveMessageInput = PendingMessageInput & {
+  originalPronunciation?: string | null;
+  translatedPronunciation?: string | null;
+  translatedText: string;
+};
 export type MessageRow = {
   id: string; request_id: string | null; conversation_id: string; speaker: 'me' | 'them'; origin_mode: Mode;
   source_language: string; target_language: string; original_text: string; translated_text: string | null;
@@ -53,6 +58,54 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
           await transaction.runAsync(`INSERT INTO messages (id,request_id,conversation_id,speaker,origin_mode,source_language,target_language,original_text,input_kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'draft',?,?)`,input.id,input.requestId,input.conversationId,input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.inputKind,time,time);
         }
       });
+    },
+    async saveReadyLiveMessage(input: ReadyLiveMessageInput) {
+      for (const value of [input.id,input.requestId,input.conversationId,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText]) required(value);
+      let created = false;
+      await database.withExclusiveTransactionAsync(async transaction => {
+        const existing = await transaction.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id=? OR request_id=?',input.id,input.requestId);
+        if (existing) {
+          if (existing.id !== input.id || existing.request_id !== input.requestId || existing.conversation_id !== input.conversationId ||
+              existing.speaker !== input.speaker || existing.origin_mode !== input.originMode || existing.source_language !== input.sourceLanguage ||
+              existing.target_language !== input.targetLanguage || existing.original_text !== input.originalText || existing.translated_text !== input.translatedText ||
+              existing.original_pronunciation !== (input.originalPronunciation ?? null) || existing.translated_pronunciation !== (input.translatedPronunciation ?? null) ||
+              existing.status !== 'ready' || existing.input_kind !== 'voice') {
+            throw new Error('Live message identity does not match the saved message.');
+          }
+          return;
+        }
+        const time = now();
+        await touch(transaction,input.conversationId,time);
+        await transaction.runAsync(`INSERT INTO messages (id,request_id,conversation_id,speaker,origin_mode,source_language,target_language,original_text,translated_text,original_pronunciation,translated_pronunciation,input_kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'voice','ready',?,?)`,
+          input.id,input.requestId,input.conversationId,input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText,
+          input.originalPronunciation ?? null,input.translatedPronunciation ?? null,time,time);
+        created = true;
+      });
+      return created;
+    },
+    async finishLiveDraft(input: ReadyLiveMessageInput) {
+      for (const value of [input.id,input.requestId,input.conversationId,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText]) required(value);
+      let changed = false;
+      await database.withExclusiveTransactionAsync(async transaction => {
+        const row = await transaction.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id=? AND request_id=?',input.id,input.requestId);
+        if (!row) throw new Error('Live source recording draft does not exist.');
+        if (row.conversation_id !== input.conversationId || row.input_kind !== 'voice') throw new Error('Live source recording draft identity does not match.');
+        if (row.status === 'ready') {
+          if (row.speaker !== input.speaker || row.origin_mode !== input.originMode || row.source_language !== input.sourceLanguage || row.target_language !== input.targetLanguage ||
+              row.original_text !== input.originalText || row.translated_text !== input.translatedText ||
+              row.original_pronunciation !== (input.originalPronunciation ?? null) || row.translated_pronunciation !== (input.translatedPronunciation ?? null)) {
+            throw new Error('Live finalization identity does not match the saved message.');
+          }
+          return;
+        }
+        if (row.status !== 'draft') throw new Error('Only a saved live audio draft can be finalized.');
+        const time = now();
+        await transaction.runAsync(`UPDATE messages SET speaker=?,origin_mode=?,source_language=?,target_language=?,original_text=?,translated_text=?,original_pronunciation=?,translated_pronunciation=?,status='ready',error_code=NULL,error_message=NULL,updated_at=max(updated_at,?) WHERE id=? AND request_id=? AND status='draft'`,
+          input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText,input.originalPronunciation ?? null,input.translatedPronunciation ?? null,time,input.id,input.requestId);
+        await touch(transaction,input.conversationId,time);
+        changed = true;
+      });
+      return changed;
     },
     async beginAttempt(id: string): Promise<MessageRow | null> {
       let claimed: MessageRow | null = null;

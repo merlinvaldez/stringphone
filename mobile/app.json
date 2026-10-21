@@ -2,7 +2,7 @@
   "expo": {
     "name": "StringPhone",
     "slug": "stringphone-mobile",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "default",
     "scheme": "stringphone",
     "plugins": [
@@ -11,10 +11,17 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow StringPhone to record your voice for transcription and translation.",
+            "microphonePermission": "Allow StringPhone to use the microphone for recorded and live translation.",
           "recordAudioAndroid": true,
           "enableBackgroundRecording": false,
           "enableBackgroundPlayback": false
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "StringPhone does not access your camera.",
+          "microphonePermission": "Allow StringPhone to use the microphone for recorded and live translation."
         }
       ],
       "expo-sqlite",
@@ -24,12 +31,12 @@
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "ai.stringphone.mobile",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "supportsTablet": true
     },
     "android": {
       "package": "ai.stringphone.mobile",
-      "versionCode": 6,
+      "versionCode": 7,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
@@ -39,6 +46,10 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "web": {

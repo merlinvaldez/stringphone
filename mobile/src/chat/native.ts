@@ -68,7 +68,7 @@ export function getNativeTextChat() {
       const deletion = createDeletionService(database, audio, confirmNativeDeletion);
       const phrasebook = createPhrasebookRepository(database, newId);
       const voice = createVoiceMessageProcessor(audio, translateVoiceMessage, () => controller.voiceResponseReceived());
-      const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice);
+      const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice, audio);
       await controller.initialize();
       audioSession = audio;
       historySession = history;

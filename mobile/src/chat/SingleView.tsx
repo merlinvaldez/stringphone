@@ -28,6 +28,7 @@ import { MessageCard } from './MessageCard';
 import { languageName } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
+import { LiveTranslationControls } from '../live/LiveTranslationControls';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -86,10 +87,10 @@ export function SingleView({ chat, state, loadError }: Props) {
   // Select this mode only while its tab is actually focused. Native tabs may
   // keep the other mode screens mounted in the background.
   useEffect(() => {
-    if (isFocused && chat && state.conversation?.origin_mode !== 'single') {
+    if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'single') {
       void chat.ensureConversationForMode('single');
     }
-  }, [isFocused, chat, state.conversation?.origin_mode]);
+  }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
 
   async function save() {
     if (!capturedRef.current || !leaseRef.current) return;
@@ -277,6 +278,8 @@ export function SingleView({ chat, state, loadError }: Props) {
           />
         </View>
       </View>
+
+      {chat && <LiveTranslationControls chat={chat} state={state} mode="single" disabled={locked} />}
 
       <FlatList
         ref={listRef}

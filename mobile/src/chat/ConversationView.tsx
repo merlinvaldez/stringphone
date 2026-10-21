@@ -25,6 +25,7 @@ import { HistorySheet } from './HistorySheet';
 import { languageName, messageDirection } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
+import { LiveTranslationControls } from '../live/LiveTranslationControls';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -82,10 +83,10 @@ export function ConversationView({ chat, state, loadError }: Props) {
   // Select this mode only while its tab is actually focused. Native tabs may
   // keep the other mode screens mounted in the background.
   useEffect(() => {
-    if (isFocused && chat && state.conversation?.origin_mode !== 'conversation') {
+    if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'conversation') {
       void chat.ensureConversationForMode('conversation');
     }
-  }, [isFocused, chat, state.conversation?.origin_mode]);
+  }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
 
   const locked = !chat || state.busy || state.historyBusy || phase === 'recording' || phase === 'preparing' || phase === 'saving';
 
@@ -407,6 +408,8 @@ export function ConversationView({ chat, state, loadError }: Props) {
         <ActionButton label="History" tone="secondary" disabled={locked && phase === 'idle'} onPress={() => setHistoryVisible(true)} />
         <ActionButton label="New session" disabled={locked} onPress={() => { void chat?.newModeConversation('conversation'); }} />
       </View>
+
+      {chat && <LiveTranslationControls chat={chat} state={state} mode="conversation" disabled={locked} />}
 
       {audioPlayback.errorNotice && (
         <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>

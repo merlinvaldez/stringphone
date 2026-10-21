@@ -1,6 +1,7 @@
-import type { createHistoryRepository, MessageRow, ConversationRow, HistoryCursor, MessageCursor } from '../storage/history';
+import type { createHistoryRepository, MessageRow, ConversationRow, HistoryCursor, MessageCursor, ReadyLiveMessageInput } from '../storage/history';
 import type { createSavedMessageFlow, SavedMessageProcessor } from '../storage/processing';
 import type { createDeletionService, DeletionReport } from '../storage/deletion';
+import type { createAudioStorage } from '../storage/audio';
 import type { TextTranslationInput } from '../adapters/textChat';
 import { getSupportedTtsLanguage, type TranslatedMessage } from '../shared';
 
@@ -23,6 +24,7 @@ export function createTextChatController(
   initialConversationId = 'mobile-text-chat',
   deletion?: Pick<ReturnType<typeof createDeletionService>, 'delete' | 'retryMaintenance'>,
   voiceProcessor?: SavedMessageProcessor,
+  audioStorage?: ReturnType<typeof createAudioStorage>,
 ) {
   let state: ChatState = { ...INITIAL_CHAT_STATE };
   let searchRevision = 0;
@@ -49,6 +51,10 @@ export function createTextChatController(
     update({ messages: mergeMessages(state.messages, page.items, message ? [message] : []),
       conversation: await history.getConversation(id) });
     await refreshHistory();
+  }
+  async function refreshSavedMessage(conversationId: string, messageId?: string) {
+    if (state.conversation?.id === conversationId) await refresh(messageId);
+    else await refreshHistory();
   }
   async function activate(conversation: ConversationRow | null) {
     const myLanguage = conversation?.my_language ?? state.myLanguage;
@@ -98,6 +104,58 @@ export function createTextChatController(
       : 'Conversation permanently deleted.' });
   }
   return {
+    beginLiveCapture() {
+      if (locked() || !state.conversation) return null;
+      const conversation = { ...state.conversation };
+      const languages = { myLanguage: state.myLanguage, theirLanguage: state.theirLanguage };
+      let released = false;
+      update({ busy: true, error: null, notice: null });
+      return {
+        conversation,
+        languages,
+        release() {
+          if (released) return;
+          released = true;
+          update({ busy: false });
+        },
+      };
+    },
+    async saveLiveAudioDraft(input: {
+      conversationId: string;
+      originMode: 'chat' | 'single' | 'conversation';
+      sourceLanguage: string;
+      targetLanguage: string;
+      speaker?: 'me' | 'them';
+    }, recording: { uri: string; durationMs: number }) {
+      if (!audioStorage) throw new Error('Phone audio storage is unavailable.');
+      const id = newId();
+      const requestId = newId();
+      const speaker = input.speaker ?? 'me';
+      await flow.saveVoiceDraft({ id, requestId, conversationId: input.conversationId, speaker, originMode: input.originMode,
+        sourceLanguage: input.sourceLanguage, targetLanguage: input.targetLanguage, originalText: '' },
+      { uri: recording.uri }, { format: 'm4a', mimeType: 'audio/mp4', durationMs: recording.durationMs });
+      return { id, requestId };
+    },
+    async saveLiveMessage(input: ReadyLiveMessageInput, recording?: { uri: string; durationMs: number }) {
+      await history.saveReadyLiveMessage(input);
+      if (recording) {
+        if (!audioStorage) throw new Error('Phone audio storage is unavailable.');
+        const owner = { kind: 'message' as const, id: input.id, role: 'source' as const };
+        if (!(await audioStorage.resolve(owner))) {
+          await audioStorage.save(owner, { uri: recording.uri }, { format: 'm4a', mimeType: 'audio/mp4', durationMs: recording.durationMs });
+        }
+      }
+      await refreshSavedMessage(input.conversationId, input.id);
+      return input.id;
+    },
+    async finishLiveDraft(input: ReadyLiveMessageInput) {
+      const changed = await history.finishLiveDraft(input);
+      await refreshSavedMessage(input.conversationId, input.id);
+      return changed;
+    },
+    async refreshSavedMessage(conversationId: string, messageId?: string) {
+      await refreshSavedMessage(conversationId, messageId);
+    },
     voiceResponseReceived() {
       if (state.voiceRequest) update({ voiceRequest: { ...state.voiceRequest, phase: 'processing' } });
     },

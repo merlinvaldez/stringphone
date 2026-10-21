@@ -67,6 +67,19 @@ Run the Phrasebook storage verification from the repository root:
 node --import tsx scripts/verify-mobile-phrasebook.mjs
 ```
 
+## Live translation
+
+Step 8 uses a custom native WebRTC build for streamed speech transcription and `expo-audio` to save each source turn to managed phone storage. Partial transcript and translation updates stay temporary; after pause or Stop, the finished transcript, translation and pronunciation update the same local SQLite voice draft. The 30-second limit, language direction, stale-revision checks, duplicate completion guard, focus/app-state teardown, and source-audio preservation are implemented in [the live translation guide](docs/live-translation.md).
+
+The app asks the backend only for a short-lived OpenAI session credential. Audio streams directly to OpenAI, while partial/final text uses the existing processing routes without local conversation IDs. If streaming cannot start, recorded voice stays available as the fallback and is not labeled as live. Expo Go cannot load this native WebRTC module.
+
+```powershell
+npm.cmd --prefix mobile run typecheck
+npm.cmd --prefix mobile run lint
+```
+
+For real-device acceptance, build and download the EAS preview APK, then install and launch it with ADB. Verify partial text/translation, exactly one finalized local message after pause and after Stop, source audio playback, the 30-second cap, and teardown on navigation/app inactivity. The guide records the expected scenarios; test iOS on a physical iPhone as a separate acceptance gate.
+
 ## Separate mobile and backend development on Windows
 
 Step 2, item 3 keeps the mobile package independent of the root install and website build. Run commands from the folder shown below, or use `--prefix` from the repository root:

@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from 'expo-router';
 import { ActionButton } from '../components/ActionButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import type { MessageRow } from '../storage/history';
@@ -11,9 +12,11 @@ import { languageName, messageDirection } from './presentation';
 import { VoiceControls } from './VoiceControls';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
+import { LiveTranslationControls } from '../live/LiveTranslationControls';
 
 type Props = { chat: ReturnType<typeof createTextChatController> | null; state: ChatState; loadError: string | null };
 export function ChatView({ chat, state, loadError }: Props) {
+  const isFocused = useIsFocused();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyVisible, setHistoryVisible] = useState(false);
   const audioPlayback = useAudioPlayback();
@@ -26,6 +29,11 @@ export function ChatView({ chat, state, loadError }: Props) {
   const locked = !chat || state.busy || state.historyBusy;
   const readOnly = state.conversation !== null && state.conversation.origin_mode !== 'chat';
   const sendDisabled = locked || !id || readOnly || !draft.trim();
+  useEffect(() => {
+    if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'chat') {
+      void chat.ensureConversationForMode('chat');
+    }
+  }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
   async function send() {
     if (!chat || sendDisabled) return;
     const text = draft;
@@ -57,6 +65,7 @@ export function ChatView({ chat, state, loadError }: Props) {
               onSelect={code => { void chat?.setLanguages(state.myLanguage, code); }} />
           </View>
           <Text style={styles.note}>Messages are saved on this phone. Translation requires internet.</Text>
+          {chat && <LiveTranslationControls chat={chat} state={state} mode="chat" disabled={locked || readOnly || !id} />}
           {readOnly && <Text style={styles.note}>Saved {state.conversation?.origin_mode} conversation. Start a new chat to send typed messages.</Text>}
           {!chat && !loadError && <Text>Opening local history...</Text>}
           {state.messageCursor && <ActionButton label="Load older messages" tone="secondary" disabled={locked} onPress={() => { void chat?.loadOlderMessages(); }} />}
