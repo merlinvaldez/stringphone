@@ -14,6 +14,7 @@ import { ActionButton } from '../components/ActionButton';
 import type { ChatState, createTextChatController } from '../chat/controller';
 import { languageName } from '../chat/presentation';
 import { NativeLiveConnection, type RealtimeEvent } from './nativeRealtime';
+import { palette } from '../theme';
 
 type Chat = ReturnType<typeof createTextChatController>;
 type CaptureLease = NonNullable<ReturnType<Chat['beginLiveCapture']>>;
@@ -498,22 +499,22 @@ export function LiveTranslationControls({
   const canStart = !!chat && !!state.conversation && state.conversation.origin_mode === mode && !disabled && isFocused;
   const buttonDisabled = phase === 'stopping' || (disabled && phase !== 'starting' && phase !== 'listening') || (!isActive && !canStart);
   const buttonLabel = phase === 'starting'
-    ? 'Connecting live audio...'
+    ? 'Connecting...'
     : phase === 'listening'
-      ? 'Stop live translation'
+      ? 'Stop'
       : phase === 'stopping'
-        ? 'Saving finished turns...'
+        ? 'Finishing...'
         : phase === 'error'
-          ? 'Try live translation again'
-          : 'Start live translation';
+          ? 'Try again'
+          : 'Start live';
 
   return (
     <View style={styles.panel}>
       <View style={styles.topRow}>
         <View style={styles.headingGroup}>
-          <Text accessibilityRole="header" style={styles.title}>Live conversation</Text>
+          <Text accessibilityRole="header" style={styles.title}>Live</Text>
           <Text accessibilityLiveRegion="polite" style={styles.status}>
-            {phase === 'listening' ? 'Listening. Pauses finish each turn.' : phase === 'starting' ? 'Requesting a secure live session...' : phase === 'stopping' ? 'Finishing the last spoken turn...' : 'Stream speech for live transcript and translation.'}
+            {phase === 'listening' ? 'Listening' : phase === 'starting' ? 'Connecting...' : phase === 'stopping' ? 'Finishing turn...' : 'Live paused'}
           </Text>
         </View>
         <ActionButton
@@ -533,22 +534,21 @@ export function LiveTranslationControls({
       )}
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
       {!!notice && <Text accessibilityLiveRegion="polite" style={styles.note}>{notice}</Text>}
-      <Text style={styles.footnote}>Turns finalize after a pause. Source recordings and finished messages are saved on this phone.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  panel: { gap: 8, padding: 12, marginHorizontal: 12, marginVertical: 6, borderWidth: 1, borderColor: '#B6C9BE', borderRadius: 14, backgroundColor: '#EEF3EF' },
+  panel: { gap: 8, padding: 10, marginHorizontal: 0, marginVertical: 4, borderWidth: 1, borderColor: palette.border, borderRadius: 28,
+    backgroundColor: 'rgba(24,24,27,0.88)', shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   headingGroup: { flex: 1, gap: 2 },
-  title: { color: '#182A23', fontSize: 17, fontWeight: '700' },
-  status: { color: '#48574F', fontSize: 13 },
-  transcript: { gap: 4, paddingTop: 6 },
-  language: { color: '#48574F', fontSize: 12, fontWeight: '700' },
-  text: { color: '#182A23', fontSize: 17 },
-  translation: { color: '#285B48', fontSize: 17, fontWeight: '600' },
-  error: { color: '#9B2727', fontSize: 14 },
-  note: { color: '#48574F', fontSize: 14 },
-  footnote: { color: '#48574F', fontSize: 12 },
+  title: { color: palette.text, fontSize: 12, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
+  status: { color: palette.textMuted, fontSize: 12 },
+  transcript: { gap: 4, paddingTop: 8, paddingHorizontal: 4 },
+  language: { color: palette.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
+  text: { color: palette.text, fontSize: 15, lineHeight: 22 },
+  translation: { color: '#E4E4E7', fontSize: 15, fontWeight: '600', lineHeight: 22 },
+  error: { color: palette.danger, fontSize: 13 },
+  note: { color: palette.textMuted, fontSize: 12 },
 });

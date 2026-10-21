@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AppState,
-  FlatList,
+  Image,
   Linking,
   Platform,
   Pressable,
@@ -20,8 +20,9 @@ import {
   useNativeAudioRecorderState,
 } from '../adapters/audio';
 import { ActionButton } from '../components/ActionButton';
+import { IconButton } from '../components/IconButton';
 import { LanguagePicker } from '../components/LanguagePicker';
-import type { MessageRow } from '../storage/history';
+import { Feather } from '@expo/vector-icons';
 import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
 import { MessageCard } from './MessageCard';
@@ -29,6 +30,7 @@ import { languageName } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 import { LiveTranslationControls } from '../live/LiveTranslationControls';
+import { palette } from '../theme';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -48,7 +50,6 @@ export function SingleView({ chat, state, loadError }: Props) {
 
   const audioPlayback = useAudioPlayback();
   const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
-  const listRef = useRef<FlatList<MessageRow>>(null);
 
   const chatRef = useRef(chat);
   const audioPlaybackRef = useRef(audioPlayback);
@@ -106,7 +107,6 @@ export function SingleView({ chat, state, loadError }: Props) {
       setPhase('idle');
       setActiveAction(null);
       setNotice('Turn saved. Check below for translation status.');
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     } catch (error) {
       setPhase('save-failed');
       setNotice(`Recording save is unconfirmed. Tap Retry saving recording. Do not close the app. ${error instanceof Error ? error.message : ''}`);
@@ -233,83 +233,40 @@ export function SingleView({ chat, state, loadError }: Props) {
 
   const secondsRecorded = Math.min(30, Math.floor(recordingState.durationMillis / 1000));
   const secondsRemaining = Math.max(0, 30 - secondsRecorded);
+  const latestMessage = state.messages[state.messages.length - 1];
   const isSpeakActive = activeAction === 'speak' && phase === 'recording';
   const isSpeakDisabled = isSpeakActive ? false : (phase !== 'idle' || state.busy);
   const isListenActive = activeAction === 'listen' && phase === 'recording';
   const isListenDisabled = isListenActive ? false : (phase !== 'idle' || state.busy);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-      <View style={styles.toolbar}>
-        <View style={styles.titleArea}>
-          <Text accessibilityRole="header" style={styles.title}>Single</Text>
-          <Text style={styles.subtitle}>Hold device & take turns</Text>
-        </View>
-        <ActionButton label="History" tone="secondary" disabled={locked && phase === 'idle'} onPress={() => setHistoryVisible(true)} />
-        <ActionButton label="New session" disabled={locked} onPress={() => { void chat?.newModeConversation('single'); }} />
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
+      <View style={styles.historyRow}>
+        <IconButton name="menu" accessibilityLabel="Open history" disabled={!chat} onPress={() => setHistoryVisible(true)} />
       </View>
-
-      <View style={styles.languagesBar}>
-        <View style={styles.langCol}>
-          <Text style={styles.langTag}>You speak ({languageName(state.myLanguage)})</Text>
-          <LanguagePicker
-            label="My language"
-            value={state.myLanguage}
-            disabled={locked || phase !== 'idle'}
-            compact
-            onSelect={code => { void chat?.setLanguages(code, state.theirLanguage, 'single'); }}
-          />
-        </View>
-        <ActionButton
-          label="Swap"
-          hint="Exchange my language and partner language"
-          tone="secondary"
-          disabled={locked || phase !== 'idle' || state.myLanguage === state.theirLanguage}
-          onPress={() => { void chat?.swapLanguages('single'); }}
-        />
-        <View style={styles.langCol}>
-          <Text style={styles.langTag}>They speak ({languageName(state.theirLanguage)})</Text>
-          <LanguagePicker
-            label="Their language"
-            value={state.theirLanguage}
-            disabled={locked || phase !== 'idle'}
-            compact
-            onSelect={code => { void chat?.setLanguages(state.myLanguage, code, 'single'); }}
-          />
-        </View>
-      </View>
-
-      {chat && <LiveTranslationControls chat={chat} state={state} mode="single" disabled={locked} />}
-
-      <FlatList
-        ref={listRef}
-        data={state.messages}
-        keyExtractor={item => item.id}
-        style={styles.list}
-        contentContainerStyle={styles.messages}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>Ready for conversation</Text>
-            <Text style={styles.emptyNote}>Tap Speak to talk in your language, or Listen for the other person&apos;s language.</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
+      <View style={styles.stage}>
+        {latestMessage ? <View style={styles.latestCardWrap}>
           <MessageCard
-            message={item}
+            message={latestMessage}
             disabled={locked}
             onRetry={messageId => { void chat?.retry(messageId); }}
             onPlaySource={audioPlayback.playSource}
             onPlayTranslated={audioPlayback.playTranslated}
             onSaveToPhrasebook={phrasebook.save}
-            isSavedInPhrasebook={phrasebook.isSaved(item.id)}
-            isSavingPhrase={phrasebook.isSaving(item.id)}
-            isPlayingSource={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'source'}
-            isPlayingTranslated={audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'translated'}
-            isGeneratingSpeech={audioPlayback.generatingId === item.id}
+            isSavedInPhrasebook={phrasebook.isSaved(latestMessage.id)}
+            isSavingPhrase={phrasebook.isSaving(latestMessage.id)}
+            isPlayingSource={audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'source'}
+            isPlayingTranslated={audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'translated'}
+            isGeneratingSpeech={audioPlayback.generatingId === latestMessage.id}
             onStopPlayback={audioPlayback.stop}
           />
-        )}
-      />
+        </View> : <View style={styles.emptyState}>
+          <View style={styles.brandBadge}><Image source={require('../../assets/stringphone-logo.png')} resizeMode="contain" style={styles.brandMark} /></View>
+          <Text style={styles.brandText}>StringPhone</Text>
+        </View>}
+      </View>
+
+      {chat && <LiveTranslationControls chat={chat} state={state} mode="single" disabled={locked} />}
 
       {/* Status banner */}
       <View style={styles.statusSection}>
@@ -347,7 +304,7 @@ export function SingleView({ chat, state, loadError }: Props) {
           <View style={styles.recordingPill}>
             <View style={styles.pulseDot} />
             <Text style={styles.recordingTimerText}>
-              {activeAction === 'speak' ? 'Listening to you' : 'Listening to partner'} · {secondsRemaining}s remaining
+              {activeAction === 'speak' ? 'Listening to you' : 'Listening to partner'} Â· {secondsRemaining}s remaining
             </Text>
           </View>
         )}
@@ -386,12 +343,13 @@ export function SingleView({ chat, state, loadError }: Props) {
               }
             }}
           >
-            <Text style={styles.actionIcon}>{isSpeakActive ? '⏹' : '🎤'}</Text>
+            <Feather name={isSpeakActive ? 'square' : 'mic'} size={24} color={palette.text} strokeWidth={1.7} />
             <Text style={styles.actionLabel}>
               {isSpeakActive ? `Stop (${secondsRemaining}s)` : 'Speak'}
             </Text>
-            <Text style={styles.actionLang}>{languageName(state.myLanguage)}</Text>
           </Pressable>
+          <LanguagePicker label="My language" value={state.myLanguage} disabled={locked || phase !== 'idle'} compact
+            onSelect={code => { void chat?.setLanguages(code, state.theirLanguage, 'single'); }} />
         </View>
 
         {/* Listen Column */}
@@ -422,93 +380,96 @@ export function SingleView({ chat, state, loadError }: Props) {
               }
             }}
           >
-            <Text style={styles.actionIcon}>{isListenActive ? '⏹' : '👂'}</Text>
+            <Feather name={isListenActive ? 'square' : 'headphones'} size={24} color={palette.text} strokeWidth={1.7} />
             <Text style={styles.actionLabel}>
               {isListenActive ? `Stop (${secondsRemaining}s)` : 'Listen'}
             </Text>
-            <Text style={styles.actionLang}>{languageName(state.theirLanguage)}</Text>
           </Pressable>
+          <LanguagePicker label="Their language" value={state.theirLanguage} disabled={locked || phase !== 'idle'} compact
+            onSelect={code => { void chat?.setLanguages(state.myLanguage, code, 'single'); }} />
         </View>
       </View>
 
-      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat} />}
+      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat}
+        newLabel="New single session" onNewChat={() => { void chat.newModeConversation('single').then(() => setHistoryVisible(false)); }} />}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F8F7F2' },
-  toolbar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  titleArea: { flexGrow: 1 },
-  title: { color: '#182A23', fontSize: 26, fontWeight: '700' },
-  subtitle: { color: '#48574F', fontSize: 13 },
-  languagesBar: {
+  screen: { flex: 1, backgroundColor: palette.background },
+  historyRow: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 4 },
+  stage: { flex: 1, minHeight: 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 },
+  latestCardWrap: { width: '100%', maxWidth: 520, maxHeight: '100%' },
+  emptyState: { alignItems: 'center', justifyContent: 'center', gap: 16 },
+  brandBadge: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceSoft,
+  },
+  brandMark: { width: 78, height: 78, tintColor: palette.text },
+  brandText: { color: palette.text, fontSize: 23, fontWeight: '600', letterSpacing: 4 },
+  statusSection: { paddingHorizontal: 16, paddingVertical: 4, gap: 6 },
+  error: { color: palette.danger, fontSize: 14, fontWeight: '500' },
+  noticeText: { color: palette.emerald, fontSize: 13 },
+  processingBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#DEE5DF',
-    gap: 8,
+    backgroundColor: 'rgba(251,191,36,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(251,191,36,0.16)',
+    padding: 8,
+    borderRadius: 18,
   },
-  langCol: { flex: 1, gap: 4 },
-  langTag: { fontSize: 12, fontWeight: '600', color: '#48574F' },
-  list: { flex: 1 },
-  messages: { padding: 16, gap: 12 },
-  emptyContainer: { padding: 24, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#182A23' },
-  emptyNote: { fontSize: 14, color: '#48574F', textAlign: 'center' },
-  statusSection: { paddingHorizontal: 16, paddingVertical: 4, gap: 6 },
-  error: { color: '#9B2727', fontSize: 14, fontWeight: '500' },
-  noticeText: { color: '#285B48', fontSize: 14 },
-  processingBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FEF3C7', padding: 8, borderRadius: 8 },
-  processingText: { fontSize: 13, color: '#92400E', flex: 1 },
+  processingText: { fontSize: 13, color: '#FDE68A', flex: 1 },
   recordingPill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: 'rgba(244,63,94,0.14)',
     borderWidth: 1,
-    borderColor: '#F87171',
+    borderColor: 'rgba(244,63,94,0.26)',
     borderRadius: 20,
     paddingVertical: 6,
     paddingHorizontal: 14,
     gap: 8,
     alignSelf: 'center',
   },
-  pulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#DC2626' },
-  recordingTimerText: { color: '#991B1B', fontSize: 14, fontWeight: '600' },
+  pulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.rose },
+  recordingTimerText: { color: '#FDA4AF', fontSize: 14, fontWeight: '600' },
   actionsBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
-    gap: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#DEE5DF',
-    backgroundColor: '#FFFFFF',
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 14 : 10,
+    gap: 20,
   },
-  actionCol: { flex: 1 },
+  actionCol: { flex: 1, alignItems: 'center', gap: 8 },
   actionButton: {
-    minHeight: 84,
-    borderRadius: 16,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    gap: 4,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: palette.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
+    elevation: 8,
   },
-  speakButton: { backgroundColor: '#DC2626' },
-  listenButton: { backgroundColor: '#4338CA' },
-  actionButtonActive: { transform: [{ scale: 1.02 }], borderWidth: 3, borderColor: '#FDE047' },
+  speakButton: { backgroundColor: palette.surface },
+  listenButton: { backgroundColor: palette.surface },
+  actionButtonActive: { transform: [{ scale: 1.02 }], borderWidth: 2, borderColor: palette.rose, backgroundColor: 'rgba(244,63,94,0.12)' },
   actionButtonDisabled: { opacity: 0.35 },
   actionButtonPressed: { transform: [{ scale: 0.98 }] },
-  actionIcon: { fontSize: 24, color: '#FFFFFF' },
-  actionLabel: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  actionLang: { fontSize: 12, color: 'rgba(255,255,255,0.85)' },
+  actionLabel: { fontSize: 10, fontWeight: '700', color: palette.textMuted, letterSpacing: 1.6, textTransform: 'uppercase' },
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIsFocused } from 'expo-router';
 import { ActionButton } from '../components/ActionButton';
@@ -13,6 +13,8 @@ import { VoiceControls } from './VoiceControls';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 import { LiveTranslationControls } from '../live/LiveTranslationControls';
+import { IconButton } from '../components/IconButton';
+import { palette } from '../theme';
 
 type Props = { chat: ReturnType<typeof createTextChatController> | null; state: ChatState; loadError: string | null };
 export function ChatView({ chat, state, loadError }: Props) {
@@ -29,6 +31,7 @@ export function ChatView({ chat, state, loadError }: Props) {
   const locked = !chat || state.busy || state.historyBusy;
   const readOnly = state.conversation !== null && state.conversation.origin_mode !== 'chat';
   const sendDisabled = locked || !id || readOnly || !draft.trim();
+  const languageControlsDisabled = locked || readOnly;
   useEffect(() => {
     if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'chat') {
       void chat.ensureConversationForMode('chat');
@@ -44,33 +47,29 @@ export function ChatView({ chat, state, loadError }: Props) {
     }
     requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
   }
-  return <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+  return <SafeAreaView style={styles.screen} edges={['left', 'right']}>
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.toolbar}>
-        <Text accessibilityRole="header" style={styles.title}>Chat</Text>
-        <ActionButton label="History" tone="secondary" disabled={locked} onPress={() => { setHistoryVisible(true); }} />
-        <ActionButton label="New chat" disabled={locked} onPress={() => { void chat?.newConversation(); }} />
+      <View style={styles.chatHeader}>
+        <IconButton name="menu" accessibilityLabel="Open history" disabled={!chat} onPress={() => setHistoryVisible(true)} />
+        <LanguagePicker label="My language" value={state.myLanguage} disabled={languageControlsDisabled}
+          compact onSelect={code => { void chat?.setLanguages(code, state.theirLanguage); }} />
+        <IconButton name="repeat" accessibilityLabel="Invert languages" disabled={languageControlsDisabled || state.myLanguage === state.theirLanguage}
+          onPress={() => { void chat?.swapLanguages(); }} />
+        <LanguagePicker label="Their language" value={state.theirLanguage} disabled={languageControlsDisabled}
+          compact onSelect={code => { void chat?.setLanguages(state.myLanguage, code); }} />
       </View>
       <FlatList key={id || 'empty'} ref={list} data={state.messages} keyExtractor={message => message.id} style={styles.list}
         contentContainerStyle={styles.messages} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         onContentSizeChange={() => { if (scrollAfterSend.current) { list.current?.scrollToEnd({ animated: true }); scrollAfterSend.current = false; } }}
-        ListHeaderComponent={<View style={styles.header}>
-          <Text style={styles.heading}>{state.conversation?.title || 'Start a new chat'}</Text>
-          <View style={styles.languages}>
-            <LanguagePicker label="My language" value={state.myLanguage} disabled={locked || readOnly}
-              onSelect={code => { void chat?.setLanguages(code, state.theirLanguage); }} />
-            <ActionButton label="Swap" hint="Exchange my language and their language" tone="secondary" disabled={locked || readOnly || state.myLanguage === state.theirLanguage}
-              onPress={() => { void chat?.swapLanguages(); }} />
-            <LanguagePicker label="Their language" value={state.theirLanguage} disabled={locked || readOnly}
-              onSelect={code => { void chat?.setLanguages(state.myLanguage, code); }} />
-          </View>
-          <Text style={styles.note}>Messages are saved on this phone. Translation requires internet.</Text>
-          {chat && <LiveTranslationControls chat={chat} state={state} mode="chat" disabled={locked || readOnly || !id} />}
+        ListHeaderComponent={<View style={styles.listHeader}>
           {readOnly && <Text style={styles.note}>Saved {state.conversation?.origin_mode} conversation. Start a new chat to send typed messages.</Text>}
           {!chat && !loadError && <Text>Opening local history...</Text>}
           {state.messageCursor && <ActionButton label="Load older messages" tone="secondary" disabled={locked} onPress={() => { void chat?.loadOlderMessages(); }} />}
         </View>}
-        ListEmptyComponent={chat ? <Text style={styles.note}>{id ? 'No messages yet. Type a message to start.' : 'No saved conversations. Tap New chat to begin.'}</Text> : null}
+        ListEmptyComponent={chat ? <View style={styles.emptyState}>
+          <View style={styles.emptyBadge}><Image source={require('../../assets/stringphone-logo.png')} resizeMode="contain" style={styles.emptyLogo} /></View>
+          <Text style={styles.emptyBrand}>StringPhone</Text>
+        </View> : null}
         renderItem={({ item }) => <MessageCard
           message={item}
           disabled={locked}
@@ -85,7 +84,7 @@ export function ChatView({ chat, state, loadError }: Props) {
           isGeneratingSpeech={audioPlayback.generatingId === item.id}
           onStopPlayback={audioPlayback.stop}
         />} />
-      <View style={styles.composer}>
+      <View style={styles.composerArea}>
         {(phrasebook.error || phrasebook.notice) && <Text accessibilityRole={phrasebook.error ? 'alert' : undefined}
           accessibilityLiveRegion="polite" style={phrasebook.error ? styles.error : styles.note} onPress={phrasebook.clearNotices}>
           {phrasebook.error || phrasebook.notice}
@@ -98,28 +97,37 @@ export function ChatView({ chat, state, loadError }: Props) {
           <ActionButton label="Cancel voice translation" tone="secondary" onPress={() => chat?.interruptVoiceRequest()} />
         </View>}
         {state.maintenancePending && <ActionButton label="Retry storage cleanup" disabled={locked} onPress={() => { void chat?.retryStorageCleanup(); }} />}
-        {chat && <VoiceControls chat={chat} disabled={locked || !id || readOnly} messageIds={state.messages.filter(message => message.input_kind === 'voice').map(message => message.id)} />}
-        <TextInput ref={input} accessibilityLabel={`Message draft in ${languageName(state.myLanguage)}`} placeholder={id ? 'Type a message...' : 'Start a new chat first'}
-          value={draft} onChangeText={text => { if (id) setDrafts(current => ({ ...current, [id]: text })); }}
-          editable={!!chat && !!id && !readOnly} multiline textAlignVertical="top"
-          style={[styles.input, messageDirection(state.myLanguage)]} />
-        <View style={styles.composerActions}>
-          <ActionButton label="Done typing" tone="secondary" onPress={() => input.current?.blur()} />
-          <ActionButton label={state.busy ? 'Processing...' : 'Send'} disabled={sendDisabled} onPress={() => { void send(); }} />
+        {chat && <LiveTranslationControls chat={chat} state={state} mode="chat" disabled={locked || readOnly || !id} />}
+        <View style={styles.composer}>
+          <TextInput ref={input} accessibilityLabel={`Message draft in ${languageName(state.myLanguage)}`}
+            placeholder={id ? `Type message in ${languageName(state.myLanguage)}` : 'Start a new chat first'}
+            value={draft} onChangeText={text => { if (id) setDrafts(current => ({ ...current, [id]: text })); }}
+            editable={!!chat && !!id && !readOnly} multiline={false} returnKeyType="send" onSubmitEditing={() => { void send(); }}
+            style={[styles.input, messageDirection(state.myLanguage)]} />
+          {draft.trim()
+            ? <IconButton name="send" accessibilityLabel={state.busy ? 'Processing message' : 'Send text message'} tone="primary" disabled={sendDisabled} onPress={() => { void send(); }} />
+            : chat ? <VoiceControls compact chat={chat} disabled={locked || !id || readOnly} messageIds={[]} /> : null}
         </View>
-        <Text style={styles.footnote}>Unsent typing stays here until the app closes. Uninstalling or clearing app data can remove history.</Text>
       </View>
-      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat} />}
+      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat}
+        onNewChat={() => { void chat.newConversation().then(() => setHistoryVisible(false)); }} />}
     </KeyboardAvoidingView>
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F8F7F2' }, toolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  title: { color: '#182A23', fontSize: 26, fontWeight: '700', flexGrow: 1 }, heading: { color: '#182A23', fontSize: 20, fontWeight: '600' },
-  list: { flex: 1 }, messages: { padding: 16, gap: 12 }, header: { gap: 12, paddingBottom: 4 },
-  languages: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
-  composer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 8, borderTopWidth: 1, borderTopColor: '#DEE5DF' },
-  composerActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 },
-  input: { minHeight: 48, maxHeight: 100, borderWidth: 1, borderColor: '#66736C', borderRadius: 12, padding: 12, fontSize: 18, color: '#182A23', backgroundColor: '#FFFFFF' },
-  note: { color: '#48574F', fontSize: 15 }, footnote: { color: '#48574F', fontSize: 12 }, error: { color: '#9B2727', fontSize: 16 },
+  screen: { flex: 1, backgroundColor: palette.background },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 2, paddingBottom: 8 },
+  list: { flex: 1, minHeight: 0 }, messages: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, gap: 12 },
+  listHeader: { gap: 10, paddingBottom: 4 },
+  emptyState: { flexGrow: 1, minHeight: 260, alignItems: 'center', justifyContent: 'center', gap: 16 },
+  emptyBadge: { width: 96, height: 96, alignItems: 'center', justifyContent: 'center', borderRadius: 30, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceSoft,
+    shadowColor: palette.sky, shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 0 }, elevation: 6 },
+  emptyLogo: { width: 78, height: 78, tintColor: palette.text },
+  emptyBrand: { color: palette.text, fontSize: 23, fontWeight: '600', letterSpacing: 4 },
+  composerArea: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8, gap: 4 },
+  composer: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderWidth: 1, borderColor: palette.border,
+    borderRadius: 34, backgroundColor: 'rgba(24,24,27,0.92)', shadowColor: '#000', shadowOpacity: 0.48, shadowRadius: 18, shadowOffset: { width: 0, height: 7 }, elevation: 8 },
+  input: { flex: 1, minHeight: 48, paddingHorizontal: 15, paddingVertical: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 26,
+    fontSize: 14, color: palette.text, backgroundColor: 'rgba(0,0,0,0.22)' },
+  note: { color: palette.textMuted, fontSize: 13 }, error: { color: palette.danger, fontSize: 14 },
 });

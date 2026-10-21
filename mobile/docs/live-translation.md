@@ -10,7 +10,7 @@ The current native strategy streams transcription and translates each turn throu
 
 ## Android device check
 
-Package a standalone APK locally with Android Gradle and install it directly with ADB. Do not create an EAS build, launch Expo Go, or start Metro for this check. Set `APP_VARIANT=development`, `EXPO_PUBLIC_APP_ENV=preview`, and the preview API URL before generating the Android project and bundling JavaScript. Run `assembleRelease` from `mobile/android`; the release APK is `mobile/android/app/build/outputs/apk/release/app-release.apk`. Install it in place with `adb install -r <apk-path>` so the debug app's existing local history is preserved. The development variant uses package `ai.stringphone.mobile.debug`; leave production package `ai.stringphone.mobile` untouched.
+Use the standard local standalone install from the repository root: `npm.cmd --prefix mobile run android`. It generates/synchronizes the ignored Android project locally, bundles JavaScript with Gradle, and installs the release APK with ADB. It does not start Metro or require an Expo server. The install uses `APP_VARIANT=development`, `EXPO_PUBLIC_APP_ENV=preview`, and the URL in `mobile/.env.local`; package `ai.stringphone.mobile.debug` keeps its local history separate from the production package `ai.stringphone.mobile`. See [the local build guide](development-builds.md).
 
 On the installed app:
 

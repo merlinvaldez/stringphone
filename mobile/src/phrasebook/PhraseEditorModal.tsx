@@ -5,6 +5,7 @@ import { ActionButton } from '../components/ActionButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { messageDirection } from '../chat/presentation';
 import type { PhrasebookInput, PhrasebookRow } from '../storage/phrasebook';
+import { palette } from '../theme';
 
 type Props = {
   visible: boolean;
@@ -62,11 +63,11 @@ export function PhraseEditorModal({ visible, phrase, busy, onClose, onSubmit }: 
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F8F7F2' },
+  screen: { flex: 1, backgroundColor: palette.background },
   content: { padding: 20, gap: 14 },
-  title: { color: '#182A23', fontSize: 28, fontWeight: '700' },
-  note: { color: '#48574F', fontSize: 15 },
+  title: { color: palette.text, fontSize: 26, fontWeight: '700' },
+  note: { color: palette.textMuted, fontSize: 13 },
   languages: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 4 },
-  input: { minHeight: 50, maxHeight: 130, borderWidth: 1, borderColor: '#66736C', borderRadius: 10, padding: 12, fontSize: 17, color: '#182A23', backgroundColor: '#FFF' },
-  actions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, padding: 16, borderTopWidth: 1, borderTopColor: '#DEE5DF' },
+  input: { minHeight: 50, maxHeight: 130, borderWidth: 1, borderColor: palette.border, borderRadius: 18, padding: 12, fontSize: 16, color: palette.text, backgroundColor: 'rgba(255,255,255,0.04)' },
+  actions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, padding: 16, borderTopWidth: 1, borderTopColor: palette.border },
 });

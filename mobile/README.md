@@ -20,9 +20,9 @@ npm.cmd run lint
 npm.cmd run dev
 ```
 
-The mobile package installs independently; root postinstall/build still target the website. Use Expo Go compatible with SDK 57 and scan the QR code with the phone and PC on the same network. If installed Expo Go does not support this SDK, use a compatible build from [Expo downloads](https://expo.dev/go) or a development build. The development client is now installed; final streaming will require a development build. App identifiers and EAS development profiles are configured; account linking and signing still require setup.
+The mobile package installs independently; root postinstall/build still target the website. For quick UI prototyping, Expo Go compatible with SDK 57 can load the app from Metro. Native modules such as WebRTC require a custom build. The standard Android install below is a standalone local release APK.
 
-`npm.cmd run android` opens a configured Android emulator/device. `npm.cmd run ios` can open a simulator on macOS; Windows cannot run the iOS simulator. Chat translation now requires a reachable API URL configured below.
+`npm.cmd run android` builds and installs the standalone Android APK locally. `npm.cmd run ios` can open a simulator on macOS; Windows cannot run the iOS simulator. Chat translation now requires a reachable API URL configured below.
 
 ## Text chat and explicit retry
 
@@ -78,7 +78,7 @@ npm.cmd --prefix mobile run typecheck
 npm.cmd --prefix mobile run lint
 ```
 
-For real-device acceptance, build and download the EAS preview APK, then install and launch it with ADB. Verify partial text/translation, exactly one finalized local message after pause and after Stop, source audio playback, the 30-second cap, and teardown on navigation/app inactivity. The guide records the expected scenarios; test iOS on a physical iPhone as a separate acceptance gate.
+For real-device acceptance, install the local standalone APK with `npm.cmd --prefix mobile run android`, then launch it. Verify partial text/translation, exactly one finalized local message after pause and after Stop, source audio playback, the 30-second cap, and teardown on navigation/app inactivity. The guide records the expected scenarios; test iOS on a physical iPhone as a separate acceptance gate.
 
 ## Separate mobile and backend development on Windows
 
@@ -165,41 +165,25 @@ npm.cmd run dev -- --go
 
 The first command checks selection and invalid inputs using fixtures. The second prints your selected environment/base without contacting the server. Change `EXPO_PUBLIC_APP_ENV` in `.env.local` to `preview` or `production` and run it again to confirm selection. Missing selected URLs fail explicitly. After changing public variables, fully reload the phone app to use the new bundled values.
 
-For cloud builds/updates, supply these same public variables in the chosen EAS environment; EAS profiles and distribution configuration remain the next/later build items. Do not use `NODE_ENV` to choose the backend: bundling tools use it for their own development/production behavior. For a build job, explicitly set `EXPO_PUBLIC_APP_ENV` and its matching URL. Avoid uploading a local override that selects your PC backend into a release build.
+The standard local APK install selects `EXPO_PUBLIC_APP_ENV=preview` and reads `EXPO_PUBLIC_API_URL_PREVIEW` from `.env.local`. Do not use `NODE_ENV` to choose the backend: bundling tools use it for their own development/production behavior.
 
 All `EXPO_PUBLIC_` values are visible in the app bundle. Only environment names and API addresses belong here. Permanent AI keys, database credentials, and server secrets stay in server configuration. `.env.local` is ignored by Git. This config module imports no server/database/provider code. See [Expo public environment variables](https://docs.expo.dev/guides/environment-variables/).
 
-## Local Android testing and Expo production builds
+## Standard Android APK install
 
-Testing uses a local Android development build with a separate app identity (`ai.stringphone.mobile.debug`). It can stay installed beside the EAS preview app, so its SQLite data remains separate. The installed development client loads JavaScript from Metro while the PC and phone are on the same network.
-
-Install Android Studio with Android SDK command-line tools and JDK 17, connect the Pixel over USB, and allow USB debugging when prompted. From the repository root, build and install the debug app:
+Connect and authorize an Android phone over USB. From the repository root, run:
 
 ```powershell
-npm.cmd --prefix mobile run build:android:debug
+npm.cmd --prefix mobile run android
 ```
 
-This selects the connected device automatically when only one is authorized, generates the ignored Android native project if needed, builds the debug APK locally, and installs it through ADB without starting Metro. On Windows the debug app config puts app CMake outputs under `C:\sp` to keep Ninja paths within the native filename limit. The APK is at `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
+This synchronizes the ignored Android project locally, bundles JavaScript into a release APK with Gradle, and installs it through ADB. It never starts Metro or contacts a cloud build service. The app launches standalone after installation and keeps the separate identity `ai.stringphone.mobile.debug`.
 
-After install, start Metro with the debug variant selected (use the same command for later JavaScript-only sessions):
+Set `EXPO_PUBLIC_API_URL_PREVIEW` in `mobile/.env.local`; the checked-in `mobile/.env.example` contains the project preview URL. If multiple devices are connected, set `ANDROID_SERIAL`. The ARM64 APK is written to `mobile/android/app/build/outputs/apk/release/app-release.apk`. On Windows, CMake outputs are staged under `C:\sp` to avoid native path length failures. See [local build details](docs/development-builds.md).
 
-```powershell
-npm.cmd --prefix mobile run dev:client:debug
-```
+For interactive JavaScript work only, `npm.cmd --prefix mobile run dev:client:debug` starts Metro for a development client. This is an optional workflow; the standard APK does not connect to it.
 
-Rebuild after changing native dependencies, app config, or config plugins. Keep generated `mobile/android/` files ignored and configure native behavior through Expo app config.
-
-Production artifacts are built on Expo EAS, not on the local Android toolchain. From the repository root, run the requested cloud profile:
-
-```powershell
-npm.cmd --prefix mobile run build:android:production
-npm.cmd --prefix mobile run build:android:production-apk
-```
-
-The first profile produces a Play Store AAB; the second produces an internally distributed APK for direct-install QA. Both use the production API URL and release app identity. The APK is not the Play update channel because Google Play can sign delivered APKs with a different key. See [the build guide](docs/development-builds.md) for profile and signing details.
-
-References: [SDK 57 development client](https://docs.expo.dev/versions/v57.0.0/sdk/dev-client/), [local app builds](https://docs.expo.dev/guides/local-app-development/), [EAS profiles](https://docs.expo.dev/eas/json/), [EAS APKs](https://docs.expo.dev/build-reference/apk/).
-
+References: [SDK 57](https://expo.dev/changelog/sdk-57), [local app configuration](https://docs.expo.dev/guides/local-app-development/).
 ## Manual device checks still required
 
 - Open Chat, Single, Conversation, and Phrasebook after a cold start; confirm each screen loads its controls without requiring prior navigation.
@@ -216,7 +200,7 @@ Native bundle exports/typecheck/lint do not establish real-device acceptance. Re
 
 ## Scaffold validation
 
-For configured app identifiers, icon assets, pinned EAS development profiles and Apple/Google prerequisites, see [development builds](docs/development-builds.md). Account linking, signed compilation and real-device testing remain pending; Vercel hosts the API, while EAS compiles the native app.
+For the local standalone Android workflow, see [development builds](docs/development-builds.md). Vercel hosts the API; Android APKs are compiled locally with Gradle.
 
 Passed: TypeScript, Expo lint, Expo dependency compatibility check, Expo Doctor (21/21), and production bundle exports for iOS, Android, and web. The existing root website build also passed. Validation used the installed Node 25 toolchain; use LTS for ongoing development as Expo recommends. npm reported 28 dependency advisories (10 moderate, 18 high) in this SDK-compatible install; dependency remediation remains open and no forced major upgrades were applied.
 

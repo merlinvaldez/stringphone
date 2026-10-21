@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import {
   AudioPlaybackCoordinator,
   configureNativeAudioSession,
@@ -19,6 +20,7 @@ import {
   useNativeAudioRecorderState,
 } from '../adapters/audio';
 import { ActionButton } from '../components/ActionButton';
+import { IconButton } from '../components/IconButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
@@ -26,6 +28,7 @@ import { languageName, messageDirection } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 import { LiveTranslationControls } from '../live/LiveTranslationControls';
+import { palette } from '../theme';
 
 type Props = {
   chat: ReturnType<typeof createTextChatController> | null;
@@ -254,6 +257,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
             label={isPartner ? 'Partner language' : 'My language'}
             value={currentLang}
             disabled={locked || phase !== 'idle'}
+            compact
             onSelect={code => {
               if (isPartner) {
                 void chat?.setLanguages(state.myLanguage, code, 'conversation');
@@ -388,7 +392,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
                   }
                 }}
               >
-                <Text style={styles.micIcon}>{isThisSideActive ? '⏹' : '🎤'}</Text>
+                <Feather name={isThisSideActive ? 'square' : 'mic'} size={24} color={palette.text} strokeWidth={1.7} />
                 <Text style={styles.micBtnText}>
                   {isThisSideActive ? `${secondsRemaining}s` : 'Tap to speak'}
                 </Text>
@@ -401,12 +405,9 @@ export function ConversationView({ chat, state, loadError }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right', 'bottom']}>
-      {/* Top utility toolbar */}
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
       <View style={styles.topToolbar}>
-        <Text style={styles.screenTitle}>Conversation</Text>
-        <ActionButton label="History" tone="secondary" disabled={locked && phase === 'idle'} onPress={() => setHistoryVisible(true)} />
-        <ActionButton label="New session" disabled={locked} onPress={() => { void chat?.newModeConversation('conversation'); }} />
+        <IconButton name="menu" accessibilityLabel="Open history" disabled={!chat || (locked && phase === 'idle')} onPress={() => setHistoryVisible(true)} />
       </View>
 
       {chat && <LiveTranslationControls chat={chat} state={state} mode="conversation" disabled={locked} />}
@@ -450,7 +451,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
 
         {/* Divider bar */}
         <View style={[styles.divider, isLandscape && styles.dividerLandscape]}>
-          {!isLandscape && <Text style={styles.dividerBrand}>STRINGPHONE</Text>}
+          {!isLandscape && <Feather name="globe" size={13} color={palette.textSubtle} />}
         </View>
 
         {/* Bottom / Right Section (Self) */}
@@ -459,24 +460,20 @@ export function ConversationView({ chat, state, loadError }: Props) {
         </View>
       </View>
 
-      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat} />}
+      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat}
+        newLabel="New conversation session" onNewChat={() => { void chat.newModeConversation('conversation').then(() => setHistoryVisible(false)); }} />}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#182A23' },
+  screen: { flex: 1, backgroundColor: palette.background },
   topToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: '#111D18',
-    borderBottomWidth: 1,
-    borderBottomColor: '#285B48',
+    paddingVertical: 2,
   },
-  screenTitle: { color: '#E8EFEA', fontSize: 18, fontWeight: '700' },
   splitArea: { flex: 1, flexDirection: 'column' },
   splitAreaLandscape: { flexDirection: 'row' },
   halfSection: {
@@ -485,12 +482,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   halfSectionLandscape: { paddingVertical: 8 },
-  partnerSection: { backgroundColor: '#15241E' },
+  partnerSection: { backgroundColor: palette.backgroundRaised },
   partnerSectionPortrait: {
     // 180 degree rotation in portrait so partner sitting across the table sees it right-side-up!
     transform: [{ rotate: '180deg' }],
   },
-  selfSection: { backgroundColor: '#182A23' },
+  selfSection: { backgroundColor: palette.background },
   sideContent: { flex: 1, justifyContent: 'space-between' },
   sideContentLandscape: { minHeight: 0 },
   sideHeader: {
@@ -500,7 +497,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   sideHeaderLandscape: { paddingBottom: 2 },
-  sideLabel: { color: '#A5C2B4', fontSize: 13, fontWeight: '600' },
+  sideLabel: { color: palette.textMuted, fontSize: 13, fontWeight: '600' },
   transcriptBox: {
     flex: 1,
     justifyContent: 'center',
@@ -509,21 +506,21 @@ const styles = StyleSheet.create({
   },
   transcriptBoxLandscape: { minHeight: 0, paddingVertical: 2 },
   latestCard: {
-    backgroundColor: '#20372D',
-    borderRadius: 12,
+    backgroundColor: palette.surface,
+    borderRadius: 20,
     padding: 12,
     width: '100%',
     gap: 6,
     borderWidth: 1,
-    borderColor: '#2D4E40',
+    borderColor: palette.border,
   },
   latestCardLandscape: { padding: 8, gap: 4 },
-  turnSpeakerTag: { color: '#88AB9A', fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
-  primaryText: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
+  turnSpeakerTag: { color: palette.textMuted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
+  primaryText: { color: palette.text, fontSize: 18, fontWeight: '600' },
   primaryTextLandscape: { fontSize: 16 },
   audioRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   audioRowLandscape: { marginTop: 0, gap: 4 },
-  emptyPrompt: { color: '#688878', fontSize: 14, fontStyle: 'italic' },
+  emptyPrompt: { color: palette.textSubtle, fontSize: 14, fontStyle: 'italic' },
   lockedPill: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
@@ -532,11 +529,11 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 6,
   },
-  lockedText: { color: '#88AB9A', fontSize: 12, fontWeight: '600' },
+  lockedText: { color: palette.textMuted, fontSize: 12, fontWeight: '600' },
   activeRecordingPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#7F1D1D',
+    backgroundColor: 'rgba(244,63,94,0.14)',
     borderRadius: 16,
     paddingVertical: 4,
     paddingHorizontal: 12,
@@ -544,8 +541,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     gap: 6,
   },
-  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
-  activeRecordingText: { color: '#FCA5A5', fontSize: 12, fontWeight: '600' },
+  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose },
+  activeRecordingText: { color: '#FDA4AF', fontSize: 12, fontWeight: '600' },
   buttonWrapper: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
   buttonWrapperLandscape: { paddingVertical: 0 },
   micCircle: {
@@ -554,28 +551,32 @@ const styles = StyleSheet.create({
     borderRadius: 37,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: palette.border,
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowOpacity: 0.38,
+    shadowRadius: 18,
     gap: 2,
   },
   micCircleLandscape: { width: 60, height: 60, borderRadius: 30 },
-  partnerCircle: { backgroundColor: '#1E40AF' },
-  selfCircle: { backgroundColor: '#B91C1C' },
+  partnerCircle: { backgroundColor: palette.surface },
+  selfCircle: { backgroundColor: palette.surface },
   micCircleActive: {
     borderWidth: 3,
-    borderColor: '#FDE047',
+    borderColor: palette.rose,
     transform: [{ scale: 1.05 }],
   },
   micCircleDisabled: { opacity: 0.25 },
   micCirclePressed: { transform: [{ scale: 0.95 }] },
-  micIcon: { fontSize: 24, color: '#FFFFFF' },
-  micBtnText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  micBtnText: { color: palette.textMuted, fontSize: 10, fontWeight: '700' },
   divider: {
     height: 18,
-    backgroundColor: '#0F1814',
+    backgroundColor: palette.background,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -583,12 +584,6 @@ const styles = StyleSheet.create({
     width: 20,
     height: '100%',
   },
-  dividerBrand: {
-    color: '#3B6854',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  error: { color: '#F87171', fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
-  notice: { color: '#6EE7B7', fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
+  error: { color: palette.danger, fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
+  notice: { color: palette.emerald, fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
 });

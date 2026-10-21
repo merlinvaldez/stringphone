@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { ActionButton } from '../components/ActionButton';
+import { IconButton } from '../components/IconButton';
 import { getNativePhrasebookServices } from '../chat/native';
 import type { PhrasebookCursor, PhrasebookInput, PhrasebookRow } from '../storage/phrasebook';
 import { languageName } from '../chat/presentation';
@@ -10,6 +12,7 @@ import { deleteNativePhrase, retryNativePhrasebookMaintenance } from '../phraseb
 import { PhraseCard } from '../phrasebook/PhraseCard';
 import { PhraseEditorModal } from '../phrasebook/PhraseEditorModal';
 import { usePhrasebookAudioPlayback } from '../phrasebook/usePhrasebookAudioPlayback';
+import { palette } from '../theme';
 
 type DisplayItem = { kind: 'group'; key: string; label: string } | { kind: 'phrase'; key: string; phrase: PhrasebookRow };
 
@@ -178,7 +181,7 @@ export default function PhrasebookScreen() {
     setEditorVisible(true);
   }
 
-  return <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+  return <SafeAreaView style={styles.screen} edges={['left', 'right']}>
     <FlatList
       data={displayItems}
       keyExtractor={item => item.key}
@@ -188,19 +191,17 @@ export default function PhrasebookScreen() {
       onEndReached={() => { void loadMore(); }}
       onEndReachedThreshold={0.4}
       ListHeaderComponent={<View style={styles.header}>
-        <Text style={styles.brand}>StringPhone</Text>
         <View style={styles.titleRow}>
           <Text accessibilityRole="header" style={styles.title}>Phrasebook</Text>
-          <ActionButton label="Add phrase" disabled={mutating} onPress={openCreate} />
+          <IconButton name="plus" accessibilityLabel="Add phrase" disabled={mutating} onPress={openCreate} tone="primary" />
         </View>
-        <Text style={styles.description}>Saved learning material stays on this phone. Browse and saved audio work offline; generating missing speech needs internet.</Text>
-        <TextInput accessibilityLabel="Search Phrasebook" placeholder="Search phrases, translations, or pronunciation"
-          value={query} onChangeText={setQuery}
-          onSubmitEditing={() => setCommittedQuery(query.trim())} returnKeyType="search" autoCorrect={false} maxLength={500}
-          style={styles.search} />
-        <View style={styles.headerActions}>
-          <ActionButton label="Search phrases" tone="secondary" disabled={loading} onPress={() => setCommittedQuery(query.trim())} />
-          <ActionButton label="Clear search" tone="secondary" disabled={!query && !committedQuery} onPress={() => { setQuery(''); setCommittedQuery(''); }} />
+        <View style={styles.searchRow}>
+          <Feather name="search" size={16} color={palette.textSubtle} />
+          <TextInput accessibilityLabel="Search Phrasebook" placeholder="Search your phrasebook"
+            value={query} onChangeText={setQuery}
+            onSubmitEditing={() => setCommittedQuery(query.trim())} returnKeyType="search" autoCorrect={false} maxLength={500}
+            style={styles.search} />
+          {!!query && <IconButton name="x" accessibilityLabel="Clear search" disabled={loading} onPress={() => { setQuery(''); setCommittedQuery(''); }} size={15} />}
         </View>
         {loading && <Text accessibilityLiveRegion="polite" style={styles.note}>Loading saved phrases...</Text>}
         {error && <Text accessibilityRole="alert" style={styles.error} onPress={() => setError(null)}>{error}</Text>}
@@ -208,7 +209,7 @@ export default function PhrasebookScreen() {
         {playback.errorNotice && <Text accessibilityRole="alert" style={styles.error} onPress={playback.clearErrorNotice}>{playback.errorNotice}</Text>}
         {maintenancePending && <ActionButton label="Retry storage cleanup" tone="secondary" disabled={mutating} onPress={() => { void retryMaintenance(); }} />}
       </View>}
-      ListEmptyComponent={!loading ? <Text style={styles.empty}>{committedQuery ? 'No saved phrases match this search.' : 'Your Phrasebook is empty. Save a translated message or add a phrase.'}</Text> : null}
+      ListEmptyComponent={!loading ? <Text style={styles.empty}>{committedQuery ? 'No phrases match this search.' : 'Your Phrasebook is empty.'}</Text> : null}
       renderItem={({ item }) => item.kind === 'group'
         ? <Text accessibilityRole="header" style={styles.group}>{item.label}</Text>
         : <PhraseCard
@@ -220,7 +221,7 @@ export default function PhrasebookScreen() {
           onEdit={openEdit}
           onDelete={id => { void removePhrase(id); }}
         />}
-      ListFooterComponent={loadingMore ? <Text style={styles.note}>Loading more phrases...</Text> : cursor ? <ActionButton label="Load more phrases" tone="secondary" disabled={loadingMore} onPress={() => { void loadMore(); }} /> : null}
+      ListFooterComponent={loadingMore ? <Text style={styles.note}>Loading more phrases...</Text> : cursor ? <Text style={styles.note}>Scroll to load more phrases.</Text> : null}
     />
     {editorVisible && <PhraseEditorModal visible phrase={editingPhrase} busy={mutating}
       onClose={() => { setEditorVisible(false); setEditingPhrase(null); }} onSubmit={input => { void submitEditor(input); }} />}
@@ -228,17 +229,16 @@ export default function PhrasebookScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F8F7F2' },
-  list: { padding: 16, gap: 12, paddingBottom: 28 },
-  header: { gap: 12, paddingBottom: 8 },
-  brand: { color: '#285B48', fontSize: 17, fontWeight: '600' },
-  titleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  title: { color: '#182A23', fontSize: 30, fontWeight: '700', flexGrow: 1 },
-  description: { color: '#48574F', fontSize: 15, lineHeight: 22 },
-  search: { minHeight: 48, borderWidth: 1, borderColor: '#66736C', borderRadius: 10, padding: 12, fontSize: 17, backgroundColor: '#FFF', color: '#182A23' },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  note: { color: '#285B48', fontSize: 15 },
-  error: { color: '#9B2727', fontSize: 15 },
-  empty: { color: '#48574F', fontSize: 16, paddingVertical: 16 },
-  group: { color: '#182A23', fontSize: 18, fontWeight: '700', paddingTop: 12 },
+  screen: { flex: 1, backgroundColor: palette.background },
+  list: { paddingHorizontal: 16, paddingTop: 4, gap: 14, paddingBottom: 24 },
+  header: { gap: 14, paddingBottom: 8 },
+  titleRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  title: { color: palette.text, fontSize: 24, fontWeight: '700', flexGrow: 1 },
+  searchRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderWidth: 1,
+    borderColor: palette.border, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.20)' },
+  search: { flex: 1, paddingVertical: 10, fontSize: 14, color: palette.text },
+  note: { color: palette.textMuted, fontSize: 13 },
+  error: { color: palette.danger, fontSize: 14 },
+  empty: { color: palette.textMuted, fontSize: 15, paddingVertical: 20, textAlign: 'center' },
+  group: { color: palette.textSubtle, fontSize: 11, fontWeight: '700', paddingTop: 12, letterSpacing: 1.8, textTransform: 'uppercase' },
 });

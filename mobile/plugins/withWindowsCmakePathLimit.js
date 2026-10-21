@@ -6,6 +6,7 @@ const CMAKE_OBJECT_PATH_MAX = 220;
 const CMAKE_ARGUMENT = `-DCMAKE_OBJECT_PATH_MAX=${CMAKE_OBJECT_PATH_MAX}`;
 const CMAKE_BUILD_STAGING_DIRECTORY = 'C:/sp';
 const CMAKE_STAGING_SETTING = `buildStagingDirectory "${CMAKE_BUILD_STAGING_DIRECTORY}"`;
+const CMAKE_STAGING_SETTING_PATTERN = /^[\t ]*buildStagingDirectory[\t ]+["'][^\r\n]*["'][\t ]*\r?\n/gm;
 
 module.exports = function withWindowsCmakePathLimit(config) {
   return withAppBuildGradle(config, (modConfig) => {
@@ -23,17 +24,16 @@ module.exports = function withWindowsCmakePathLimit(config) {
       );
     }
 
-    if (!modConfig.modResults.contents.includes(CMAKE_STAGING_SETTING)) {
-      const androidBlock = /(\nandroid\s*\{\s*\n)/;
-      if (!androidBlock.test(modConfig.modResults.contents)) {
-        throw new Error('Could not add the short Windows CMake output directory to app/build.gradle.');
-      }
-
-      modConfig.modResults.contents = modConfig.modResults.contents.replace(
-        androidBlock,
-        `$1    externalNativeBuild {\n        cmake {\n            ${CMAKE_STAGING_SETTING}\n        }\n    }\n`,
-      );
+    modConfig.modResults.contents = modConfig.modResults.contents.replace(CMAKE_STAGING_SETTING_PATTERN, '');
+    const androidBlock = /(\nandroid\s*\{\s*\n)/;
+    if (!androidBlock.test(modConfig.modResults.contents)) {
+      throw new Error('Could not add the short Windows CMake output directory to app/build.gradle.');
     }
+
+    modConfig.modResults.contents = modConfig.modResults.contents.replace(
+      androidBlock,
+      `$1    externalNativeBuild {\n        cmake {\n            ${CMAKE_STAGING_SETTING}\n        }\n    }\n`,
+    );
 
     return modConfig;
   });

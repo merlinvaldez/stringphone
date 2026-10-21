@@ -56,11 +56,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "cadb69a8-b3e2-4e2c-b6a2-8b3ce05475a7"
-      }
-    },
-    "owner": "merlinvaldez"
+      "router": {}
+    }
   }
 }

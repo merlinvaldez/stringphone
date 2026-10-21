@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Linking, ScrollView, Text, View } from 'react-native';
+import { AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { RecordingPresets, configureNativeAudioSession, requestNativeMicrophoneAccess,
   useNativeAudioPlayer, useNativeAudioPlayerStatus, useNativeAudioRecorder, useNativeAudioRecorderState,
   AudioPlaybackCoordinator } from '../adapters/audio';
 import { ActionButton } from '../components/ActionButton';
+import { IconButton } from '../components/IconButton';
+import { palette } from '../theme';
 import type { createTextChatController } from './controller';
 import { resolveNativeSourceAudio } from './native';
 
@@ -12,7 +14,7 @@ type Chat = ReturnType<typeof createTextChatController>;
 type Lease = NonNullable<ReturnType<Chat['beginVoiceCapture']>>;
 
 // One recorder/player for the entire Chat screen, including saved-history replay.
-export function VoiceControls({ chat, disabled, messageIds }: { chat: Chat; disabled: boolean; messageIds: string[] }) {
+export function VoiceControls({ chat, disabled, messageIds, compact = false }: { chat: Chat; disabled: boolean; messageIds: string[]; compact?: boolean }) {
   const [phase, setPhase] = useState('idle');
   const [notice, setNotice] = useState('');
   const [denied, setDenied] = useState(false);
@@ -130,6 +132,21 @@ export function VoiceControls({ chat, disabled, messageIds }: { chat: Chat; disa
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not play recording.'); }
     finally { playbackBusy.current = false; }
   }
+  if (compact) {
+    const isRecording = phase === 'recording';
+    const buttonLabel = isRecording
+      ? `Stop recording (${Math.floor(recording.durationMillis / 1000)} of 30 seconds)`
+      : phase === 'idle' ? 'Record voice note' : 'Preparing or saving recording';
+    return <View style={compactStyles.container}>
+      <IconButton name={isRecording ? 'square' : 'mic'} accessibilityLabel={buttonLabel} disabled={disabled || (phase !== 'idle' && !isRecording)}
+        tone={isRecording ? 'danger' : 'neutral'} onPress={() => { if (isRecording) void finish(); else if (phase === 'idle') void start(); }} />
+      {(phase === 'recording' || phase === 'preparing' || phase === 'saving') &&
+        <Text accessibilityLiveRegion="polite" style={compactStyles.status}>{phase === 'recording' ? `${Math.max(0, 30 - Math.floor(recording.durationMillis / 1000))}s` : phase === 'preparing' ? 'Preparing' : 'Saving'}</Text>}
+      {phase === 'save-failed' && <ActionButton label="Retry save" disabled={disabled} onPress={() => { void save(); }} />}
+      {denied && <ActionButton label="Microphone settings" tone="secondary" onPress={() => { void Linking.openSettings().catch(() => setNotice('Open your phone Settings and enable microphone access for StringPhone.')); }} />}
+      {!!notice && <Text accessibilityLiveRegion="polite" style={compactStyles.notice}>{notice}</Text>}
+    </View>;
+  }
   return <View style={{ gap: 8 }}>
     {phase === 'recording' ? <ActionButton label={`Stop recording (${Math.floor(recording.durationMillis / 1000)}/30 seconds)`} onPress={() => { void finish(); }} />
       : phase === 'save-failed' ? <ActionButton label="Retry saving recording" onPress={() => { void save(); }} />
@@ -142,3 +159,9 @@ export function VoiceControls({ chat, disabled, messageIds }: { chat: Chat; disa
     {playback.playing && <ActionButton label="Stop playback" tone="secondary" onPress={() => player.pause()} />}
   </View>;
 }
+
+const compactStyles = StyleSheet.create({
+  container: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  status: { color: palette.textMuted, fontSize: 11, fontVariant: ['tabular-nums'] },
+  notice: { position: 'absolute', bottom: 48, right: 0, maxWidth: 260, color: palette.textMuted, fontSize: 12 },
+});
