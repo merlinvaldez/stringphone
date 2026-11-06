@@ -8,6 +8,7 @@ import {
   useNativeAudioPlayerStatus,
 } from '../adapters/audio';
 import {
+  ensureSourceSpeech,
   ensureTranslatedSpeech,
   resolveNativeSourceAudio,
   resolveNativeTranslatedAudio,
@@ -23,6 +24,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   const playback = useNativeAudioPlayerStatus(player);
   const [activeAudio, setActiveAudio] = useState<ActivePlayback>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [generatingSourceId, setGeneratingSourceId] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const busy = useRef(false);
 
@@ -43,7 +45,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     AudioPlaybackCoordinator.stopPlayback();
   }, [player]);
 
-  const playSource = useCallback(async (messageId: string) => {
+  const playSource = useCallback(async (messageId: string, generateIfMissing = false) => {
     if (busy.current || AudioPlaybackCoordinator.isRecording()) return;
     if (activeAudio?.messageId === messageId && activeAudio.role === 'source' && playback.playing) {
       stop();
@@ -53,9 +55,17 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     setErrorNotice(null);
     try {
       player.pause();
-      const resolved = await resolveNativeSourceAudio(messageId);
+      let resolved = await resolveNativeSourceAudio(messageId);
+      if ((!resolved?.uri || resolved.availability !== 'available') && generateIfMissing) {
+        setGeneratingSourceId(messageId);
+        try {
+          resolved = await ensureSourceSpeech(messageId, speechVoice);
+        } finally {
+          setGeneratingSourceId(null);
+        }
+      }
       if (!resolved?.uri || resolved.availability !== 'available') {
-        throw new Error('Original recording is unavailable.');
+        throw new Error('Original audio is unavailable.');
       }
       await configureNativeAudioSession(false);
       const allowed = AudioPlaybackCoordinator.startPlayback(`${messageId}:source`, () => {
@@ -67,12 +77,13 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       player.play();
       setActiveAudio({ messageId, role: 'source' });
     } catch (error) {
-      setErrorNotice(error instanceof Error ? error.message : 'Could not play original recording.');
+      setErrorNotice(error instanceof Error ? error.message : 'Could not play original audio.');
       setActiveAudio(null);
     } finally {
       busy.current = false;
+      setGeneratingSourceId(null);
     }
-  }, [activeAudio, playback.playing, player, stop]);
+  }, [activeAudio, playback.playing, player, speechVoice, stop]);
 
   const playTranslated = useCallback(async (messageId: string) => {
     if (busy.current || AudioPlaybackCoordinator.isRecording()) return;
@@ -136,12 +147,13 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       playback,
       activeAudio,
       generatingId,
+      generatingSourceId,
       errorNotice,
       clearErrorNotice,
       playSource,
       playTranslated,
       stop,
     }),
-    [player, playback, activeAudio, generatingId, errorNotice, clearErrorNotice, playSource, playTranslated, stop],
+    [player, playback, activeAudio, generatingId, generatingSourceId, errorNotice, clearErrorNotice, playSource, playTranslated, stop],
   );
 }

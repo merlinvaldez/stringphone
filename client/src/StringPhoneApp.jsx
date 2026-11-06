@@ -1352,10 +1352,12 @@ const TranscriptCard = React.forwardRef(
     const sourceLine = {
       label: message.sourceLanguageLabel ?? "Original",
       text: message.transcript || message.originalText || "",
+      pronunciation: formatPronunciationGuide(message.originalPronunciation),
     };
     const translatedLine = {
       label: message.targetLanguageLabel ?? "Translation",
       text: message.translatedText || "",
+      pronunciation: formatPronunciationGuide(message.translatedPronunciation),
     };
     const visualLines =
       message.sourceLanguageCode === viewerLanguageCode
@@ -1393,9 +1395,19 @@ const TranscriptCard = React.forwardRef(
         <p className="mb-1 text-base font-medium leading-snug tracking-tight text-white md:text-2xl sm:mb-2">
           &ldquo;{primaryLine.text}&rdquo;
         </p>
+        {primaryLine.pronunciation ? (
+          <p className="mb-1 text-xs text-emerald-200/80 md:text-sm sm:mb-2">
+            ({primaryLine.pronunciation})
+          </p>
+        ) : null}
         <p className="text-xs text-zinc-400 md:text-base">
           &ldquo;{secondaryLine.text}&rdquo;
         </p>
+        {secondaryLine.pronunciation ? (
+          <p className="mt-1 text-[11px] text-zinc-400 md:text-xs">
+            ({secondaryLine.pronunciation})
+          </p>
+        ) : null}
         <div className="mt-3 flex items-center justify-center gap-2">
           {shouldPlayOriginal && message.audioUrl ? (
             <VoiceMessagePlayer

@@ -216,7 +216,7 @@ export async function generateLanguageLesson(input: {
   "tip": {"title":"", "body":""},
   "challenge": {"prompt":"", "sampleAnswer":"", "sampleAnswerTransliteration":""}
 }
-Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every string compact and appropriate for a learner. ${
+Provide exactly 4 vocabulary items when possible and 2 or 3 phrases. Keep every string compact and appropriate for a learner. ${input.targetLanguageCode === "zh" ? "Because the target language is Chinese, fill every transliteration field with standard Mandarin Hanyu Pinyin with tone marks (e.g., Nǐ hǎo). Do not add parentheses, labels, or meaning translations inside those transliteration fields. " : ""}${
             needsCrossScriptPhonetics
               ? `Because ${targetLanguage} uses ${practiceWritingSystem} and the learner reads ${learnerWritingSystem}, fill every transliteration field with a phonetic spelling in ${learnerWritingSystem}. Do not add parentheses, labels, or meaning translations inside those transliteration fields.`
               : `Because ${sourceLanguage} and ${targetLanguage} share the same writing system for this lesson, leave every transliteration field as an empty string.`

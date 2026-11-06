@@ -25,6 +25,8 @@ export function MessageBubble({
   baseLanguageCode = "",
 }) {
   const isSelf = message.sender === "self";
+  const showOriginalPronunciation = !isSelf || message.sourceLanguageCode === "zh";
+  const showTranslatedPronunciation = isSelf || message.targetLanguageCode === "zh";
   const isVoice =
     message.kind === "voice" ||
     (message.originMode === "live" && Boolean(message.audioUrl));
@@ -143,7 +145,7 @@ export function MessageBubble({
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-6 text-white">{message.transcript}</p>
-                    {!isSelf ? (
+                    {showOriginalPronunciation ? (
                       <PronunciationGuide
                         value={message.originalPronunciation}
                         className="mt-2 text-sm leading-6 text-zinc-300"
@@ -172,7 +174,7 @@ export function MessageBubble({
                       <p className="text-sm leading-6 text-zinc-200">
                         {message.translatedText}
                       </p>
-                      {isSelf ? (
+                      {showTranslatedPronunciation ? (
                         <PronunciationGuide
                           value={message.translatedPronunciation}
                           className="mt-2 text-xs leading-5 text-zinc-400"
@@ -200,7 +202,7 @@ export function MessageBubble({
                     <p className="text-sm leading-6 text-white">
                       {message.originalText}
                     </p>
-                    {!isSelf ? (
+                    {showOriginalPronunciation ? (
                       <PronunciationGuide
                         value={message.originalPronunciation}
                         className="mt-2 text-sm leading-6 text-zinc-300"
@@ -228,7 +230,7 @@ export function MessageBubble({
                           ? uiStrings.translationFailed
                           : uiStrings.translatingShort)}
                     </p>
-                    {isSelf ? (
+                    {showTranslatedPronunciation ? (
                       <PronunciationGuide
                         value={message.translatedPronunciation}
                         className="mt-2 text-xs leading-5 text-zinc-400"

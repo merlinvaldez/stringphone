@@ -528,7 +528,7 @@ function CollectionDetailView({
                             />
                           </div>
                         </div>
-                        <p className="mt-3 text-sm leading-6 text-zinc-300">
+                        <PronunciationGuide value={entry.meaningPronunciation} className="mt-1 text-xs text-sky-200/75" /><p className="mt-3 text-sm leading-6 text-zinc-300">
                           {entry.meaningText}
                         </p>
                         {entry.noteText ? (

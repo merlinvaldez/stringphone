@@ -18,6 +18,27 @@ let audioSession: ReturnType<typeof createAudioStorage> | undefined;
 let historySession: ReturnType<typeof createHistoryRepository> | undefined;
 let phrasebookSession: ReturnType<typeof createPhrasebookRepository> | undefined;
 let deletionSession: ReturnType<typeof createDeletionService> | undefined;
+let currentTtsVoice: 'marin' | 'onyx' = 'marin';
+const ttsVoiceListeners = new Set<(voice: 'marin' | 'onyx') => void>();
+
+export function getActiveTtsVoice(): 'marin' | 'onyx' {
+  return currentTtsVoice;
+}
+
+export function subscribeTtsVoice(listener: (voice: 'marin' | 'onyx') => void) {
+  ttsVoiceListeners.add(listener);
+  listener(currentTtsVoice);
+  return () => {
+    ttsVoiceListeners.delete(listener);
+  };
+}
+
+export async function setNativeTtsVoice(voice: 'marin' | 'onyx') {
+  currentTtsVoice = voice;
+  ttsVoiceListeners.forEach(listener => listener(voice));
+  await getNativeTextChat();
+  await historySession?.setTtsVoicePreference(voice);
+}
 
 export async function resolveNativeSourceAudio(id: string) {
   await getNativeTextChat();
@@ -27,6 +48,30 @@ export async function resolveNativeSourceAudio(id: string) {
 export async function resolveNativeTranslatedAudio(id: string) {
   await getNativeTextChat();
   return audioSession!.resolve({ kind: 'message', id, role: 'translated' });
+}
+
+export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin' | 'onyx') {
+  await getNativeTextChat();
+  const existing = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
+  if (existing && existing.availability === 'available' && existing.uri) {
+    return existing;
+  }
+  const message = await historySession!.getMessage(messageId);
+  if (!message) throw new Error('Message not found.');
+  const text = message.original_text;
+  if (!text || !text.trim()) throw new Error('No original text available for speech generation.');
+  const speech = await requestOutputSpeech({
+    text,
+    language: message.source_language,
+    speechVoice: speechVoice ?? currentTtsVoice,
+  });
+  await audioSession!.save(
+    { kind: 'message', id: messageId, role: 'source' },
+    { bytes: speech.bytes },
+    { format: speech.format, mimeType: speech.mimeType, durationMs: speech.durationMs },
+    true,
+  );
+  return audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
 }
 
 export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'marin' | 'onyx') {
@@ -43,7 +88,7 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
   const speech = await requestOutputSpeech({
     text,
     language: targetLanguage,
-    speechVoice,
+    speechVoice: speechVoice ?? currentTtsVoice,
   });
   await audioSession!.save(
     { kind: 'message', id: messageId, role: 'translated' },
@@ -70,6 +115,11 @@ export function getNativeTextChat() {
       const voice = createVoiceMessageProcessor(audio, translateVoiceMessage, () => controller.voiceResponseReceived());
       const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice, audio);
       await controller.initialize();
+      const prefs = await history.getChatPreferences();
+      if (prefs.ttsVoice === 'marin' || prefs.ttsVoice === 'onyx') {
+        currentTtsVoice = prefs.ttsVoice;
+        ttsVoiceListeners.forEach(listener => listener(currentTtsVoice));
+      }
       audioSession = audio;
       historySession = history;
       phrasebookSession = phrasebook;

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  AppState,
+  ActivityIndicator,
+  Image,
   Linking,
   Pressable,
   StyleSheet,
@@ -9,25 +10,19 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useIsFocused } from 'expo-router';
+import { useIsFocused } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import {
-  AudioPlaybackCoordinator,
-  configureNativeAudioSession,
-  RecordingPresets,
-  requestNativeMicrophoneAccess,
-  useNativeAudioRecorder,
-  useNativeAudioRecorderState,
-} from '../adapters/audio';
 import { ActionButton } from '../components/ActionButton';
-import { IconButton } from '../components/IconButton';
+import { AudioWave } from '../components/AudioWave';
 import { LanguagePicker } from '../components/LanguagePicker';
+import { getNativeLanguageName } from '../components/LanguageFlag';
+import type { MessageRow } from '../storage/history';
 import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
-import { languageName, messageDirection } from './presentation';
+import { TranscriptCarousel } from './TranscriptCarousel';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
-import { LiveTranslationControls } from '../live/LiveTranslationControls';
+import { useLiveTurnFlow } from '../live/useLiveTurnFlow';
 import { palette } from '../theme';
 
 type Props = {
@@ -36,554 +31,537 @@ type Props = {
   loadError: string | null;
 };
 
-type ActiveSide = 'partner' | 'self' | null;
-
 export function ConversationView({ chat, state, loadError }: Props) {
   const isFocused = useIsFocused();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
 
   const [historyVisible, setHistoryVisible] = useState(false);
-  const [activeSide, setActiveSide] = useState<ActiveSide>(null);
-  const [phase, setPhase] = useState<'idle' | 'preparing' | 'recording' | 'saving' | 'save-failed'>('idle');
-  const [notice, setNotice] = useState<string | null>(null);
-  const [denied, setDenied] = useState(false);
 
   const audioPlayback = useAudioPlayback();
+  const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
+  const locked = !chat || state.busy || state.historyBusy;
 
-  const chatRef = useRef(chat);
-  const audioPlaybackRef = useRef(audioPlayback);
-  useEffect(() => {
-    chatRef.current = chat;
-    audioPlaybackRef.current = audioPlayback;
+  const liveFlow = useLiveTurnFlow({
+    chat,
+    state,
+    mode: 'conversation',
+    disabled: locked,
   });
 
-  const leaseRef = useRef<ReturnType<NonNullable<typeof chat>['beginVoiceCapture']> | null>(null);
-  const preparingRef = useRef(false);
-  const cancelledRef = useRef(false);
-  const stoppingRef = useRef(false);
-  const durationMsRef = useRef(0);
-  const capturedRef = useRef<{ uri: string; duration: number } | null>(null);
-  const activeRef = useRef(false);
-  const finishRef = useRef<() => Promise<void>>(async () => {});
-
-  const recorder = useNativeAudioRecorder(
-    { ...RecordingPresets.HIGH_QUALITY, directory: 'document' },
-    status => {
-      if (status.isFinished || status.hasError || status.mediaServicesDidReset) {
-        void finishRef.current();
-      }
-    },
-  );
-  const recordingState = useNativeAudioRecorderState(recorder, 100);
-
-  useEffect(() => {
-    if (phase === 'recording') {
-      durationMsRef.current = Math.max(durationMsRef.current, recordingState.durationMillis);
-    }
-  }, [phase, recordingState.durationMillis]);
-
-  // Select this mode only while its tab is actually focused. Native tabs may
-  // keep the other mode screens mounted in the background.
   useEffect(() => {
     if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'conversation') {
       void chat.ensureConversationForMode('conversation');
     }
   }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
 
-  const locked = !chat || state.busy || state.historyBusy || phase === 'recording' || phase === 'preparing' || phase === 'saving';
+  const isRecording = liveFlow.status === 'recording';
+  const isProcessing = liveFlow.status === 'processing';
+  const activeSide = liveFlow.activeSide;
 
-  async function save() {
-    if (!capturedRef.current || !leaseRef.current) return;
-    setPhase('saving');
-    try {
-      await leaseRef.current.save(
-        capturedRef.current.uri,
-        capturedRef.current.duration,
-        () => activeRef.current && AppState.currentState === 'active' && !cancelledRef.current,
-      );
-      capturedRef.current = null;
-      leaseRef.current = null;
-      setPhase('idle');
-      setActiveSide(null);
-      setNotice('Turn saved.');
-    } catch (error) {
-      setPhase('save-failed');
-      setNotice(`Recording save is unconfirmed. Tap Retry. ${error instanceof Error ? error.message : ''}`);
-    }
-  }
+  const displayMessages: MessageRow[] = liveFlow.liveDraft
+    ? [
+        ...state.messages,
+        {
+          id: liveFlow.liveDraft.id,
+          conversation_id: state.conversation?.id ?? '',
+          request_id: liveFlow.liveDraft.id,
+          speaker: liveFlow.liveDraft.speaker,
+          origin_mode: 'conversation',
+          input_kind: 'voice',
+          source_language: liveFlow.liveDraft.sourceLanguage,
+          target_language: liveFlow.liveDraft.targetLanguage,
+          original_text: liveFlow.liveDraft.transcript,
+          translated_text: liveFlow.liveDraft.translatedText || 'Translating...',
+          original_pronunciation: null,
+          translated_pronunciation: null,
+          status: 'pending',
+          error_code: null,
+          error_message: null,
+          created_at: liveFlow.liveDraft.createdAt,
+          updated_at: liveFlow.liveDraft.createdAt,
+          processing_attempt: 1,
+        },
+      ]
+    : state.messages;
 
-  async function finish() {
-    if (!leaseRef.current || preparingRef.current || stoppingRef.current || capturedRef.current) return;
-    stoppingRef.current = true;
-    setPhase('saving');
-    try {
-      const duration = Math.max(durationMsRef.current, Math.round(recorder.currentTime * 1000));
-      if (recorder.getStatus().canRecord) await recorder.stop();
-      const uri = recorder.uri;
-      if (!uri || duration <= 0) throw new Error('No usable recording captured. Try again.');
-      capturedRef.current = { uri, duration };
-      await save();
-    } catch (error) {
-      leaseRef.current?.cancel();
-      leaseRef.current = null;
-      setPhase('idle');
-      setActiveSide(null);
-      setNotice(error instanceof Error ? error.message : 'Recording stopped without usable audio.');
-    } finally {
-      stoppingRef.current = false;
-      AudioPlaybackCoordinator.setRecording(false);
-      await configureNativeAudioSession(false).catch(() => setNotice('Audio session could not be restored. Try again.'));
-    }
-  }
+  const activeError = loadError || liveFlow.error || audioPlayback.errorNotice || phrasebook.error;
+  const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
 
-  useEffect(() => {
-    finishRef.current = finish;
-  });
-
-  async function start(side: 'partner' | 'self') {
-    if (!chat || leaseRef.current || !activeRef.current || AudioPlaybackCoordinator.isRecording() || state.busy) return;
+  function handleMicPress(side: 'partner' | 'self') {
     audioPlayback.stop();
-
-    const isSelf = side === 'self';
-    const speaker = isSelf ? 'me' : 'them';
-    const sourceLanguage = isSelf ? state.myLanguage : state.theirLanguage;
-    const targetLanguage = isSelf ? state.theirLanguage : state.myLanguage;
-
-    const next = chat.beginVoiceCapture({
-      originMode: 'conversation',
-      speaker,
-      sourceLanguage,
-      targetLanguage,
-    });
-    if (!next) return;
-
-    leaseRef.current = next;
-    preparingRef.current = true;
-    cancelledRef.current = false;
-    durationMsRef.current = 0;
-    AudioPlaybackCoordinator.setRecording(true);
-    setActiveSide(side);
-    setPhase('preparing');
-    setNotice(null);
-
-    try {
-      const permission = await requestNativeMicrophoneAccess();
-      setDenied(!permission.granted);
-      if (!permission.granted) {
-        throw new Error('Microphone access is off. Enable it in Settings to record.');
-      }
-      if (cancelledRef.current || !activeRef.current || AppState.currentState !== 'active') {
-        throw new Error('Recording cancelled.');
-      }
-      await configureNativeAudioSession(true);
-      await recorder.prepareToRecordAsync();
-      if (cancelledRef.current || !activeRef.current || AppState.currentState !== 'active') {
-        throw new Error('Recording cancelled.');
-      }
-      recorder.record({ forDuration: 30 });
-      setPhase('recording');
-    } catch (error) {
-      if (recorder.getStatus().canRecord) await recorder.stop().catch(() => undefined);
-      next.cancel();
-      leaseRef.current = null;
-      setPhase('idle');
-      setActiveSide(null);
-      AudioPlaybackCoordinator.setRecording(false);
-      setNotice(error instanceof Error ? error.message : 'Could not start recording.');
-      await configureNativeAudioSession(false).catch(() => undefined);
-    } finally {
-      preparingRef.current = false;
+    if (isRecording && activeSide === side) {
+      void liveFlow.stopRecording();
+      return;
     }
+    if (liveFlow.status !== 'idle') return;
+    const isPartner = side === 'partner';
+    void liveFlow.startRecording({
+      action: isPartner ? 'listen' : 'speak',
+      side,
+      speaker: isPartner ? 'them' : 'me',
+      sourceLanguage: isPartner ? state.theirLanguage : state.myLanguage,
+      targetLanguage: isPartner ? state.myLanguage : state.theirLanguage,
+    });
   }
 
-  // 30-second cap automatic stop
-  useEffect(() => {
-    if (phase === 'recording') {
-      if (recordingState.durationMillis >= 30000 || (durationMsRef.current > 500 && !recordingState.isRecording)) {
-        void finishRef.current();
-      }
-    }
-  }, [phase, recordingState.isRecording, recordingState.durationMillis]);
+  function renderUserSection(side: 'partner' | 'self') {
+    const isTop = side === 'partner';
+    const isActive = activeSide === side;
+    const isOtherActive = activeSide !== null && activeSide !== side;
+    const isCurrentRecording = isActive && isRecording;
+    const isCurrentProcessing = isActive && isProcessing;
+    const currentLang = isTop ? state.theirLanguage : state.myLanguage;
+    const sectionSpeaker: 'me' | 'them' = isTop ? 'them' : 'me';
+    const showWaveform = isCurrentRecording && !liveFlow.liveDraft?.transcript;
 
-  useFocusEffect(
-    useCallback(() => {
-      activeRef.current = true;
-      cancelledRef.current = false;
-      const subscription = AppState.addEventListener('change', appState => {
-        if (appState !== 'active') {
-          AudioPlaybackCoordinator.setRecording(false);
-          cancelledRef.current = true;
-          chatRef.current?.interruptVoiceRequest();
-          audioPlaybackRef.current.stop();
-          void finishRef.current();
-        }
-      });
-      return () => {
-        activeRef.current = false;
-        cancelledRef.current = true;
-        chatRef.current?.interruptVoiceRequest();
-        AudioPlaybackCoordinator.setRecording(false);
-        subscription.remove();
-        audioPlaybackRef.current.stop();
-        void finishRef.current();
-      };
-    }, []),
-  );
+    const statusLabel = isCurrentRecording
+      ? 'LISTENING'
+      : isCurrentProcessing
+        ? 'TRANSLATING'
+        : isOtherActive
+          ? "PARTNER'S TURN"
+          : '';
 
-  const secondsRecorded = Math.min(30, Math.floor(recordingState.durationMillis / 1000));
-  const secondsRemaining = Math.max(0, 30 - secondsRecorded);
+    const statusColor = isCurrentRecording
+      ? '#FB7185'
+      : isCurrentProcessing
+        ? '#FBBF24'
+        : palette.textSubtle;
 
-  // Filter messages for conversation mode
-  const messages = state.messages;
-  const latestMessage = messages[messages.length - 1] ?? null;
-  const phrasebook = useSaveToPhrasebook(latestMessage ? [latestMessage.id] : []);
+    const transcriptBlock = (
+      <View
+        key="transcript"
+        style={[styles.transcriptBlock, isLandscape && styles.transcriptBlockLandscape]}
+      >
+        {showWaveform ? (
+          <AudioWave active />
+        ) : (
+          <TranscriptCarousel
+            history={displayMessages}
+            viewerLanguageCode={currentLang}
+            playbackMode={msg => (msg.speaker === sectionSpeaker ? 'original' : 'translated')}
+            disabled={locked}
+            onPlaySource={audioPlayback.playSource}
+            onPlayTranslated={audioPlayback.playTranslated}
+            onStopPlayback={audioPlayback.stop}
+            onSaveToPhrasebook={phrasebook.save}
+            isSavedInPhrasebook={phrasebook.isSaved}
+            isSavingPhrase={phrasebook.isSaving}
+            activeAudio={audioPlayback.activeAudio}
+            generatingId={audioPlayback.generatingId}
+            compact
+          />
+        )}
+      </View>
+    );
 
-  function renderSideContent(side: 'partner' | 'self') {
-    const isPartner = side === 'partner';
-    const isThisSideActive = activeSide === side && phase === 'recording';
-    const isOtherSideActive = activeSide !== null && activeSide !== side && phase === 'recording';
-    const currentLang = isPartner ? state.theirLanguage : state.myLanguage;
-    const sideTitle = isPartner ? 'Partner' : 'You';
+    const interactionBlock = (
+      <View
+        key="interaction"
+        style={[styles.interactionBlock, isLandscape && styles.interactionBlockLandscape]}
+      >
+        <View style={styles.statusSlot}>
+          {!!statusLabel && (
+            <Text style={[styles.statusLabelText, { color: statusColor }]}>
+              {statusLabel}
+            </Text>
+          )}
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            isCurrentRecording
+              ? `Stop ${getNativeLanguageName(currentLang)} recording`
+              : `Tap to speak (${getNativeLanguageName(currentLang)})`
+          }
+          disabled={isOtherActive || isProcessing || (!chat && !isCurrentRecording)}
+          onPress={() => handleMicPress(side)}
+          style={[
+            styles.micCircle,
+            isLandscape && styles.micCircleLandscape,
+            isCurrentRecording && styles.micCircleRecording,
+            isCurrentProcessing && styles.micCircleProcessing,
+          ]}
+        >
+          {isCurrentRecording ? (
+            <View style={styles.stopSquare} />
+          ) : isCurrentProcessing ? (
+            <ActivityIndicator size="small" color={palette.text} />
+          ) : (
+            <>
+              <Feather name="mic" size={20} color={palette.text} />
+              <Text style={styles.micTapLabel}>TAP</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
+    );
+
+    // Match web order: in portrait, top section puts Transcript near the center divider and Mic near the outer edge
+    // (because the entire top section is rotated 180deg, placing Transcript first in flex order puts it visually near the center divider).
+    const orderedBlocks = [transcriptBlock, interactionBlock];
 
     return (
-      <View style={[styles.sideContent, isLandscape && styles.sideContentLandscape]}>
-        {/* Top bar for this half */}
-        <View style={[styles.sideHeader, isLandscape && styles.sideHeaderLandscape]}>
-          <View>
-            <Text style={styles.sideLabel}>{sideTitle} ({languageName(currentLang)})</Text>
-          </View>
+      <View
+        style={[
+          styles.userSection,
+          isLandscape && styles.userSectionLandscape,
+          isTop && !isLandscape && styles.topSectionPortrait,
+          isTop && isLandscape && styles.leftSectionLandscape,
+          isOtherActive && styles.sectionDimmed,
+        ]}
+      >
+        <View style={styles.sectionHeader}>
           <LanguagePicker
-            label={isPartner ? 'Partner language' : 'My language'}
+            label={isTop ? 'Partner language' : 'My language'}
             value={currentLang}
-            disabled={locked || phase !== 'idle'}
+            disabled={locked || isRecording || isProcessing}
             compact
             onSelect={code => {
-              if (isPartner) {
+              if (isTop) {
                 void chat?.setLanguages(state.myLanguage, code, 'conversation');
               } else {
                 void chat?.setLanguages(code, state.theirLanguage, 'conversation');
               }
             }}
           />
-        </View>
 
-        {/* Transcript / message preview for this side */}
-        <View style={[styles.transcriptBox, isLandscape && styles.transcriptBoxLandscape]}>
-          {latestMessage ? (
-            <View style={[styles.latestCard, isLandscape && styles.latestCardLandscape]}>
-              <Text style={styles.turnSpeakerTag}>
-                {latestMessage.speaker === (isPartner ? 'them' : 'me') ? 'Latest: Original' : 'Latest: Translated'}
-              </Text>
-              <Text
-                selectable
-                style={[
-                  styles.primaryText,
-                  isLandscape && styles.primaryTextLandscape,
-                  messageDirection(isPartner ? latestMessage.target_language : latestMessage.source_language),
-                ]}
-              >
-                {isPartner
-                  ? (latestMessage.speaker === 'them' ? latestMessage.original_text : latestMessage.translated_text || 'Translating...')
-                  : (latestMessage.speaker === 'me' ? latestMessage.original_text : latestMessage.translated_text || 'Translating...')}
-              </Text>
-              {latestMessage.status === 'ready' && (
-                <View style={[styles.audioRow, isLandscape && styles.audioRowLandscape]}>
-                  {/* Option to play original recording */}
-                  {latestMessage.input_kind === 'voice' && (
-                    <ActionButton
-                      label={
-                        audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'source'
-                          ? 'Stop'
-                          : 'Play recording'
-                      }
-                      tone="secondary"
-                      disabled={locked}
-                      onPress={() => {
-                        if (audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'source') {
-                          audioPlayback.stop();
-                        } else {
-                          void audioPlayback.playSource(latestMessage.id);
-                        }
-                      }}
-                    />
-                  )}
-                  {/* Option to play translated speech */}
-                  {latestMessage.translated_text?.trim() && (
-                    <ActionButton
-                      label={
-                        audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'translated'
-                          ? 'Stop'
-                          : audioPlayback.generatingId === latestMessage.id
-                            ? 'Generating...'
-                            : 'Play speech'
-                      }
-                      tone="secondary"
-                      disabled={locked || audioPlayback.generatingId === latestMessage.id}
-                      onPress={() => {
-                        if (audioPlayback.activeAudio?.messageId === latestMessage.id && audioPlayback.activeAudio.role === 'translated') {
-                          audioPlayback.stop();
-                        } else {
-                          void audioPlayback.playTranslated(latestMessage.id);
-                        }
-                      }}
-                    />
-                  )}
-                  {!isPartner && latestMessage.translated_text?.trim() && latestMessage.original_text.trim() && (
-                    <ActionButton
-                      label={phrasebook.isSaved(latestMessage.id) ? 'Saved to Phrasebook' : phrasebook.isSaving(latestMessage.id) ? 'Saving phrase...' : 'Save phrase'}
-                      tone="secondary"
-                      disabled={locked || phrasebook.isSaved(latestMessage.id) || phrasebook.isSaving(latestMessage.id)}
-                      onPress={() => { void phrasebook.save(latestMessage.id); }}
-                    />
-                  )}
-                </View>
-              )}
+          {isCurrentRecording && (
+            <View style={styles.timerPill}>
+              <View style={styles.timerDot} />
+              <Text style={styles.timerText}>{liveFlow.recordingTimer}s</Text>
             </View>
-          ) : (
-            <Text style={styles.emptyPrompt}>Tap the button below to speak</Text>
           )}
         </View>
 
-        {/* Status / Locking Notice */}
-        {isOtherSideActive && (
-          <View style={styles.lockedPill}>
-            <Text style={styles.lockedText}>Partner&apos;s turn to speak</Text>
-          </View>
-        )}
-        {isThisSideActive && (
-          <View style={styles.activeRecordingPill}>
-            <View style={styles.pulseDot} />
-            <Text style={styles.activeRecordingText}>Listening... {secondsRemaining}s</Text>
-          </View>
-        )}
-
-        {/* Circular Record Button */}
-        <View style={[styles.buttonWrapper, isLandscape && styles.buttonWrapperLandscape]}>
-          {(() => {
-            const isButtonDisabled = isThisSideActive ? false : (isOtherSideActive || phase !== 'idle' || state.busy);
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isThisSideActive
-                    ? `Stop recording (${secondsRecorded}/30 seconds)`
-                    : isOtherSideActive
-                      ? "Partner's turn"
-                      : `Tap to speak in ${languageName(currentLang)}`
-                }
-                accessibilityState={{
-                  disabled: isButtonDisabled,
-                }}
-                disabled={isButtonDisabled}
-                style={({ pressed }) => [
-                  styles.micCircle,
-                  isLandscape && styles.micCircleLandscape,
-                  isPartner ? styles.partnerCircle : styles.selfCircle,
-                  isThisSideActive && styles.micCircleActive,
-                  isButtonDisabled && styles.micCircleDisabled,
-                  pressed && styles.micCirclePressed,
-                ]}
-                onPress={() => {
-                  if (isThisSideActive) {
-                    void finish();
-                  } else if (phase === 'idle') {
-                    void start(side);
-                  }
-                }}
-              >
-                <Feather name={isThisSideActive ? 'square' : 'mic'} size={24} color={palette.text} strokeWidth={1.7} />
-                <Text style={styles.micBtnText}>
-                  {isThisSideActive ? `${secondsRemaining}s` : 'Tap to speak'}
-                </Text>
-              </Pressable>
-            );
-          })()}
-        </View>
+        <View style={styles.sectionBody}>{orderedBlocks}</View>
       </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right']}>
-      <View style={styles.topToolbar}>
-        <IconButton name="menu" accessibilityLabel="Open history" disabled={!chat || (locked && phase === 'idle')} onPress={() => setHistoryVisible(true)} />
+      <View style={styles.floatingToolbar} pointerEvents="box-none">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open history"
+          disabled={!chat || isRecording || isProcessing}
+          onPress={() => setHistoryVisible(true)}
+          style={styles.historyBtn}
+        >
+          <Feather name="menu" size={18} color={palette.text} />
+        </Pressable>
       </View>
 
-      {chat && <LiveTranslationControls chat={chat} state={state} mode="conversation" disabled={locked} />}
+      <View style={[styles.splitArea, isLandscape && styles.splitAreaLandscape]}>
+        {renderUserSection('partner')}
 
-      {audioPlayback.errorNotice && (
-        <Text accessibilityRole="alert" style={styles.error} onPress={audioPlayback.clearErrorNotice}>
-          {audioPlayback.errorNotice}
-        </Text>
-      )}
-      {(phrasebook.error || phrasebook.notice) && (
-        <Text accessibilityRole={phrasebook.error ? 'alert' : undefined} accessibilityLiveRegion="polite"
-          style={phrasebook.error ? styles.error : styles.notice} onPress={phrasebook.clearNotices}>
-          {phrasebook.error || phrasebook.notice}
-        </Text>
-      )}
-      {(loadError || state.error) && <Text accessibilityRole="alert" style={styles.error}>{loadError || state.error}</Text>}
-      {!!notice && <Text accessibilityLiveRegion="polite" style={styles.notice}>{notice}</Text>}
-      {denied && (
-        <ActionButton
-          label="Open microphone settings"
-          tone="secondary"
+        <View style={[styles.dividerWrap, isLandscape && styles.dividerWrapLandscape]} pointerEvents="none">
+          <View style={[styles.dividerLine, isLandscape && styles.dividerLineLandscape]} />
+          <View
+            style={[
+              styles.dividerBadge,
+              isLandscape && styles.dividerBadgeLandscape,
+            ]}
+          >
+            <Image
+              source={require('../../assets/stringphone-logo.png')}
+              resizeMode="contain"
+              style={styles.dividerLogo}
+            />
+          </View>
+        </View>
+
+        {renderUserSection('self')}
+      </View>
+
+      {!!activeError && (
+        <Pressable
+          accessibilityRole="alert"
           onPress={() => {
-            void Linking.openSettings().catch(() => setNotice('Open phone Settings and enable microphone for StringPhone.'));
+            liveFlow.clearError();
+            audioPlayback.clearErrorNotice();
+            phrasebook.clearNotices();
+          }}
+          style={styles.errorPill}
+        >
+          <Feather name="alert-circle" size={14} color="#FB7185" />
+          <Text style={styles.errorPillText}>{activeError}</Text>
+        </Pressable>
+      )}
+      {!activeError && !!activeNotice && (
+        <Pressable onPress={phrasebook.clearNotices} style={styles.noticePill}>
+          <Text accessibilityLiveRegion="polite" style={styles.noticePillText}>
+            {activeNotice}
+          </Text>
+        </Pressable>
+      )}
+      {liveFlow.denied && (
+        <View style={styles.settingsRow}>
+          <ActionButton
+            label="Open microphone settings"
+            tone="secondary"
+            onPress={() => {
+              void Linking.openSettings();
+            }}
+          />
+        </View>
+      )}
+
+      {chat && (
+        <HistorySheet
+          visible={historyVisible}
+          onClose={() => setHistoryVisible(false)}
+          state={state}
+          chat={chat}
+          newLabel="New Conversation"
+          onNewChat={() => {
+            void chat.newModeConversation('conversation').then(() => setHistoryVisible(false));
           }}
         />
       )}
-
-      {/* Main split view container */}
-      <View style={[styles.splitArea, isLandscape && styles.splitAreaLandscape]}>
-        {/* Top / Left Section (Partner) */}
-        <View
-          style={[
-            styles.halfSection,
-            isLandscape && styles.halfSectionLandscape,
-            styles.partnerSection,
-            !isLandscape && styles.partnerSectionPortrait,
-          ]}
-        >
-          {renderSideContent('partner')}
-        </View>
-
-        {/* Divider bar */}
-        <View style={[styles.divider, isLandscape && styles.dividerLandscape]}>
-          {!isLandscape && <Feather name="globe" size={13} color={palette.textSubtle} />}
-        </View>
-
-        {/* Bottom / Right Section (Self) */}
-        <View style={[styles.halfSection, isLandscape && styles.halfSectionLandscape, styles.selfSection]}>
-          {renderSideContent('self')}
-        </View>
-      </View>
-
-      {chat && <HistorySheet visible={historyVisible} onClose={() => setHistoryVisible(false)} state={state} chat={chat}
-        newLabel="New conversation session" onNewChat={() => { void chat.newModeConversation('conversation').then(() => setHistoryVisible(false)); }} />}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: palette.background },
-  topToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 2,
-  },
-  splitArea: { flex: 1, flexDirection: 'column' },
-  splitAreaLandscape: { flexDirection: 'row' },
-  halfSection: {
+  screen: {
     flex: 1,
-    padding: 12,
-    justifyContent: 'space-between',
+    backgroundColor: palette.background,
   },
-  halfSectionLandscape: { paddingVertical: 8 },
-  partnerSection: { backgroundColor: palette.backgroundRaised },
-  partnerSectionPortrait: {
-    // 180 degree rotation in portrait so partner sitting across the table sees it right-side-up!
-    transform: [{ rotate: '180deg' }],
+  floatingToolbar: {
+    position: 'absolute',
+    top: 6,
+    left: 16,
+    zIndex: 30,
   },
-  selfSection: { backgroundColor: palette.background },
-  sideContent: { flex: 1, justifyContent: 'space-between' },
-  sideContentLandscape: { minHeight: 0 },
-  sideHeader: {
-    flexDirection: 'row',
+  historyBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(24,24,27,0.82)',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 6,
-  },
-  sideHeaderLandscape: { paddingBottom: 2 },
-  sideLabel: { color: palette.textMuted, fontSize: 13, fontWeight: '600' },
-  transcriptBox: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
+  },
+  splitArea: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  splitAreaLandscape: {
+    flexDirection: 'row',
+  },
+  userSection: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: 'space-between',
+    minHeight: 0,
+  },
+  userSectionLandscape: {
     paddingVertical: 8,
   },
-  transcriptBoxLandscape: { minHeight: 0, paddingVertical: 2 },
-  latestCard: {
-    backgroundColor: palette.surface,
-    borderRadius: 20,
-    padding: 12,
-    width: '100%',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: palette.border,
+  topSectionPortrait: {
+    backgroundColor: 'rgba(24,24,27,0.35)',
+    transform: [{ rotate: '180deg' }],
   },
-  latestCardLandscape: { padding: 8, gap: 4 },
-  turnSpeakerTag: { color: palette.textMuted, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
-  primaryText: { color: palette.text, fontSize: 18, fontWeight: '600' },
-  primaryTextLandscape: { fontSize: 16 },
-  audioRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  audioRowLandscape: { marginTop: 0, gap: 4 },
-  emptyPrompt: { color: palette.textSubtle, fontSize: 14, fontStyle: 'italic' },
-  lockedPill: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    alignSelf: 'center',
-    marginBottom: 6,
+  leftSectionLandscape: {
+    backgroundColor: 'rgba(24,24,27,0.35)',
   },
-  lockedText: { color: palette.textMuted, fontSize: 12, fontWeight: '600' },
-  activeRecordingPill: {
+  sectionDimmed: {
+    opacity: 0.3,
+  },
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(244,63,94,0.14)',
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    alignSelf: 'center',
-    marginBottom: 6,
-    gap: 6,
+    justifyContent: 'space-between',
+    minHeight: 40,
   },
-  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose },
-  activeRecordingText: { color: '#FDA4AF', fontSize: 12, fontWeight: '600' },
-  buttonWrapper: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
-  buttonWrapperLandscape: { paddingVertical: 0 },
-  micCircle: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+  timerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(244,63,94,0.25)',
+    backgroundColor: 'rgba(244,63,94,0.12)',
+  },
+  timerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#FB7185',
+  },
+  timerText: {
+    color: '#FDA4AF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sectionBody: {
+    flex: 1,
+    minHeight: 0,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  transcriptBlock: {
+    flex: 1,
+    width: '100%',
+    minHeight: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.border,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.38,
-    shadowRadius: 18,
-    gap: 2,
   },
-  micCircleLandscape: { width: 60, height: 60, borderRadius: 30 },
-  partnerCircle: { backgroundColor: palette.surface },
-  selfCircle: { backgroundColor: palette.surface },
-  micCircleActive: {
-    borderWidth: 3,
-    borderColor: palette.rose,
+  transcriptBlockLandscape: {
+    paddingVertical: 2,
+  },
+  interactionBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingBottom: 4,
+  },
+  interactionBlockLandscape: {
+    gap: 4,
+    paddingBottom: 2,
+  },
+  statusSlot: {
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusLabelText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.8,
+  },
+  micCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: '#18181B',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.36,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  micCircleLandscape: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  micCircleRecording: {
+    backgroundColor: '#E11D48',
+    borderColor: '#FB7185',
     transform: [{ scale: 1.05 }],
   },
-  micCircleDisabled: { opacity: 0.25 },
-  micCirclePressed: { transform: [{ scale: 0.95 }] },
-  micBtnText: { color: palette.textMuted, fontSize: 10, fontWeight: '700' },
-  divider: {
-    height: 18,
-    backgroundColor: palette.background,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: palette.border,
+  micCircleProcessing: {
+    backgroundColor: '#27272A',
+    borderColor: 'rgba(245,158,11,0.45)',
+  },
+  stopSquare: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    backgroundColor: palette.text,
+  },
+  micTapLabel: {
+    color: palette.textMuted,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  dividerWrap: {
+    height: 2,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 20,
   },
-  dividerLandscape: {
-    width: 20,
+  dividerWrapLandscape: {
+    width: 2,
     height: '100%',
   },
-  error: { color: palette.danger, fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
-  notice: { color: palette.emerald, fontSize: 13, paddingHorizontal: 16, paddingVertical: 4 },
+  dividerLine: {
+    width: '100%',
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  dividerLineLandscape: {
+    width: 1,
+    height: '100%',
+  },
+  dividerBadge: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: '#18181B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  dividerBadgeLandscape: {
+    transform: [{ rotate: '-90deg' }],
+  },
+  dividerLogo: {
+    width: 30,
+    height: 30,
+    tintColor: palette.text,
+  },
+  errorPill: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(244,63,94,0.35)',
+    backgroundColor: 'rgba(24,24,27,0.96)',
+    zIndex: 35,
+  },
+  errorPillText: {
+    color: '#FFE4E6',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  noticePill: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(24,24,27,0.88)',
+    zIndex: 35,
+  },
+  noticePillText: {
+    color: palette.textMuted,
+    fontSize: 12,
+  },
+  settingsRow: {
+    position: 'absolute',
+    bottom: 52,
+    alignSelf: 'center',
+    zIndex: 35,
+  },
 });

@@ -29,6 +29,7 @@ type GeneratePronunciationLineInput = {
 
 const PERSIAN_SCRIPT_REGEX = /[\u0600-\u06FF]/;
 const LATIN_SCRIPT_REGEX = /[A-Za-z]/;
+const HAN_SCRIPT_REGEX = /[\u4E00-\u9FFF]/;
 
 function coercePronunciationValue(value: unknown) {
   if (typeof value !== "string") {
@@ -51,15 +52,20 @@ function normalizeComparableText(value: string) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-function getScriptInstruction(languageCode?: string) {
+function getScriptInstruction(input: GeneratePronunciationLineInput) {
+  if (input.textLanguageCode === "zh" && input.readerLanguageCode !== "fa") {
+    return "Use standard Mandarin Hanyu Pinyin with tone marks (e.g., Nǐ hǎo, Xièxie). Use Latin letters with tone diacritics only; never output Chinese characters. This is a Pinyin pronunciation guide, not a meaning translation.";
+  }
+
+  const languageCode = input.readerLanguageCode;
   const writingSystemLabel = getWritingSystemLabel(languageCode);
 
   if (languageCode === "fa") {
     return "Use Persian script only. Never use Latin letters. This is a sound-out guide, not a Persian translation.";
   }
 
-  if (languageCode === "en") {
-    return "Use Latin letters only. Do not use Persian script. This is a sound-out guide, not an English translation.";
+  if (languageCode === "en" || languageCode === "zh") {
+    return "Use Latin letters only. Do not use Persian script or Chinese characters. This is a sound-out guide, not a meaning translation.";
   }
 
   if (writingSystemLabel) {
@@ -70,6 +76,13 @@ function getScriptInstruction(languageCode?: string) {
 }
 
 function getDirectionExample(input: GeneratePronunciationLineInput) {
+  if (input.textLanguageCode === "zh" && input.readerLanguageCode !== "fa") {
+    return `Example:
+Input text: 你好，很高兴认识你！
+Good output: Nǐ hǎo, hěn gāoxìng rènshi nǐ!
+Bad output: Hello, nice to meet you!`;
+  }
+
   if (input.readerLanguageCode === "fa" && input.textLanguageCode === "en") {
     return `Example:
 Input text: Do you need help?
@@ -122,6 +135,12 @@ function validatePronunciationLine(
     return "";
   }
 
+  if (input.textLanguageCode === "zh" && input.readerLanguageCode !== "fa") {
+    if (!LATIN_SCRIPT_REGEX.test(value) || HAN_SCRIPT_REGEX.test(value)) {
+      return "";
+    }
+  }
+
   if (input.readerLanguageCode === "fa") {
     if (!PERSIAN_SCRIPT_REGEX.test(value) || LATIN_SCRIPT_REGEX.test(value)) {
       return "";
@@ -149,7 +168,7 @@ async function generatePronunciationLine(
       process.env.OPENAI_PRONUNCIATION_MODEL?.trim() ||
       process.env.OPENAI_TRANSLATION_MODEL?.trim() ||
       "gpt-4o-mini",
-    instructions: `You write one-line pronunciation guides for chat bubbles. Return only the pronunciation line. Do not translate the meaning. Do not explain. Do not add labels, quotation marks, or parentheses. Do not use IPA unless the user's writing system already uses plain Latin letters. Preserve the original word order. ${getScriptInstruction(input.readerLanguageCode)} ${getDirectionExample(input)}`,
+    instructions: `You write one-line pronunciation guides for chat bubbles. Return only the pronunciation line. Do not translate the meaning. Do not explain. Do not add labels, quotation marks, or parentheses. Do not use IPA unless the user's writing system already uses plain Latin letters. Preserve the original word order. ${getScriptInstruction(input)} ${getDirectionExample(input)}`,
     input: `Text language: ${input.textLanguage}
 Text language code: ${input.textLanguageCode ?? ""}
 Reader language: ${input.readerLanguage}

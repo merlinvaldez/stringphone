@@ -21,6 +21,8 @@ for (const value of [null, {}, '', 'invalid', 'constructor', 'toString', '__prot
 assert.equal(requiresPhoneticGuide('en', 'es'), false);
 assert.equal(requiresPhoneticGuide('en', 'ar'), true);
 assert.equal(requiresPhoneticGuide('fa', 'ar'), false);
+assert.equal(requiresPhoneticGuide('zh', 'en'), true);
+assert.equal(requiresPhoneticGuide('zh', 'zh'), true);
 assert.equal(formatDuration(0), '0:00');
 assert.equal(formatDuration(59.1), '1:00');
 assert.equal(formatDuration(-1), '--:--');

@@ -151,8 +151,13 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
     async getChatPreferences() {
       const active = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.activeConversationId'");
       const pair = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.languagePair'");
+      const voice = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.ttsVoice'");
       return { activeId: active ? JSON.parse(active.value_json) as unknown : undefined,
-        pair: pair ? JSON.parse(pair.value_json) as unknown : undefined };
+        pair: pair ? JSON.parse(pair.value_json) as unknown : undefined,
+        ttsVoice: voice ? JSON.parse(voice.value_json) as unknown : undefined };
+    },
+    async setTtsVoicePreference(voice: 'marin' | 'onyx') {
+      await database.runAsync("INSERT INTO preferences(key,value_json,updated_at) VALUES ('chat.ttsVoice',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at", JSON.stringify(voice), now());
     },
     async selectChatConversation(id: string | null, myLanguage: string, theirLanguage: string, updateLanguages = false) {
       await database.withExclusiveTransactionAsync(async transaction => {

@@ -36,7 +36,7 @@ export function PhraseEditorModal({ visible, phrase, busy, onClose, onSubmit }: 
 
   return <Modal visible={visible} animationType="slide" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right', 'bottom']}>
-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text accessibilityRole="header" style={styles.title}>{phrase ? 'Edit phrase' : 'Add a phrase'}</Text>
           <Text style={styles.note}>Phrase text is stored on this phone. Speech can be generated when you are online.</Text>

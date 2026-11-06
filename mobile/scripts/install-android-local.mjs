@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,11 +7,15 @@ const mobileRoot = fileURLToPath(new URL('../', import.meta.url));
 const env = { ...process.env, APP_VARIANT: 'development', EXPO_PUBLIC_APP_ENV: 'preview', EXPO_NO_DOTENV: '1' };
 const envFile = join(mobileRoot, '.env.local');
 const previewUrl = readEnvValue(envFile, 'EXPO_PUBLIC_API_URL_PREVIEW');
+const productionUrl = readEnvValue(envFile, 'EXPO_PUBLIC_API_URL_PRODUCTION');
+const developmentUrl = readEnvValue(envFile, 'EXPO_PUBLIC_API_URL_DEVELOPMENT');
 if (!previewUrl) {
   console.error('Set EXPO_PUBLIC_API_URL_PREVIEW in mobile/.env.local before building the standalone APK.');
   process.exit(1);
 }
 env.EXPO_PUBLIC_API_URL_PREVIEW = previewUrl;
+if (productionUrl) env.EXPO_PUBLIC_API_URL_PRODUCTION = productionUrl;
+if (developmentUrl) env.EXPO_PUBLIC_API_URL_DEVELOPMENT = developmentUrl;
 
 const adb = findAdb();
 const devicesResult = spawnSync(adb, ['devices'], { encoding: 'utf8', windowsHide: true });
@@ -37,13 +41,15 @@ if (!existsSync(expoCli)) {
   process.exit(1);
 }
 
-// Generate/synchronize the ignored native project locally. This does not start Metro or use EAS.
-if (run(process.execPath, [expoCli, 'prebuild', '--platform', 'android'], { cwd: mobileRoot, env }) !== 0) {
-  process.exit(1);
-}
-
 const androidRoot = join(mobileRoot, 'android');
 const gradleWrapper = join(androidRoot, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+if (!existsSync(gradleWrapper)) {
+  // Generate/synchronize the ignored native project locally. This does not start Metro or use EAS.
+  if (run(process.execPath, [expoCli, 'prebuild', '--platform', 'android'], { cwd: mobileRoot, env }) !== 0) {
+    process.exit(1);
+  }
+}
+
 if (!existsSync(gradleWrapper)) {
   console.error(`Android Gradle wrapper not found: ${gradleWrapper}`);
   process.exit(1);
@@ -58,17 +64,31 @@ if (process.platform === 'win32') {
     if (project.path != ':' && project.path != ':app') {
       def safePath = project.path.replace(':', '_')
       project.buildDir = new File('C:/sp/gradle' + safePath)
+      project.plugins.withId('com.android.library') {
+        project.android {
+          externalNativeBuild {
+            cmake {
+              buildStagingDirectory = new File('C:/sp/stringphone-cmake' + safePath)
+            }
+          }
+        }
+      }
     }
   }\n`);
 }
 
-const gradleArgs = ['app:assembleRelease', '--no-daemon', '--max-workers=2', '-PreactNativeArchitectures=arm64-v8a'];
+const generatedAssetsDir = join(androidRoot, 'app', 'build', 'generated', 'assets', 'react');
+if (existsSync(generatedAssetsDir)) {
+  rmSync(generatedAssetsDir, { recursive: true, force: true });
+}
+const gradleArgs = [
+  'app:assembleRelease',
+  '--no-daemon',
+  '--max-workers=2',
+  '-PreactNativeArchitectures=arm64-v8a',
+];
 if (initScript) gradleArgs.push('--init-script', initScript);
-const gradleCommand = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : gradleWrapper;
-const gradleCommandArgs = process.platform === 'win32'
-  ? ['/d', '/s', '/c', `"${gradleWrapper}" ${gradleArgs.join(' ')}`]
-  : gradleArgs;
-if (run(gradleCommand, gradleCommandArgs, { cwd: androidRoot, env }) !== 0) process.exit(1);
+if (run(gradleWrapper, gradleArgs, { cwd: androidRoot, env, shell: process.platform === 'win32' }) !== 0) process.exit(1);
 
 const apkPath = join(androidRoot, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
 if (!existsSync(apkPath)) {

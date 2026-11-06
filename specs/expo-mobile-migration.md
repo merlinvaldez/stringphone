@@ -126,9 +126,9 @@ Android live acceptance, October 21, 2026: built local standalone APK 1.0.6 (ver
 
 Outcome: the mobile app matches the StringPhone web app experience exactly, except for login and account creation.
 
-- [ ] Use the StringPhone web app as the source of truth for the mobile app's UI, UX, and visual design. Match its screens, navigation, copy, controls, and interactions exactly, excluding login and account creation.
-- [ ] Replace the current APK experience completely; no existing APK UI, UX, or design should remain.
-- [ ] Compare the mobile app against the web app on iPhone and Android and verify the parity requirement, including that login and account creation are omitted.
+- [x] Use the StringPhone web app as the source of truth for the mobile app's UI, UX, and visual design. Match its screens, navigation, copy, controls, and interactions exactly, excluding login and account creation. Implemented in source: top-left clickable StringPhone home badge and top-right `marin` (Female) / `onyx` (Male) AI voice selector in `AppShell`, flag badges (`LanguageFlag`) and native language names (`getNativeLanguageName`) in `LanguagePicker`, web-parity `MessageCard` (emerald/sky source-language tints, parenthesized pronunciation placement, original-text TTS synthesis + playback, and inline retry bar), unified `ChatComposer` with 56×56 circular Mic/Send/Stop button and `AudioWave` countdown banner, slide-in left `HistorySheet` drawer with Chat/Phrasebook tabs and flag pair pills, `TranscriptCarousel` / `TranscriptCard` in `SingleView` and `ConversationView` with unified `useLiveTurnFlow`, and two-level `PhrasebookScreen` (`CollectionScreen` parity with language collection rows, single-input auto-translating `CollectionComposer`, and flippable `CollectionEntryViewer` flashcards).
+- [x] Replace the current APK experience completely; no existing APK UI, UX, or design should remain. Removed the separate `LiveTranslationControls` box and prototype single-card views in favor of the unified web-parity screens and components. Verified with `npm --prefix mobile run typecheck`, `npm --prefix mobile run lint` (`check-server-boundary.cjs` + `expo lint`), and all mobile SQLite/controller/phrasebook/speech verification scripts.
+- [ ] Compare the mobile app against the web app on iPhone and Android and verify the parity requirement, including that login and account creation are omitted. Awaiting physical Android APK and iPhone device comparison.
 
 ### 10. Prepare device releases and maintenance
 

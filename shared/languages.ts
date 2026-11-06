@@ -408,5 +408,9 @@ export function requiresPhoneticGuide(
     return false;
   }
 
+  if (textLanguage.code === "zh") {
+    return true;
+  }
+
   return textLanguage.writingSystem !== readerLanguage.writingSystem;
 }

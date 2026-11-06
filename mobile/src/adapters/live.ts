@@ -88,6 +88,7 @@ export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
       sourceLanguage: string;
       targetLanguage: string;
       transcript: string;
+      sender?: 'self' | 'partner';
     }) {
       const value = await postJson('/chat/messages/live-translation', {
         utteranceId: input.utteranceId,
@@ -95,7 +96,7 @@ export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
         sourceLanguage: input.sourceLanguage,
         targetLanguage: input.targetLanguage,
         transcript: input.transcript,
-        sender: 'self',
+        sender: input.sender ?? 'self',
       }, fetchRequest);
       return asLiveTranslation(value);
     },
@@ -105,6 +106,7 @@ export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
       sourceLanguage: string;
       targetLanguage: string;
       transcript: string;
+      sender?: 'self' | 'partner';
     }) {
       const value = await postJson('/chat/messages/live-transcript', {
         utteranceId: input.utteranceId,
@@ -113,7 +115,7 @@ export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
         targetLanguage: input.targetLanguage,
         transcript: input.transcript,
         liveMode: 'fallback-transcription',
-        sender: 'self',
+        sender: input.sender ?? 'self',
       }, fetchRequest);
       return asLiveTranslation(value);
     },
