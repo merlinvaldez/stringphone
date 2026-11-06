@@ -19,6 +19,14 @@ export type ActivePlayback = {
   role: 'source' | 'translated';
 } | null;
 
+function safePausePlayer(player: { pause: () => void }) {
+  try {
+    player.pause();
+  } catch {
+    // Native shared object may already be released by Expo when the component unmounts
+  }
+}
+
 export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   const player = useNativeAudioPlayer(null);
   const playback = useNativeAudioPlayerStatus(player);
@@ -40,7 +48,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   }, [activeAudio, playback.playing, playback.currentTime, playback.duration]);
 
   const stop = useCallback(() => {
-    player.pause();
+    safePausePlayer(player);
     setActiveAudio(null);
     AudioPlaybackCoordinator.stopPlayback();
   }, [player]);
@@ -54,7 +62,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     busy.current = true;
     setErrorNotice(null);
     try {
-      player.pause();
+      safePausePlayer(player);
       let resolved = await resolveNativeSourceAudio(messageId);
       if ((!resolved?.uri || resolved.availability !== 'available') && generateIfMissing) {
         setGeneratingSourceId(messageId);
@@ -69,7 +77,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       }
       await configureNativeAudioSession(false);
       const allowed = AudioPlaybackCoordinator.startPlayback(`${messageId}:source`, () => {
-        player.pause();
+        safePausePlayer(player);
         setActiveAudio(null);
       });
       if (!allowed || AppState.currentState !== 'active') return;
@@ -94,7 +102,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     busy.current = true;
     setErrorNotice(null);
     try {
-      player.pause();
+      safePausePlayer(player);
       // First try resolving existing translated audio
       let resolved = await resolveNativeTranslatedAudio(messageId);
       if (!resolved?.uri || resolved.availability !== 'available') {
@@ -111,7 +119,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       }
       await configureNativeAudioSession(false);
       const allowed = AudioPlaybackCoordinator.startPlayback(`${messageId}:translated`, () => {
-        player.pause();
+        safePausePlayer(player);
         setActiveAudio(null);
       });
       if (!allowed || AppState.currentState !== 'active') return;

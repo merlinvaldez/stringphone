@@ -188,8 +188,7 @@ export function createTextChatController(
               sourceLanguage, targetLanguage, originalText: '' },
             { uri }, { format: 'm4a', mimeType: 'audio/mp4', durationMs });
             finished = true;
-            try { await refresh(id); }
-            finally { update({ notice: 'Recording saved on this phone.' }); }
+            await refresh(id);
             if ((typeof dispatch === 'function' ? dispatch() : dispatch) && voiceProcessor) await process(id);
             update({ busy: false });
           } finally { saving = false; if (finished) update({ busy: false }); }
@@ -343,18 +342,19 @@ export function createTextChatController(
     async send(text: string): Promise<boolean> {
       if (locked() || !text.trim() || !state.conversation || state.conversation.origin_mode !== 'chat') return false;
       update({ busy: true, error: null, notice: null });
-      let saved = false;
+      let id = '';
       try {
         const conversation = state.conversation;
-        const id = newId();
+        id = newId();
         await flow.saveTextDraft({ id, requestId: newId(), conversationId: conversation.id, speaker: 'me', originMode: 'chat',
           sourceLanguage: conversation.my_language, targetLanguage: conversation.their_language, originalText: text });
-        saved = true;
         await process(id);
+        const sent = await history.getMessage(id);
+        return sent?.status === 'ready';
       } catch {
         update({ error: 'Message was not confirmed saved locally. Your typed text has been kept; reopen the app before sending again.' });
+        return false;
       } finally { update({ busy: false }); }
-      return saved;
     },
     async retry(id: string) {
       if (locked()) return;

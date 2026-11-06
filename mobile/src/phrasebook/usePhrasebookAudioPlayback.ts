@@ -16,6 +16,14 @@ function playbackId(active: PhrasePlayback) {
   return active ? `phrasebook:${active.phraseId}:${active.role}` : undefined;
 }
 
+function safePausePlayer(player: { pause: () => void }) {
+  try {
+    player.pause();
+  } catch {
+    // Native shared object may already be released by Expo when the component unmounts
+  }
+}
+
 export function usePhrasebookAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   const player = useNativeAudioPlayer(null);
   const status = useNativeAudioPlayerStatus(player);
@@ -30,7 +38,7 @@ export function usePhrasebookAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   }, []);
 
   const stop = useCallback(() => {
-    player.pause();
+    safePausePlayer(player);
     const id = playbackId(activeAudioRef.current);
     if (id) AudioPlaybackCoordinator.stopPlayback(id);
     setActive(null);
@@ -56,7 +64,7 @@ export function usePhrasebookAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     setErrorNotice(null);
     const key = `${phraseId}:${role}`;
     try {
-      player.pause();
+      safePausePlayer(player);
       let resolved = await resolveNativePhraseAudio(phraseId, role);
       if (!resolved?.uri || resolved.availability !== 'available') {
         setGeneratingKey(key);
@@ -70,7 +78,7 @@ export function usePhrasebookAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       await configureNativeAudioSession(false);
       const id = `phrasebook:${phraseId}:${role}`;
       const allowed = AudioPlaybackCoordinator.startPlayback(id, () => {
-        player.pause();
+        safePausePlayer(player);
         setActive(null);
       });
       if (!allowed || AppState.currentState !== 'active') return;

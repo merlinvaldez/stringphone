@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
   Linking,
   Platform,
@@ -9,7 +10,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { ActionButton } from '../components/ActionButton';
@@ -33,7 +34,17 @@ type Props = {
 
 export function SingleView({ chat, state, loadError }: Props) {
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const [historyVisible, setHistoryVisible] = useState(false);
+
+  const systemNavGap =
+    Platform.OS === 'android'
+      ? Math.max(0, Math.round(Dimensions.get('screen').height - Dimensions.get('window').height - insets.top))
+      : 0;
+  const bottomNavClearance =
+    Platform.OS === 'ios'
+      ? Math.max(20, insets.bottom + 8)
+      : Math.max(insets.bottom, systemNavGap, 44) + 12;
 
   const audioPlayback = useAudioPlayback();
   const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
@@ -204,7 +215,7 @@ export function SingleView({ chat, state, loadError }: Props) {
         </View>
       )}
 
-      <View style={styles.actionsBar}>
+      <View style={[styles.actionsBar, { paddingBottom: bottomNavClearance }]}>
         {(['speak', 'listen'] as const).map(action => {
           const isSpeak = action === 'speak';
           const isActive = activeAction === action;
@@ -430,10 +441,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 14 : 10,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 24,
     gap: 28,
   },
   actionCol: {
+    width: 148,
     alignItems: 'center',
     gap: 14,
   },

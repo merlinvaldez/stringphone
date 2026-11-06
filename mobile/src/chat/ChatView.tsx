@@ -113,8 +113,11 @@ export function ChatView({ chat, state, loadError }: Props) {
     const text = draft;
     const conversationId = id;
     scrollAfterSend.current = true;
-    if (await chat.send(text)) {
-      setDrafts(current => (current[conversationId] === text ? { ...current, [conversationId]: '' } : current));
+    setDrafts(current => ({ ...current, [conversationId]: '' }));
+    requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
+    const succeeded = await chat.send(text);
+    if (!succeeded) {
+      setDrafts(current => (current[conversationId] ? current : { ...current, [conversationId]: text }));
     }
     requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
   }

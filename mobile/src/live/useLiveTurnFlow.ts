@@ -11,7 +11,11 @@ import {
 } from '../adapters/audio';
 import { nativeLiveApi, type LiveTranslationResult } from '../adapters/live';
 import type { ChatState, createTextChatController } from '../chat/controller';
-import { NativeLiveConnection, type RealtimeEvent } from './nativeRealtime';
+import {
+  NativeLiveConnection,
+  prefetchTranscriptionSecret,
+  type RealtimeEvent,
+} from './nativeRealtime';
 
 type Chat = ReturnType<typeof createTextChatController>;
 type LiveLease = NonNullable<ReturnType<Chat['beginLiveCapture']>>;
@@ -44,13 +48,9 @@ type CaptureContext = {
   isLiveWebrtc: boolean;
 };
 
-type SavedSegment = { id: string; requestId: string; durationMs: number };
-
-const SPEECH_DBFS_THRESHOLD = -46;
-const SILENCE_FINALIZE_MS = 1_000;
-const MIN_SPEECH_MS = 550;
 const MAX_CAPTURE_MS = 30_000;
-const DRAIN_MS = 3_000;
+const STOP_COMPLETED_WAIT_MS = 1_200;
+const STOP_FINALIZE_WAIT_MS = 4_000;
 
 function messageIdentity(captureId: string, itemId: string) {
   const suffix = `${captureId}_${itemId}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 104);
@@ -59,6 +59,16 @@ function messageIdentity(captureId: string, itemId: string) {
 
 function wait(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+function isBenignSpeechError(code: string, message: string) {
+  return (
+    code === 'input_audio_buffer_commit_empty' ||
+    /buffer too small/i.test(message) ||
+    /no speech/i.test(message) ||
+    /empty transcript/i.test(message) ||
+    /must not be empty/i.test(message)
+  );
 }
 
 export function useLiveTurnFlow({
@@ -79,6 +89,7 @@ export function useLiveTurnFlow({
   const [activeAction, setActiveAction] = useState<TurnAction>(null);
   const [activeSide, setActiveSide] = useState<TurnSide>(null);
   const [liveDraft, setLiveDraft] = useState<LiveTurnDraft | null>(null);
+  const [liveElapsedMs, setLiveElapsedMs] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [denied, setDenied] = useState(false);
@@ -89,8 +100,10 @@ export function useLiveTurnFlow({
     isMeteringEnabled: true,
   }, recStatus => {
     if (recStatus.hasError || recStatus.mediaServicesDidReset) {
-      setUiError(recStatus.error || 'The microphone was interrupted. Any saved voice drafts remain available.');
-      void stopRef.current('interruption');
+      if (!contextRef.current?.isLiveWebrtc) {
+        setUiError(recStatus.error || 'The microphone was interrupted. Any saved voice drafts remain available.');
+        void stopRef.current('interruption');
+      }
     }
   });
   const recorderState = useNativeAudioRecorderState(recorder, 100);
@@ -108,10 +121,6 @@ export function useLiveTurnFlow({
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const startedAtRef = useRef(0);
   const limitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speechStartedAtRef = useRef(0);
-  const lastSpeechAtRef = useRef(0);
-  const segmentFinalizingRef = useRef(false);
-  const pendingSegmentsRef = useRef<Promise<SavedSegment | null>[]>([]);
   const finalizationsRef = useRef(new Set<Promise<void>>());
   const transcriptsRef = useRef(new Map<string, string>());
   const revisionsRef = useRef(new Map<string, number>());
@@ -133,8 +142,30 @@ export function useLiveTurnFlow({
     };
   }, []);
 
+  // Warm up OpenAI Realtime transcription client secrets as soon as the screen is focused
+  // so tapping the microphone starts recording without waiting for a token roundtrip.
+  useEffect(() => {
+    if (!isFocused || !state.myLanguage || !state.theirLanguage) return;
+    prefetchTranscriptionSecret(state.myLanguage, state.theirLanguage);
+    if (mode !== 'chat' && state.myLanguage !== state.theirLanguage) {
+      prefetchTranscriptionSecret(state.theirLanguage, state.myLanguage);
+    }
+  }, [isFocused, mode, state.myLanguage, state.theirLanguage]);
+
+  // Track elapsed time for the 30s countdown timer during WebRTC live recording.
+  useEffect(() => {
+    if (status !== 'recording') return;
+    const interval = setInterval(() => {
+      if (startedAtRef.current > 0) {
+        setLiveElapsedMs(Math.max(0, Date.now() - startedAtRef.current));
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [status]);
+
   function setUiStatus(next: TurnStatus) {
     statusRef.current = next;
+    if (next !== 'recording' && mountedRef.current) setLiveElapsedMs(0);
     if (mountedRef.current) setStatus(next);
   }
 
@@ -151,66 +182,38 @@ export function useLiveTurnFlow({
     if (mountedRef.current) setLiveDraft(update);
   }
 
-  async function saveCurrentRecorderSegment(restart: boolean): Promise<SavedSegment | null> {
-    const currentChat = chatRef.current;
-    const context = contextRef.current;
-    if (segmentFinalizingRef.current) return null;
-    segmentFinalizingRef.current = true;
+  async function safeRecorderStop(): Promise<void> {
     try {
-      const durationMs = Math.max(recorderState.durationMillis, Math.round(recorder.currentTime * 1000));
-      if (recorder.getStatus().isRecording) await recorder.stop();
-      const uri = recorder.uri;
-      let restarted = false;
-      if (restart && activeRef.current && !cancelledRef.current && AppState.currentState === 'active') {
-        const elapsed = Date.now() - startedAtRef.current;
-        if (elapsed < MAX_CAPTURE_MS - 250) {
-          await recorder.prepareToRecordAsync();
-          if (activeRef.current && !cancelledRef.current && AppState.currentState === 'active') {
-            recorder.record();
-            restarted = true;
-          }
-        }
-      }
-      if (!uri || durationMs < 250 || !context || !currentChat) return null;
-      const saved = await currentChat.saveLiveAudioDraft({
-        conversationId: context.conversationId,
-        originMode: context.originMode,
-        sourceLanguage: context.sourceLanguage,
-        targetLanguage: context.targetLanguage,
-        speaker: context.speaker,
-      }, { uri, durationMs: Math.round(durationMs) });
-      if (!restarted && restart && activeRef.current && !cancelledRef.current && AppState.currentState === 'active') {
-        const elapsed = Date.now() - startedAtRef.current;
-        if (elapsed < MAX_CAPTURE_MS - 250) {
-          await recorder.prepareToRecordAsync();
-          if (activeRef.current && !cancelledRef.current && AppState.currentState === 'active') recorder.record();
-        }
-      }
-      return { ...saved, durationMs: Math.round(durationMs) };
-    } catch (captureError) {
-      setUiError(captureError instanceof Error ? captureError.message : 'The source recording could not be saved.');
-      return null;
-    } finally {
-      segmentFinalizingRef.current = false;
+      await recorder.stop();
+    } catch {
+      // Native AudioRecorder may already be stopped or released on unmount
     }
   }
 
-  function commitCurrentTurn(restart = true) {
-    const context = contextRef.current;
-    if (!context?.isLiveWebrtc) return;
-    if (!speechStartedAtRef.current || segmentFinalizingRef.current) return;
-    speechStartedAtRef.current = 0;
-    lastSpeechAtRef.current = 0;
-    const audio = saveCurrentRecorderSegment(restart);
-    pendingSegmentsRef.current.push(audio);
-    connectionRef.current?.commitCurrentAudio();
+  function safeRecorderDurationMs(): number {
+    try {
+      const statusDuration = Number(recorder.getStatus()?.durationMillis) || 0;
+      return Math.max(statusDuration, recorderState.durationMillis, Math.round((recorder.currentTime || 0) * 1000));
+    } catch {
+      return recorderState.durationMillis || 0;
+    }
   }
 
-  async function finalizeLiveTranscript(itemId: string, transcript: string, audioPromise: Promise<SavedSegment | null>) {
+  function safeRecorderUri(): string | null {
+    try {
+      const raw = recorder.uri || recorder.getStatus()?.url || null;
+      if (!raw) return null;
+      return raw.startsWith('file://') ? raw : `file://${raw}`;
+    } catch {
+      return null;
+    }
+  }
+
+  async function finalizeLiveTranscript(itemId: string, transcript: string) {
     const context = contextRef.current;
     const currentChat = chatRef.current;
-    if (!context || !currentChat || !transcript.trim()) return;
-    const audio = await audioPromise.catch(() => null);
+    const trimmed = transcript.trim();
+    if (!context || !currentChat || !trimmed) return;
     const revision = (revisionsRef.current.get(itemId) ?? 0) + 1;
     revisionsRef.current.set(itemId, revision);
     const completed = await nativeLiveApi.finalizeTranscript({
@@ -218,13 +221,13 @@ export function useLiveTurnFlow({
       revision,
       sourceLanguage: context.sourceLanguage,
       targetLanguage: context.targetLanguage,
-      transcript,
+      transcript: trimmed,
       sender: context.sender,
     });
     if (completed.utteranceId !== itemId || completed.revision !== revision) return;
-    const identity = audio ?? messageIdentity(context.captureId, itemId);
+    const identity = messageIdentity(context.captureId, itemId);
     const speaker = context.speaker;
-    const messageInput = {
+    await currentChat.saveLiveMessage({
       ...identity,
       conversationId: context.conversationId,
       speaker,
@@ -235,14 +238,31 @@ export function useLiveTurnFlow({
       translatedText: completed.translatedText,
       originalPronunciation: completed.originalPronunciation,
       translatedPronunciation: completed.translatedPronunciation,
-    };
-    if (audio) {
-      await currentChat.finishLiveDraft(messageInput);
-    } else {
-      await currentChat.saveLiveMessage(messageInput);
-    }
+    });
     updateDraft(null);
     onCompletedTurnRef.current?.(identity.id, speaker);
+  }
+
+  function queueTranscriptFinalization(itemId: string, rawTranscript: string) {
+    if (finalizedRef.current.has(itemId)) return;
+    finalizedRef.current.add(itemId);
+    const timer = timersRef.current.get(itemId);
+    if (timer) clearTimeout(timer);
+    timersRef.current.delete(itemId);
+    const transcript = (rawTranscript.trim() || transcriptsRef.current.get(itemId) || '').trim();
+    if (!transcript) {
+      updateDraft(null);
+      return;
+    }
+    const task = finalizeLiveTranscript(itemId, transcript).catch(finalError => {
+      const msg = finalError instanceof Error ? finalError.message : 'Could not translate live speech.';
+      if (!isBenignSpeechError('', msg)) {
+        setUiError(msg);
+      }
+    }).finally(() => {
+      finalizationsRef.current.delete(task);
+    });
+    finalizationsRef.current.add(task);
   }
 
   useEffect(() => {
@@ -296,37 +316,31 @@ export function useLiveTurnFlow({
 
       if (event.type === 'conversation.item.input_audio_transcription.completed' &&
           typeof event.item_id === 'string' && typeof event.transcript === 'string') {
-        const itemId = event.item_id;
-        if (finalizedRef.current.has(itemId)) return;
-        finalizedRef.current.add(itemId);
-        const timer = timersRef.current.get(itemId);
-        if (timer) clearTimeout(timer);
-        timersRef.current.delete(itemId);
-        const transcript = event.transcript.trim() || transcriptsRef.current.get(itemId) || '';
-        const segment = pendingSegmentsRef.current.shift() ?? Promise.resolve(null);
-        const task = finalizeLiveTranscript(itemId, transcript, segment).catch(async finalError => {
-          const context = contextRef.current;
-          const currentChat = chatRef.current;
-          const savedAudio = await segment.catch(() => null);
-          if (context && currentChat && savedAudio) {
-            await currentChat.refreshSavedMessage(context.conversationId, savedAudio.id).catch(() => undefined);
-          }
-          setUiError(finalError instanceof Error
-            ? `Audio saved locally. Tap Retry on its voice draft. ${finalError.message}`
-            : 'Audio saved locally. Tap Retry on its voice draft.');
-        }).finally(() => {
-          finalizationsRef.current.delete(task);
-        });
-        finalizationsRef.current.add(task);
+        queueTranscriptFinalization(event.item_id, event.transcript);
+        return;
       }
 
       if (event.type === 'error') {
         const details = event.error as Record<string, unknown> | undefined;
-        setUiError(typeof details?.message === 'string' ? details.message : 'Live transcription reported an error.');
+        const code = typeof details?.code === 'string' ? details.code : '';
+        const message = typeof details?.message === 'string' ? details.message : 'Live transcription reported an error.';
+        if (isBenignSpeechError(code, message)) {
+          return;
+        }
+        setUiError(message);
         void stopRef.current('connection');
       }
     };
   });
+
+  function hasUnfinalizedTranscripts() {
+    for (const [itemId, text] of transcriptsRef.current.entries()) {
+      if (!finalizedRef.current.has(itemId) && text.trim()) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   async function stopCapture(reason: 'user' | 'limit' | 'navigation' | 'interruption' | 'connection') {
     if (stopPromiseRef.current) return stopPromiseRef.current;
@@ -344,17 +358,19 @@ export function useLiveTurnFlow({
         timersRef.current.clear();
       }
       const currentContext = contextRef.current;
-      const currentChat = chatRef.current;
 
       if (currentContext && !currentContext.isLiveWebrtc && voiceLeaseRef.current) {
         const lease = voiceLeaseRef.current;
         try {
-          const durationMs = Math.max(recorderState.durationMillis, Math.round(recorder.currentTime * 1000));
-          if (recorder.getStatus().isRecording) await recorder.stop();
+          const wallElapsedMs = startedAtRef.current > 0 ? Date.now() - startedAtRef.current : 0;
+          const preStopDurationMs = safeRecorderDurationMs();
+          await safeRecorderStop();
+          const postStopDurationMs = safeRecorderDurationMs();
+          const durationMs = Math.max(preStopDurationMs, postStopDurationMs, wallElapsedMs);
           await configureNativeAudioSession(false).catch(() => undefined);
           AudioPlaybackCoordinator.setRecording(false);
-          const uri = recorder.uri;
-          if (!uri || durationMs < 250) {
+          const uri = safeRecorderUri();
+          if (!uri || durationMs < 200) {
             lease.cancel();
             if (reason === 'user') setUiError('Record a slightly longer voice note before sending.');
           } else {
@@ -363,6 +379,7 @@ export function useLiveTurnFlow({
               Math.min(MAX_CAPTURE_MS, Math.round(durationMs)),
               () => AppState.currentState === 'active',
             );
+            onCompletedTurnRef.current?.('', currentContext.speaker);
           }
         } catch (err) {
           lease.cancel();
@@ -371,32 +388,40 @@ export function useLiveTurnFlow({
           voiceLeaseRef.current = null;
         }
       } else {
-        if (speechStartedAtRef.current) {
-          speechStartedAtRef.current = 0;
-          lastSpeechAtRef.current = 0;
-          const audio = saveCurrentRecorderSegment(false);
-          pendingSegmentsRef.current.push(audio);
+        const shouldCommitBuffer =
+          hasUnfinalizedTranscripts() ||
+          (transcriptsRef.current.size === 0 && finalizedRef.current.size === 0);
+
+        if (shouldCommitBuffer) {
           connectionRef.current?.commitCurrentAudio();
-        } else if (recorder.getStatus().isRecording) {
-          const durationMs = Math.max(recorderState.durationMillis, Math.round(recorder.currentTime * 1000));
-          if (durationMs >= 250 && pendingSegmentsRef.current.length === 0 && finalizationsRef.current.size === 0) {
-            const audio = saveCurrentRecorderSegment(false);
-            pendingSegmentsRef.current.push(audio);
-            connectionRef.current?.commitCurrentAudio();
-          } else {
-            await recorder.stop().catch(() => undefined);
-          }
         }
         connectionRef.current?.stopMicrophone();
-        if (connectionRef.current && pendingSegmentsRef.current.length) await wait(DRAIN_MS);
-        const remaining = await Promise.all(pendingSegmentsRef.current.splice(0).map(value => value.catch(() => null)));
-        for (const segment of remaining) {
-          if (segment && currentContext && currentChat) {
-            await currentChat.refreshSavedMessage(currentContext.conversationId, segment.id).catch(() => undefined);
+
+        // Wait briefly if we committed uncommitted audio so OpenAI Realtime can emit
+        // `conversation.item.input_audio_transcription.completed`.
+        if (connectionRef.current && shouldCommitBuffer) {
+          const waitStartedAt = Date.now();
+          while (Date.now() - waitStartedAt < STOP_COMPLETED_WAIT_MS) {
+            if (!hasUnfinalizedTranscripts() && finalizationsRef.current.size > 0) {
+              break;
+            }
+            await wait(80);
           }
         }
+
+        // If any partial delta transcripts still haven't received a `.completed` event
+        // before the connection closes, finalize them directly so the user's words are never lost.
+        for (const [itemId, text] of transcriptsRef.current.entries()) {
+          if (!finalizedRef.current.has(itemId) && text.trim()) {
+            queueTranscriptFinalization(itemId, text);
+          }
+        }
+
         const pendingFinalizations = [...finalizationsRef.current];
-        if (pendingFinalizations.length) await Promise.race([Promise.allSettled(pendingFinalizations), wait(1_500)]);
+        if (pendingFinalizations.length) {
+          await Promise.race([Promise.allSettled(pendingFinalizations), wait(STOP_FINALIZE_WAIT_MS)]);
+        }
+
         connectionRef.current?.close();
         connectionRef.current = null;
         await configureNativeAudioSession(false).catch(() => undefined);
@@ -406,9 +431,6 @@ export function useLiveTurnFlow({
       }
 
       contextRef.current = null;
-      speechStartedAtRef.current = 0;
-      lastSpeechAtRef.current = 0;
-      segmentFinalizingRef.current = false;
       updateDraft(null);
       if (mountedRef.current) {
         setActiveAction(null);
@@ -448,7 +470,6 @@ export function useLiveTurnFlow({
 
     cancelledRef.current = false;
     activeRef.current = false;
-    pendingSegmentsRef.current = [];
     finalizationsRef.current.clear();
     transcriptsRef.current.clear();
     revisionsRef.current.clear();
@@ -473,7 +494,6 @@ export function useLiveTurnFlow({
       return false;
     }
 
-    // Attempt WebRTC Live Turn first; if unavailable (e.g., Expo Go or token/network fallback), gracefully use standard recorded capture.
     const liveLease = currentChat.beginLiveCapture();
     if (liveLease && ['chat', 'single', 'conversation'].includes(liveLease.conversation.origin_mode)) {
       const context: CaptureContext = {
@@ -490,43 +510,58 @@ export function useLiveTurnFlow({
       };
       liveLeaseRef.current = liveLease;
       contextRef.current = context;
-      setUiStatus('recording');
       AudioPlaybackCoordinator.setRecording(true);
       try {
         await configureNativeAudioSession(true);
         const connection = new NativeLiveConnection({
           onEvent: event => eventRef.current(event),
           onError: message => {
-            setUiError(message);
+            if (!isBenignSpeechError('', message)) {
+              setUiError(message);
+            }
             void stopRef.current('connection');
           },
         });
         connectionRef.current = connection;
+        startedAtRef.current = Date.now();
+        setUiStatus('recording');
         const sdp = await connection.prepare(sourceLanguage, targetLanguage);
         if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
         await connection.connect(sdp);
         if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
-        await recorder.prepareToRecordAsync();
-        recorder.record();
-        activeRef.current = true;
         startedAtRef.current = Date.now();
+        activeRef.current = true;
         limitTimerRef.current = setTimeout(() => {
           if (activeRef.current) void stopRef.current('limit');
         }, MAX_CAPTURE_MS);
         return true;
-      } catch {
-        // Clean up live connection attempt and fall through to standard recorded voice capture
+      } catch (liveError) {
         connectionRef.current?.close();
         connectionRef.current = null;
         liveLease.release();
         liveLeaseRef.current = null;
         contextRef.current = null;
+        await configureNativeAudioSession(false).catch(() => undefined);
+        AudioPlaybackCoordinator.setRecording(false);
+        if (!cancelledRef.current) {
+          setUiError(
+            liveError instanceof Error
+              ? liveError.message
+              : 'Live voice transcription could not connect. Check your internet and try again.',
+          );
+        }
+        if (mountedRef.current) {
+          setActiveAction(null);
+          setActiveSide(null);
+          setUiStatus('idle');
+        }
+        return false;
       }
     } else if (liveLease) {
       liveLease.release();
     }
 
-    // Standard recorded voice capture fallback (works in Expo Go & without WebRTC)
+    // Fallback local voice capture if liveLease was unavailable
     const voiceLease = currentChat.beginVoiceCapture({
       originMode: mode,
       speaker,
@@ -559,11 +594,11 @@ export function useLiveTurnFlow({
     };
 
     try {
-      setUiStatus('recording');
       AudioPlaybackCoordinator.setRecording(true);
       await configureNativeAudioSession(true);
       await recorder.prepareToRecordAsync();
       recorder.record();
+      setUiStatus('recording');
       activeRef.current = true;
       startedAtRef.current = Date.now();
       limitTimerRef.current = setTimeout(() => {
@@ -586,27 +621,6 @@ export function useLiveTurnFlow({
     }
   }
 
-  const commitCurrentTurnRef = useRef(commitCurrentTurn);
-  useEffect(() => {
-    commitCurrentTurnRef.current = commitCurrentTurn;
-  });
-
-  useEffect(() => {
-    if (status !== 'recording' || !activeRef.current || segmentFinalizingRef.current) return;
-    if (!contextRef.current?.isLiveWebrtc) return;
-    const metering = recorderState.metering;
-    if (typeof metering === 'number' && metering >= SPEECH_DBFS_THRESHOLD) {
-      if (!speechStartedAtRef.current) speechStartedAtRef.current = Date.now();
-      lastSpeechAtRef.current = Date.now();
-      return;
-    }
-    if (speechStartedAtRef.current &&
-        Date.now() - speechStartedAtRef.current >= MIN_SPEECH_MS &&
-        Date.now() - lastSpeechAtRef.current >= SILENCE_FINALIZE_MS) {
-      commitCurrentTurnRef.current(true);
-    }
-  }, [status, recorderState.metering, recorderState.durationMillis]);
-
   useEffect(() => {
     if (!isFocused && statusRef.current === 'recording') {
       void stopRef.current('navigation');
@@ -622,7 +636,9 @@ export function useLiveTurnFlow({
     return () => subscription.remove();
   }, []);
 
-  const elapsedMs = status === 'recording' ? recorderState.durationMillis : 0;
+  const elapsedMs = status === 'recording'
+    ? (contextRef.current?.isLiveWebrtc ? liveElapsedMs : recorderState.durationMillis)
+    : 0;
   const secondsRemaining = Math.max(0, Math.ceil((MAX_CAPTURE_MS - elapsedMs) / 1000));
   const combinedStatus: TurnStatus = status === 'recording'
     ? 'recording'

@@ -214,19 +214,21 @@ export function ConversationView({ chat, state, loadError }: Props) {
         ]}
       >
         <View style={styles.sectionHeader}>
-          <LanguagePicker
-            label={isTop ? 'Partner language' : 'My language'}
-            value={currentLang}
-            disabled={locked || isRecording || isProcessing}
-            compact
-            onSelect={code => {
-              if (isTop) {
-                void chat?.setLanguages(state.myLanguage, code, 'conversation');
-              } else {
-                void chat?.setLanguages(code, state.theirLanguage, 'conversation');
-              }
-            }}
-          />
+          <View style={styles.languagePickerWrap}>
+            <LanguagePicker
+              label={isTop ? 'Partner language' : 'My language'}
+              value={currentLang}
+              disabled={locked || isRecording || isProcessing}
+              compact
+              onSelect={code => {
+                if (isTop) {
+                  void chat?.setLanguages(state.myLanguage, code, 'conversation');
+                } else {
+                  void chat?.setLanguages(code, state.theirLanguage, 'conversation');
+                }
+              }}
+            />
+          </View>
 
           {isCurrentRecording && (
             <View style={styles.timerPill}>
@@ -379,6 +381,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 40,
+    paddingVertical: 6,
+  },
+  languagePickerWrap: {
+    width: 148,
   },
   timerPill: {
     flexDirection: 'row',
