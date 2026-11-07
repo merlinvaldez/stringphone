@@ -96,14 +96,14 @@ export function SingleView({ chat, state, loadError }: Props) {
   const showWaveform = (isRecording || isProcessing) && !liveFlow.liveDraft?.transcript;
   const activeError = loadError || liveFlow.error || audioPlayback.errorNotice || phrasebook.error;
   const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
+  const languageControlsDisabled = locked || isRecording || isProcessing;
 
   function handleActionPress(action: 'speak' | 'listen') {
-    audioPlayback.stop();
-    if (isRecording && activeAction === action) {
+    if (isRecording) {
       void liveFlow.stopRecording();
       return;
     }
-    if (liveFlow.status !== 'idle') return;
+    if (isProcessing) return;
     const isSpeak = action === 'speak';
     void liveFlow.startRecording({
       action,
@@ -177,6 +177,7 @@ export function SingleView({ chat, state, loadError }: Props) {
               isSavingPhrase={phrasebook.isSaving}
               activeAudio={audioPlayback.activeAudio}
               generatingId={audioPlayback.generatingId}
+              generatingSourceId={audioPlayback.generatingSourceId}
             />
           )}
         </View>
@@ -216,70 +217,110 @@ export function SingleView({ chat, state, loadError }: Props) {
       )}
 
       <View style={[styles.actionsBar, { paddingBottom: bottomNavClearance }]}>
-        {(['speak', 'listen'] as const).map(action => {
-          const isSpeak = action === 'speak';
-          const isActive = activeAction === action;
-          const isOtherActive = activeAction !== null && activeAction !== action;
-          const isCurrentRecording = isActive && isRecording;
-          const isCurrentProcessing = isActive && isProcessing;
-          const langCode = isSpeak ? state.myLanguage : state.theirLanguage;
-          const langLabel = getNativeLanguageName(langCode);
-
-          return (
-            <View
-              key={action}
-              style={[styles.actionCol, isOtherActive && styles.actionColDimmed]}
+        <View style={styles.actionButtonsRow}>
+          <View style={styles.actionBtnSlot}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                isRecording && activeAction === 'speak'
+                  ? 'Stop speak recording'
+                  : `Speak (${getNativeLanguageName(state.myLanguage)})`
+              }
+              disabled={activeAction === 'listen' || isProcessing || (!chat && !(isRecording && activeAction === 'speak'))}
+              onPress={() => handleActionPress('speak')}
+              style={[
+                styles.actionButton,
+                activeAction === 'listen' && styles.actionButtonDimmed,
+                isRecording && activeAction === 'speak' && styles.speakButtonActive,
+                isProcessing && activeAction === 'speak' && styles.actionButtonProcessing,
+              ]}
             >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isCurrentRecording
-                    ? `Stop ${action} recording`
-                    : `${isSpeak ? 'Speak' : 'Listen'} (${langLabel})`
-                }
-                disabled={isOtherActive || isProcessing || (!chat && !isCurrentRecording)}
-                onPress={() => handleActionPress(action)}
-                style={[
-                  styles.actionButton,
-                  isCurrentRecording &&
-                    (isSpeak ? styles.speakButtonActive : styles.listenButtonActive),
-                  isCurrentProcessing && styles.actionButtonProcessing,
-                ]}
-              >
-                {isCurrentRecording ? (
-                  <View style={styles.stopSquare} />
-                ) : isCurrentProcessing ? (
-                  <ActivityIndicator size="small" color={palette.text} />
-                ) : (
-                  <>
-                    <Feather
-                      name={isSpeak ? 'mic' : 'headphones'}
-                      size={24}
-                      color={palette.text}
-                    />
-                    <Text style={styles.actionLabel}>
-                      {isSpeak ? 'SPEAK' : 'LISTEN'}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
+              {isRecording && activeAction === 'speak' ? (
+                <View style={styles.stopSquare} />
+              ) : isProcessing && activeAction === 'speak' ? (
+                <ActivityIndicator size="small" color={palette.text} />
+              ) : (
+                <>
+                  <Feather name="mic" size={24} color={palette.text} />
+                  <Text style={styles.actionLabel}>SPEAK</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
 
-              <LanguagePicker
-                label={isSpeak ? 'My language' : 'Their language'}
-                value={langCode}
-                disabled={locked || isRecording || isProcessing}
-                compact
-                onSelect={code => {
-                  if (isSpeak) {
-                    void chat?.setLanguages(code, state.theirLanguage, 'single');
-                  } else {
-                    void chat?.setLanguages(state.myLanguage, code, 'single');
-                  }
-                }}
-              />
-            </View>
-          );
-        })}
+          <View style={styles.invertBtnSpacer} />
+
+          <View style={styles.actionBtnSlot}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                isRecording && activeAction === 'listen'
+                  ? 'Stop listen recording'
+                  : `Listen (${getNativeLanguageName(state.theirLanguage)})`
+              }
+              disabled={activeAction === 'speak' || isProcessing || (!chat && !(isRecording && activeAction === 'listen'))}
+              onPress={() => handleActionPress('listen')}
+              style={[
+                styles.actionButton,
+                activeAction === 'speak' && styles.actionButtonDimmed,
+                isRecording && activeAction === 'listen' && styles.listenButtonActive,
+                isProcessing && activeAction === 'listen' && styles.actionButtonProcessing,
+              ]}
+            >
+              {isRecording && activeAction === 'listen' ? (
+                <View style={styles.stopSquare} />
+              ) : isProcessing && activeAction === 'listen' ? (
+                <ActivityIndicator size="small" color={palette.text} />
+              ) : (
+                <>
+                  <Feather name="headphones" size={24} color={palette.text} />
+                  <Text style={styles.actionLabel}>LISTEN</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.languageRow}>
+          <View style={[styles.languagePickerWrap, activeAction === 'listen' && styles.actionButtonDimmed]}>
+            <LanguagePicker
+              label="My language"
+              value={state.myLanguage}
+              disabled={languageControlsDisabled}
+              compact
+              onSelect={code => {
+                void chat?.setLanguages(code, state.theirLanguage, 'single');
+              }}
+            />
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Invert languages"
+            disabled={languageControlsDisabled || state.myLanguage === state.theirLanguage}
+            onPress={() => {
+              void chat?.swapLanguages('single');
+            }}
+            style={[
+              styles.invertBtn,
+              (languageControlsDisabled || state.myLanguage === state.theirLanguage) && styles.disabledBtn,
+            ]}
+          >
+            <Feather name="repeat" size={16} color="#E4E4E7" />
+          </Pressable>
+
+          <View style={[styles.languagePickerWrap, activeAction === 'speak' && styles.actionButtonDimmed]}>
+            <LanguagePicker
+              label="Their language"
+              value={state.theirLanguage}
+              disabled={languageControlsDisabled}
+              compact
+              onSelect={code => {
+                void chat?.setLanguages(state.myLanguage, code, 'single');
+              }}
+            />
+          </View>
+        </View>
       </View>
 
       {chat && (
@@ -436,20 +477,54 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   actionsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 20 : 24,
-    gap: 28,
-  },
-  actionCol: {
-    width: 148,
-    alignItems: 'center',
     gap: 14,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
   },
-  actionColDimmed: {
+  actionButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    gap: 10,
+  },
+  actionBtnSlot: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  invertBtnSpacer: {
+    width: 44,
+  },
+  languageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    gap: 10,
+  },
+  languagePickerWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  invertBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(24,24,27,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabledBtn: {
+    opacity: 0.35,
+  },
+  actionButtonDimmed: {
     opacity: 0.3,
   },
   actionButton: {
