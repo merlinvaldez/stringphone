@@ -81,5 +81,35 @@ try {
   assert.match(broken.getState().error, /not confirmed saved locally/);
   assert.equal(calls, 3);
   assert.ok(changes.some(state => state.busy && state.messages.some(row => row.status === 'pending')));
-  console.log('Mobile chat controller passed: SQLite-before-dispatch, pending state, repeat send/retry locks, same-row retry, restart recovery, storage failure and identity boundary.');
+
+  // Language swapping in single and conversation modes
+  await restarted.ensureConversationForMode('single');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'single');
+  assert.equal(restarted.getState().myLanguage, 'en');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+  const swappedSingle = await restarted.swapLanguages('single');
+  assert.equal(swappedSingle, true);
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'en');
+
+  // Blocked if calling with mismatching mode
+  const mismatchedSwap = await restarted.swapLanguages('conversation');
+  assert.equal(mismatchedSwap, false);
+  assert.match(restarted.getState().error, /read-only here/);
+
+  // Transition to conversation mode
+  await restarted.ensureConversationForMode('conversation');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'conversation');
+  const swappedConvo = await restarted.swapLanguages('conversation');
+  assert.equal(swappedConvo, true);
+  assert.equal(restarted.getState().myLanguage, 'en');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+
+  // When languages are identical, swapLanguages returns early without changing
+  await restarted.setLanguages('es', 'es', 'conversation');
+  assert.equal(await restarted.swapLanguages('conversation'), true);
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+
+  console.log('Mobile chat controller passed: SQLite-before-dispatch, pending state, repeat send/retry locks, same-row retry, restart recovery, storage failure, swapLanguages modes and identity boundary.');
 } finally { db.close(); }
