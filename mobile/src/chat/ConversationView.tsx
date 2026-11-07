@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
+  Animated,
+  Easing,
   Linking,
   Pressable,
   StyleSheet,
@@ -58,6 +59,33 @@ export function ConversationView({ chat, state, loadError }: Props) {
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const activeSide = liveFlow.activeSide;
+  const languageControlsDisabled =
+    locked || isRecording || isProcessing || state.myLanguage === state.theirLanguage;
+
+  const [spinAnim] = useState(() => new Animated.Value(0));
+  const [spin] = useState(() =>
+    spinAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    }),
+  );
+  const isSpinning = useRef(false);
+
+  function handleInvertLanguages() {
+    if (languageControlsDisabled) return;
+    if (isSpinning.current) return;
+    isSpinning.current = true;
+    spinAnim.setValue(0);
+    Animated.timing(spinAnim, {
+      toValue: 1,
+      duration: 450,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      isSpinning.current = false;
+    });
+    void chat?.swapLanguages('conversation');
+  }
 
   const displayMessages: MessageRow[] = liveFlow.liveDraft
     ? [
@@ -89,12 +117,11 @@ export function ConversationView({ chat, state, loadError }: Props) {
   const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
 
   function handleMicPress(side: 'partner' | 'self') {
-    audioPlayback.stop();
-    if (isRecording && activeSide === side) {
+    if (isRecording) {
       void liveFlow.stopRecording();
       return;
     }
-    if (liveFlow.status !== 'idle') return;
+    if (isProcessing) return;
     const isPartner = side === 'partner';
     void liveFlow.startRecording({
       action: isPartner ? 'listen' : 'speak',
@@ -150,6 +177,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
             isSavingPhrase={phrasebook.isSaving}
             activeAudio={audioPlayback.activeAudio}
             generatingId={audioPlayback.generatingId}
+            generatingSourceId={audioPlayback.generatingSourceId}
             compact
           />
         )}
@@ -260,20 +288,26 @@ export function ConversationView({ chat, state, loadError }: Props) {
       <View style={[styles.splitArea, isLandscape && styles.splitAreaLandscape]}>
         {renderUserSection('partner')}
 
-        <View style={[styles.dividerWrap, isLandscape && styles.dividerWrapLandscape]} pointerEvents="none">
+        <View style={[styles.dividerWrap, isLandscape && styles.dividerWrapLandscape]} pointerEvents="box-none">
           <View style={[styles.dividerLine, isLandscape && styles.dividerLineLandscape]} />
-          <View
-            style={[
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Invert languages"
+            disabled={languageControlsDisabled}
+            onPress={handleInvertLanguages}
+            style={({ pressed }) => [
               styles.dividerBadge,
               isLandscape && styles.dividerBadgeLandscape,
+              languageControlsDisabled && styles.dividerBadgeDisabled,
+              pressed && !languageControlsDisabled && styles.dividerBadgePressed,
             ]}
           >
-            <Image
+            <Animated.Image
               source={require('../../assets/stringphone-logo.png')}
               resizeMode="contain"
-              style={styles.dividerLogo}
+              style={[styles.dividerLogo, { transform: [{ rotate: spin }] }]}
             />
-          </View>
+          </Pressable>
         </View>
 
         {renderUserSection('self')}
@@ -524,6 +558,12 @@ const styles = StyleSheet.create({
   },
   dividerBadgeLandscape: {
     transform: [{ rotate: '-90deg' }],
+  },
+  dividerBadgeDisabled: {
+    opacity: 0.6,
+  },
+  dividerBadgePressed: {
+    backgroundColor: '#27272A',
   },
   dividerLogo: {
     width: 30,
