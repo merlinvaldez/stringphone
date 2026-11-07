@@ -893,11 +893,11 @@ function CollectionEntryViewer({
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/10 text-zinc-300 transition hover:bg-white/10 hover:text-white sm:right-5 sm:top-5"
+            className="absolute right-4 top-4 z-20 inline-flex p-2 text-zinc-400 transition hover:text-white sm:right-5 sm:top-5"
             aria-label="Close card viewer"
             title="Close card viewer"
           >
-            <X size={18} />
+            <X size={20} />
           </button>
 
           <div className="relative h-full w-full">

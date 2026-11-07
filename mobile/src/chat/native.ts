@@ -9,6 +9,7 @@ import { createTextChatController } from './controller';
 import { createDeletionService } from '../storage/deletion';
 import { confirmNativeDeletion } from '../adapters/deletionConfirmation';
 import { createPhrasebookRepository } from '../storage/phrasebook';
+import { prefetchBothTranscriptionSecrets } from '../live/nativeRealtime';
 
 // Local IDs are never credentials or cloud ownership IDs.
 let sequence = 0;
@@ -115,6 +116,19 @@ export function getNativeTextChat() {
       const voice = createVoiceMessageProcessor(audio, translateVoiceMessage, () => controller.voiceResponseReceived());
       const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice, audio);
       await controller.initialize();
+      const initial = controller.getState();
+      if (initial.myLanguage && initial.theirLanguage) {
+        prefetchBothTranscriptionSecrets(initial.myLanguage, initial.theirLanguage);
+      }
+      let lastPrefetched = `${initial.myLanguage}::${initial.theirLanguage}`;
+      controller.subscribe(state => {
+        if (!state.myLanguage || !state.theirLanguage) return;
+        const current = `${state.myLanguage}::${state.theirLanguage}`;
+        if (current !== lastPrefetched) {
+          lastPrefetched = current;
+          prefetchBothTranscriptionSecrets(state.myLanguage, state.theirLanguage);
+        }
+      });
       const prefs = await history.getChatPreferences();
       if (prefs.ttsVoice === 'marin' || prefs.ttsVoice === 'onyx') {
         currentTtsVoice = prefs.ttsVoice;

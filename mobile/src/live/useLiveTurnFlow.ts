@@ -13,7 +13,7 @@ import { nativeLiveApi, type LiveTranslationResult } from '../adapters/live';
 import type { ChatState, createTextChatController } from '../chat/controller';
 import {
   NativeLiveConnection,
-  prefetchTranscriptionSecret,
+  prefetchBothTranscriptionSecrets,
   type RealtimeEvent,
 } from './nativeRealtime';
 
@@ -142,15 +142,12 @@ export function useLiveTurnFlow({
     };
   }, []);
 
-  // Warm up OpenAI Realtime transcription client secrets as soon as the screen is focused
-  // so tapping the microphone starts recording without waiting for a token roundtrip.
+  // Warm up OpenAI Realtime transcription client secrets in both directions as soon as the screen is focused
+  // so tapping the microphone on any screen/action starts recording instantly without waiting for a token roundtrip.
   useEffect(() => {
     if (!isFocused || !state.myLanguage || !state.theirLanguage) return;
-    prefetchTranscriptionSecret(state.myLanguage, state.theirLanguage);
-    if (mode !== 'chat' && state.myLanguage !== state.theirLanguage) {
-      prefetchTranscriptionSecret(state.theirLanguage, state.myLanguage);
-    }
-  }, [isFocused, mode, state.myLanguage, state.theirLanguage]);
+    prefetchBothTranscriptionSecrets(state.myLanguage, state.theirLanguage);
+  }, [isFocused, state.myLanguage, state.theirLanguage]);
 
   // Track elapsed time for the 30s countdown timer during WebRTC live recording.
   useEffect(() => {
@@ -464,6 +461,7 @@ export function useLiveTurnFlow({
     const speaker = options?.speaker ?? (options?.action === 'listen' || options?.side === 'partner' ? 'them' : 'me');
     const sourceLanguage = options?.sourceLanguage ?? (speaker === 'them' ? state.theirLanguage : state.myLanguage);
     const targetLanguage = options?.targetLanguage ?? (speaker === 'them' ? state.myLanguage : state.theirLanguage);
+    prefetchBothTranscriptionSecrets(sourceLanguage, targetLanguage);
     const sender: 'self' | 'partner' = speaker === 'them' ? 'partner' : 'self';
     const action = options?.action ?? (speaker === 'them' ? 'listen' : 'speak');
     const side = options?.side ?? (speaker === 'them' ? 'partner' : 'self');
@@ -495,10 +493,10 @@ export function useLiveTurnFlow({
     }
 
     const liveLease = currentChat.beginLiveCapture();
-    if (liveLease && ['chat', 'single', 'conversation'].includes(liveLease.conversation.origin_mode)) {
+    if (liveLease) {
       const context: CaptureContext = {
         conversationId: liveLease.conversation.id,
-        originMode: liveLease.conversation.origin_mode as TurnMode,
+        originMode: mode,
         sourceLanguage,
         targetLanguage,
         speaker,
@@ -557,8 +555,6 @@ export function useLiveTurnFlow({
         }
         return false;
       }
-    } else if (liveLease) {
-      liveLease.release();
     }
 
     // Fallback local voice capture if liveLease was unavailable

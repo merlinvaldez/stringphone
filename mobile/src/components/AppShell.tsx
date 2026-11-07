@@ -71,7 +71,7 @@ export function AppShell() {
             onPress={() => setVoiceMenuOpen(true)}
             style={styles.voiceMenuTrigger}
           >
-            <Feather name="volume-2" size={16} color={palette.textMuted} strokeWidth={1.8} />
+            <Feather name="settings" size={16} color={palette.textMuted} strokeWidth={1.8} />
           </Pressable>
         </View>
         <View style={styles.route}>

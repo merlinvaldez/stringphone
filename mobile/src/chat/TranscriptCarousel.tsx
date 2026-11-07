@@ -29,6 +29,7 @@ export type TranscriptCardProps = {
   isSavingPhrase?: boolean;
   isPlayingSource?: boolean;
   isPlayingTranslated?: boolean;
+  isGeneratingSourceSpeech?: boolean;
   isGeneratingSpeech?: boolean;
   compact?: boolean;
 };
@@ -54,6 +55,7 @@ export function TranscriptCard({
   isSavingPhrase = false,
   isPlayingSource = false,
   isPlayingTranslated = false,
+  isGeneratingSourceSpeech = false,
   isGeneratingSpeech = false,
   compact = false,
 }: TranscriptCardProps) {
@@ -153,21 +155,25 @@ export function TranscriptCard({
                   ? `Stop ${sourceLanguageLabel} voice recording`
                   : `Play ${sourceLanguageLabel} voice recording`
               }
-              disabled={disabled}
+              disabled={disabled || isGeneratingSourceSpeech}
               onPress={() => {
                 if (isPlayingSource) {
                   onStopPlayback?.();
                 } else {
-                  onPlaySource?.(message.id, false);
+                  onPlaySource?.(message.id, true);
                 }
               }}
               style={[styles.audioBtn, isPlayingSource && styles.audioBtnActive]}
             >
-              <Feather
-                name={isPlayingSource ? 'square' : 'play'}
-                size={14}
-                color={isPlayingSource ? '#A7F3D0' : '#E4E4E7'}
-              />
+              {isGeneratingSourceSpeech ? (
+                <ActivityIndicator size={13} color="#E4E4E7" />
+              ) : (
+                <Feather
+                  name={isPlayingSource ? 'square' : 'play'}
+                  size={14}
+                  color={isPlayingSource ? '#A7F3D0' : '#E4E4E7'}
+                />
+              )}
             </Pressable>
           )}
 
@@ -241,6 +247,7 @@ export function TranscriptCarousel({
   isSavingPhrase,
   activeAudio,
   generatingId,
+  generatingSourceId,
   compact = false,
 }: {
   history: MessageRow[];
@@ -255,6 +262,7 @@ export function TranscriptCarousel({
   isSavingPhrase?: (id: string) => boolean;
   activeAudio?: { messageId: string; role: 'source' | 'translated' } | null;
   generatingId?: string | null;
+  generatingSourceId?: string | null;
   compact?: boolean;
 }) {
   const scrollRef = useRef<ScrollView>(null);
@@ -298,6 +306,7 @@ export function TranscriptCarousel({
             isPlayingTranslated={
               activeAudio?.messageId === msg.id && activeAudio.role === 'translated'
             }
+            isGeneratingSourceSpeech={generatingSourceId === msg.id}
             isGeneratingSpeech={generatingId === msg.id}
             compact={compact}
           />

@@ -82,8 +82,8 @@ try {
   assert.equal(calls, 3);
   assert.ok(changes.some(state => state.busy && state.messages.some(row => row.status === 'pending')));
 
-  // Language swapping in single and conversation modes
-  await restarted.ensureConversationForMode('single');
+  // Language swapping across screens without read-only barriers
+  await restarted.newModeConversation('single');
   assert.equal(restarted.getState().conversation?.origin_mode, 'single');
   assert.equal(restarted.getState().myLanguage, 'en');
   assert.equal(restarted.getState().theirLanguage, 'es');
@@ -92,18 +92,26 @@ try {
   assert.equal(restarted.getState().myLanguage, 'es');
   assert.equal(restarted.getState().theirLanguage, 'en');
 
-  // Blocked if calling with mismatching mode
-  const mismatchedSwap = await restarted.swapLanguages('conversation');
-  assert.equal(mismatchedSwap, false);
-  assert.match(restarted.getState().error, /read-only here/);
+  // Can swap languages from conversation screen on the same conversation
+  const swappedFromConvo = await restarted.swapLanguages('conversation');
+  assert.equal(swappedFromConvo, true);
+  assert.equal(restarted.getState().myLanguage, 'en');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+
+  // Can continue a single-origin conversation by sending typed text in Chat
+  release = null;
+  const sendingText = restarted.send('Continuing single session in chat');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  release();
+  assert.equal(await sendingText, true);
 
   // Transition to conversation mode
-  await restarted.ensureConversationForMode('conversation');
+  await restarted.newModeConversation('conversation');
   assert.equal(restarted.getState().conversation?.origin_mode, 'conversation');
   const swappedConvo = await restarted.swapLanguages('conversation');
   assert.equal(swappedConvo, true);
-  assert.equal(restarted.getState().myLanguage, 'en');
-  assert.equal(restarted.getState().theirLanguage, 'es');
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'en');
 
   // When languages are identical, swapLanguages returns early without changing
   await restarted.setLanguages('es', 'es', 'conversation');

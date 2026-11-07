@@ -51,10 +51,10 @@ export function ConversationView({ chat, state, loadError }: Props) {
   });
 
   useEffect(() => {
-    if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'conversation') {
+    if (isFocused && !state.busy && chat && !state.conversation) {
       void chat.ensureConversationForMode('conversation');
     }
-  }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
+  }, [isFocused, state.busy, chat, state.conversation]);
 
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';

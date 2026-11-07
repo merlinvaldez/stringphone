@@ -117,17 +117,10 @@ export function HistorySheet({
     router.navigate({ pathname: '/phrasebook', params: { lang: languageCode } });
   }
 
-  function handleOpenConversation(conversationId: string, originMode: string) {
+  function handleOpenConversation(conversationId: string) {
     void chat.openConversation(conversationId).then(opened => {
       if (!opened) return;
       onClose();
-      if (originMode === 'single') {
-        router.navigate('/single');
-      } else if (originMode === 'conversation') {
-        router.navigate('/conversation');
-      } else {
-        router.navigate('/');
-      }
     });
   }
 
@@ -340,7 +333,7 @@ export function HistorySheet({
                       disabled={disabled}
                       onPress={() => {
                         setOpenActionConversationId(null);
-                        handleOpenConversation(item.id, item.origin_mode);
+                        handleOpenConversation(item.id);
                       }}
                       style={styles.convMainBtn}
                     >
@@ -359,6 +352,11 @@ export function HistorySheet({
                       </View>
                       <Text style={styles.rowMeta}>
                         {new Date(item.created_at).toLocaleDateString()}
+                        {item.origin_mode === 'single'
+                          ? ' · Single'
+                          : item.origin_mode === 'conversation'
+                            ? ' · Conversation'
+                            : ''}
                       </Text>
                     </Pressable>
 

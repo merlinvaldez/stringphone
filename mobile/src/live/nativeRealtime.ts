@@ -59,6 +59,14 @@ export function prefetchTranscriptionSecret(sourceLanguage: string, targetLangua
   void fetchAndCacheSecret(key, sourceLanguage, targetLanguage).catch(() => undefined);
 }
 
+export function prefetchBothTranscriptionSecrets(langA: string, langB: string) {
+  if (!langA || !langB) return;
+  prefetchTranscriptionSecret(langA, langB);
+  if (langA.trim().toLowerCase() !== langB.trim().toLowerCase()) {
+    prefetchTranscriptionSecret(langB, langA);
+  }
+}
+
 async function consumeOrCreateTranscriptionSecret(sourceLanguage: string, targetLanguage: string) {
   const key = secretCacheKey(sourceLanguage, targetLanguage);
   const existing = prefetchedSecrets.get(key);

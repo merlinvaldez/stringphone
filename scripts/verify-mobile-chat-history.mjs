@@ -250,17 +250,52 @@ try {
   assert.equal(voiceCalls, 3, 'Background finalization saves without dispatch');
   assert.equal(voiceChat.getState().busy, false);
   await history.createConversation({ id: 'saved-single', title: 'Saved voice mode', originMode: 'single', myLanguage: 'en', theirLanguage: 'fa' });
+  await history.saveReadyLiveMessage({
+    id: 'msg-single-1',
+    requestId: 'req-single-1',
+    conversationId: 'saved-single',
+    speaker: 'me',
+    originMode: 'single',
+    sourceLanguage: 'en',
+    targetLanguage: 'fa',
+    originalText: 'Single speaker voice turn',
+    translatedText: 'پیام صوتی تک گوینده',
+  });
+  await history.createConversation({ id: 'saved-conversation', title: 'Two-way conversation', originMode: 'conversation', myLanguage: 'en', theirLanguage: 'es' });
+  await history.saveReadyLiveMessage({
+    id: 'msg-conv-1',
+    requestId: 'req-conv-1',
+    conversationId: 'saved-conversation',
+    speaker: 'them',
+    originMode: 'conversation',
+    sourceLanguage: 'es',
+    targetLanguage: 'en',
+    originalText: 'Hola amigo',
+    translatedText: 'Hello friend',
+  });
   await restarted.openConversation('saved-single');
-  assert.equal(await restarted.send('Read only'), false);
-  assert.equal(await restarted.setLanguages('fr', 'es'), false);
-  assert.match(restarted.getState().error, /read-only/);
-  assert.equal(await restarted.setLanguages('it', 'fr', 'single'), true);
+  assert.equal(restarted.getState().conversation?.id, 'saved-single');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'single');
+  assert.equal(restarted.getState().messages.length, 1);
+  assert.equal(restarted.getState().messages[0].original_text, 'Single speaker voice turn');
+  assert.equal(await restarted.send('Continuing single session in chat'), true);
+  assert.equal(restarted.getState().messages.length, 2);
+  assert.equal(restarted.getState().messages[1].original_text, 'Continuing single session in chat');
+  assert.equal(await restarted.setLanguages('it', 'fr'), true);
   assert.equal(restarted.getState().myLanguage, 'it');
   assert.equal(restarted.getState().theirLanguage, 'fr');
-  assert.equal(await restarted.swapLanguages(), false);
-  assert.equal(await restarted.swapLanguages('single'), true);
+  assert.equal(await restarted.swapLanguages(), true);
   assert.equal(restarted.getState().myLanguage, 'fr');
   assert.equal(restarted.getState().theirLanguage, 'it');
+  await restarted.openConversation('saved-conversation');
+  assert.equal(restarted.getState().conversation?.id, 'saved-conversation');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'conversation');
+  assert.equal(restarted.getState().messages.length, 1);
+  assert.equal(restarted.getState().messages[0].original_text, 'Hola amigo');
+  assert.equal(restarted.getState().messages[0].translated_text, 'Hello friend');
+  assert.equal(restarted.getState().messages[0].speaker, 'them');
+  assert.equal(await restarted.send('Continuing two-way session in chat'), true);
+  assert.equal(restarted.getState().messages.length, 2);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   console.log('PASS native chat history: language snapshots/retry, restart/offline preferences, search, 200+ pagination, action guards, deletion confirmation, retained Phrasebook/audio and cleanup retry');
 } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }

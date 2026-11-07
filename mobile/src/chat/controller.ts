@@ -235,29 +235,9 @@ export function createTextChatController(
         await refreshHistory();
       });
     },
-    async ensureConversationForMode(mode: 'chat' | 'single' | 'conversation') {
-      if (state.conversation?.origin_mode === mode) return true;
-      return change(async () => {
-        const recent = await history.listConversations(50);
-        const existing = recent.find(c => c.origin_mode === mode);
-        if (existing) {
-          await activate(existing);
-          return;
-        }
-        const id = newId();
-        const defaultTitle = mode === 'single' ? 'Single session' : mode === 'conversation' ? 'Two-way conversation' : 'New chat';
-        await history.createConversation({
-          id,
-          title: defaultTitle,
-          originMode: mode,
-          myLanguage: state.myLanguage,
-          theirLanguage: state.theirLanguage,
-        });
-        await history.selectChatConversation(id, state.myLanguage, state.theirLanguage, false);
-        const created = await history.getConversation(id);
-        await activate(created);
-        await refreshHistory();
-      });
+    async ensureConversationForMode(mode: 'chat' | 'single' | 'conversation' = 'chat') {
+      if (state.conversation) return true;
+      return this.newModeConversation(mode);
     },
     async openConversation(id: string) {
       return change(async () => {
@@ -266,11 +246,7 @@ export function createTextChatController(
         await activate(conversation);
       });
     },
-    async setLanguages(myLanguage: string, theirLanguage: string, mode: 'chat' | 'single' | 'conversation' = 'chat') {
-      if (state.conversation && state.conversation.origin_mode !== mode) {
-        update({ error: `This saved ${state.conversation.origin_mode} conversation is read-only here. Open its matching mode to change languages.` });
-        return false;
-      }
+    async setLanguages(myLanguage: string, theirLanguage: string, _mode: 'chat' | 'single' | 'conversation' = 'chat') {
       return change(async () => {
         const mine = getSupportedTtsLanguage(myLanguage), theirs = getSupportedTtsLanguage(theirLanguage);
         if (!mine || !theirs) throw new Error('Choose supported languages.');
@@ -280,13 +256,9 @@ export function createTextChatController(
         await refreshHistory();
       });
     },
-    async swapLanguages(mode: 'chat' | 'single' | 'conversation' = 'chat') {
-      if (state.conversation && state.conversation.origin_mode !== mode) {
-        update({ error: `This saved ${state.conversation.origin_mode} conversation is read-only here. Open its matching mode to change languages.` });
-        return false;
-      }
+    async swapLanguages(_mode: 'chat' | 'single' | 'conversation' = 'chat') {
       if (state.myLanguage === state.theirLanguage) return !locked();
-      return this.setLanguages(state.theirLanguage, state.myLanguage, mode);
+      return this.setLanguages(state.theirLanguage, state.myLanguage);
     },
     async searchHistory(query: string) {
       if (state.busy) return false;
@@ -340,7 +312,7 @@ export function createTextChatController(
       });
     },
     async send(text: string): Promise<boolean> {
-      if (locked() || !text.trim() || !state.conversation || state.conversation.origin_mode !== 'chat') return false;
+      if (locked() || !text.trim() || !state.conversation) return false;
       update({ busy: true, error: null, notice: null });
       let id = '';
       try {

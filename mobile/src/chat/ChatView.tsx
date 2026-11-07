@@ -51,13 +51,11 @@ export function ChatView({ chat, state, loadError }: Props) {
   const id = state.conversation?.id ?? '';
   const draft = drafts[id] ?? '';
   const locked = !chat || state.busy || state.historyBusy;
-  const readOnly = state.conversation !== null && state.conversation.origin_mode !== 'chat';
-
   const liveFlow = useLiveTurnFlow({
     chat,
     state,
     mode: 'chat',
-    disabled: locked || readOnly || !id,
+    disabled: locked || !id,
     onCompletedTurn: () => {
       requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
     },
@@ -66,15 +64,15 @@ export function ChatView({ chat, state, loadError }: Props) {
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const hasDraft = Boolean(draft.trim());
-  const sendDisabled = locked || !id || readOnly || !hasDraft || isRecording || isProcessing;
-  const languageControlsDisabled = locked || readOnly || isRecording || isProcessing;
+  const sendDisabled = locked || !id || !hasDraft || isRecording || isProcessing;
+  const languageControlsDisabled = locked || isRecording || isProcessing;
   const myNativeLanguageName = getNativeLanguageName(state.myLanguage);
 
   useEffect(() => {
-    if (isFocused && !state.busy && chat && state.conversation?.origin_mode !== 'chat') {
+    if (isFocused && !state.busy && chat && !state.conversation) {
       void chat.ensureConversationForMode('chat');
     }
-  }, [isFocused, state.busy, chat, state.conversation?.origin_mode]);
+  }, [isFocused, state.busy, chat, state.conversation]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -145,7 +143,7 @@ export function ChatView({ chat, state, loadError }: Props) {
     ? false
     : hasDraft
       ? sendDisabled
-      : locked || !id || readOnly || isProcessing;
+      : locked || !id || isProcessing;
 
   const activeError = loadError || liveFlow.error || audioPlayback.errorNotice || phrasebook.error;
   const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
@@ -243,11 +241,6 @@ export function ChatView({ chat, state, loadError }: Props) {
           }}
           ListHeaderComponent={
             <View style={styles.listHeader}>
-              {readOnly && (
-                <Text style={styles.note}>
-                  Saved {state.conversation?.origin_mode} conversation. Start a new chat to send typed messages.
-                </Text>
-              )}
               {!chat && !loadError && <Text style={styles.note}>Opening local history...</Text>}
               {state.messageCursor && (
                 <ActionButton
@@ -389,7 +382,7 @@ export function ChatView({ chat, state, loadError }: Props) {
                 onChangeText={text => {
                   if (id) setDrafts(current => ({ ...current, [id]: text }));
                 }}
-                editable={!!chat && !!id && !readOnly && !isRecording && !isProcessing}
+                editable={!!chat && !!id && !isRecording && !isProcessing}
                 multiline={false}
                 returnKeyType="send"
                 onFocus={() => {

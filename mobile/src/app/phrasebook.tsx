@@ -923,18 +923,6 @@ export default function PhrasebookScreen() {
                 >
                   <Feather name="shuffle" size={18} color="#E4E4E7" />
                 </Pressable>
-
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close card viewer"
-                  onPress={() => {
-                    playback.stop();
-                    setViewingIndex(null);
-                  }}
-                  style={styles.viewerTopBtn}
-                >
-                  <Feather name="x" size={18} color="#E4E4E7" />
-                </Pressable>
               </View>
 
               <View style={styles.viewerCenterRow}>
@@ -960,6 +948,19 @@ export default function PhrasebookScreen() {
                     viewerFlipped ? styles.flashcardBack : styles.flashcardFront,
                   ]}
                 >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close card viewer"
+                    hitSlop={12}
+                    onPress={e => {
+                      e?.stopPropagation?.();
+                      playback.stop();
+                      setViewingIndex(null);
+                    }}
+                    style={styles.flashcardCloseBtn}
+                  >
+                    <Feather name="x" size={20} color="#E4E4E7" />
+                  </Pressable>
                   {!viewerFlipped ? (
                     <View style={styles.flashcardContent}>
                       <View style={styles.flashcardHeadlineRow}>
@@ -1588,7 +1589,7 @@ const styles = StyleSheet.create({
   viewerTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   viewerTopBtn: {
     width: 44,
@@ -1631,6 +1632,13 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 },
     elevation: 12,
+  },
+  flashcardCloseBtn: {
+    position: 'absolute',
+    top: 18,
+    right: 18,
+    zIndex: 10,
+    padding: 6,
   },
   flashcardFront: {
     backgroundColor: '#052E1B',

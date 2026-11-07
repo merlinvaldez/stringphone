@@ -53,7 +53,7 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
     AudioPlaybackCoordinator.stopPlayback();
   }, [player]);
 
-  const playSource = useCallback(async (messageId: string, generateIfMissing = false) => {
+  const playSource = useCallback(async (messageId: string, generateIfMissing = true) => {
     if (busy.current || AudioPlaybackCoordinator.isRecording()) return;
     if (activeAudio?.messageId === messageId && activeAudio.role === 'source' && playback.playing) {
       stop();
