@@ -21,7 +21,7 @@ type Chat = ReturnType<typeof createTextChatController>;
 type LiveLease = NonNullable<ReturnType<Chat['beginLiveCapture']>>;
 type VoiceLease = NonNullable<ReturnType<Chat['beginVoiceCapture']>>;
 export type TurnMode = 'chat' | 'single' | 'conversation';
-export type TurnStatus = 'idle' | 'recording' | 'processing';
+export type TurnStatus = 'idle' | 'starting' | 'recording' | 'processing';
 export type TurnAction = 'speak' | 'listen' | null;
 export type TurnSide = 'partner' | 'self' | null;
 
@@ -121,6 +121,8 @@ export function useLiveTurnFlow({
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const startedAtRef = useRef(0);
   const limitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionRecordedAudioRef = useRef<{ uri: string; durationMs: number } | null>(null);
+  const savedMessageIdsRef = useRef<string[]>([]);
   const finalizationsRef = useRef(new Set<Promise<void>>());
   const transcriptsRef = useRef(new Map<string, string>());
   const revisionsRef = useRef(new Map<string, number>());
@@ -206,6 +208,24 @@ export function useLiveTurnFlow({
     }
   }
 
+  function isRecorderActivelyRecording(): boolean {
+    try {
+      return Boolean(recorder.getStatus()?.isRecording || recorder.isRecording);
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitForRecorderActive(maxWaitMs = 350): Promise<boolean> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < maxWaitMs) {
+      if (cancelledRef.current) return false;
+      if (isRecorderActivelyRecording()) return true;
+      await wait(15);
+    }
+    return isRecorderActivelyRecording();
+  }
+
   async function finalizeLiveTranscript(itemId: string, transcript: string) {
     const context = contextRef.current;
     const currentChat = chatRef.current;
@@ -224,6 +244,8 @@ export function useLiveTurnFlow({
     if (completed.utteranceId !== itemId || completed.revision !== revision) return;
     const identity = messageIdentity(context.captureId, itemId);
     const speaker = context.speaker;
+    savedMessageIdsRef.current.push(identity.id);
+    const recording = sessionRecordedAudioRef.current ?? undefined;
     await currentChat.saveLiveMessage({
       ...identity,
       conversationId: context.conversationId,
@@ -235,7 +257,7 @@ export function useLiveTurnFlow({
       translatedText: completed.translatedText,
       originalPronunciation: completed.originalPronunciation,
       translatedPronunciation: completed.translatedPronunciation,
-    });
+    }, recording);
     updateDraft(null);
     onCompletedTurnRef.current?.(identity.id, speaker);
   }
@@ -385,6 +407,17 @@ export function useLiveTurnFlow({
           voiceLeaseRef.current = null;
         }
       } else {
+        const wallElapsedMs = startedAtRef.current > 0 ? Date.now() - startedAtRef.current : 0;
+        const preStopDurationMs = safeRecorderDurationMs();
+        await safeRecorderStop();
+        const postStopDurationMs = safeRecorderDurationMs();
+        const durationMs = Math.max(preStopDurationMs, postStopDurationMs, wallElapsedMs);
+        const recordedUri = safeRecorderUri();
+        const recordedAudio = recordedUri && durationMs >= 200
+          ? { uri: recordedUri, durationMs: Math.min(MAX_CAPTURE_MS, Math.round(durationMs)) }
+          : null;
+        sessionRecordedAudioRef.current = recordedAudio;
+
         const shouldCommitBuffer =
           hasUnfinalizedTranscripts() ||
           (transcriptsRef.current.size === 0 && finalizedRef.current.size === 0);
@@ -417,6 +450,13 @@ export function useLiveTurnFlow({
         const pendingFinalizations = [...finalizationsRef.current];
         if (pendingFinalizations.length) {
           await Promise.race([Promise.allSettled(pendingFinalizations), wait(STOP_FINALIZE_WAIT_MS)]);
+        }
+
+        const currentChat = chatRef.current;
+        if (recordedAudio && currentChat) {
+          for (const msgId of savedMessageIdsRef.current) {
+            await currentChat.attachSourceAudio(msgId, recordedAudio).catch(() => undefined);
+          }
         }
 
         connectionRef.current?.close();
@@ -468,6 +508,8 @@ export function useLiveTurnFlow({
 
     cancelledRef.current = false;
     activeRef.current = false;
+    sessionRecordedAudioRef.current = null;
+    savedMessageIdsRef.current = [];
     finalizationsRef.current.clear();
     transcriptsRef.current.clear();
     revisionsRef.current.clear();
@@ -480,6 +522,7 @@ export function useLiveTurnFlow({
       setActiveAction(action);
       setActiveSide(side);
     }
+    setUiStatus('starting');
 
     const permission = await requestNativeMicrophoneAccess();
     if (!permission.granted) {
@@ -488,6 +531,7 @@ export function useLiveTurnFlow({
       if (mountedRef.current) {
         setActiveAction(null);
         setActiveSide(null);
+        setUiStatus('idle');
       }
       return false;
     }
@@ -510,7 +554,6 @@ export function useLiveTurnFlow({
       contextRef.current = context;
       AudioPlaybackCoordinator.setRecording(true);
       try {
-        await configureNativeAudioSession(true);
         const connection = new NativeLiveConnection({
           onEvent: event => eventRef.current(event),
           onError: message => {
@@ -521,19 +564,43 @@ export function useLiveTurnFlow({
           },
         });
         connectionRef.current = connection;
-        startedAtRef.current = Date.now();
-        setUiStatus('recording');
+
+        // Ensure the OS audio session is in recording mode before opening microphone streams
+        await configureNativeAudioSession(true);
         const sdp = await connection.prepare(sourceLanguage, targetLanguage);
         if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
-        await connection.connect(sdp);
+
+        // Start native recorder concurrently during the WebRTC handshake and confirm it is actively recording
+        // BEFORE showing the listening state, avoiding any hardware startup glitch when the user speaks.
+        const recorderStartPromise = (async () => {
+          try {
+            await recorder.prepareToRecordAsync();
+            if (cancelledRef.current || AppState.currentState !== 'active') return;
+            recorder.record();
+            await waitForRecorderActive(350);
+          } catch (recErr) {
+            console.warn('Native recorder notice alongside live connection:', recErr);
+          }
+        })();
+
+        await Promise.all([
+          connection.connect(sdp),
+          recorderStartPromise,
+        ]);
         if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
+        if (!connection.isReady()) throw new Error('Microphone connection is not ready. Try again.');
+
+        // CONFIRMED ON: WebRTC audio stream is live, OpenAI session is open, and hardware recorder is active
         startedAtRef.current = Date.now();
         activeRef.current = true;
+        setUiStatus('recording');
+
         limitTimerRef.current = setTimeout(() => {
           if (activeRef.current) void stopRef.current('limit');
         }, MAX_CAPTURE_MS);
         return true;
       } catch (liveError) {
+        await safeRecorderStop();
         connectionRef.current?.close();
         connectionRef.current = null;
         liveLease.release();
@@ -594,9 +661,11 @@ export function useLiveTurnFlow({
       await configureNativeAudioSession(true);
       await recorder.prepareToRecordAsync();
       recorder.record();
-      setUiStatus('recording');
-      activeRef.current = true;
+      await waitForRecorderActive(400);
+      if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before recording started.');
       startedAtRef.current = Date.now();
+      activeRef.current = true;
+      setUiStatus('recording');
       limitTimerRef.current = setTimeout(() => {
         if (activeRef.current) void stopRef.current('limit');
       }, MAX_CAPTURE_MS);
@@ -618,14 +687,14 @@ export function useLiveTurnFlow({
   }
 
   useEffect(() => {
-    if (!isFocused && statusRef.current === 'recording') {
+    if (!isFocused && (statusRef.current === 'recording' || statusRef.current === 'starting')) {
       void stopRef.current('navigation');
     }
   }, [isFocused]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', next => {
-      if (next !== 'active' && statusRef.current === 'recording') {
+      if (next !== 'active' && (statusRef.current === 'recording' || statusRef.current === 'starting')) {
         void stopRef.current('interruption');
       }
     });
@@ -638,9 +707,11 @@ export function useLiveTurnFlow({
   const secondsRemaining = Math.max(0, Math.ceil((MAX_CAPTURE_MS - elapsedMs) / 1000));
   const combinedStatus: TurnStatus = status === 'recording'
     ? 'recording'
-    : (status === 'processing' || Boolean(state.voiceRequest))
-      ? 'processing'
-      : 'idle';
+    : status === 'starting'
+      ? 'starting'
+      : (status === 'processing' || Boolean(state.voiceRequest))
+        ? 'processing'
+        : 'idle';
 
   return {
     status: combinedStatus,

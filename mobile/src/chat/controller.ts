@@ -148,6 +148,17 @@ export function createTextChatController(
       await refreshSavedMessage(input.conversationId, input.id);
       return input.id;
     },
+    async attachSourceAudio(messageId: string, recording: { uri: string; durationMs: number }) {
+      if (!audioStorage) throw new Error('Phone audio storage is unavailable.');
+      const owner = { kind: 'message' as const, id: messageId, role: 'source' as const };
+      if (!(await audioStorage.resolve(owner))) {
+        await audioStorage.save(owner, { uri: recording.uri }, { format: 'm4a', mimeType: 'audio/mp4', durationMs: recording.durationMs });
+      }
+      const message = await history.getMessage(messageId);
+      if (message) {
+        await refreshSavedMessage(message.conversation_id, messageId);
+      }
+    },
     async finishLiveDraft(input: ReadyLiveMessageInput) {
       const changed = await history.finishLiveDraft(input);
       await refreshSavedMessage(input.conversationId, input.id);

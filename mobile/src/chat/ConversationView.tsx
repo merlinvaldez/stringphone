@@ -56,11 +56,12 @@ export function ConversationView({ chat, state, loadError }: Props) {
     }
   }, [isFocused, state.busy, chat, state.conversation]);
 
+  const isStarting = liveFlow.status === 'starting';
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const activeSide = liveFlow.activeSide;
   const languageControlsDisabled =
-    locked || isRecording || isProcessing || state.myLanguage === state.theirLanguage;
+    locked || isStarting || isRecording || isProcessing || state.myLanguage === state.theirLanguage;
 
   const [spinAnim] = useState(() => new Animated.Value(0));
   const [spin] = useState(() =>
@@ -117,7 +118,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
   const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
 
   function handleMicPress(side: 'partner' | 'self') {
-    if (isRecording) {
+    if (isRecording || isStarting) {
       void liveFlow.stopRecording();
       return;
     }
@@ -136,6 +137,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
     const isTop = side === 'partner';
     const isActive = activeSide === side;
     const isOtherActive = activeSide !== null && activeSide !== side;
+    const isCurrentStarting = isActive && isStarting;
     const isCurrentRecording = isActive && isRecording;
     const isCurrentProcessing = isActive && isProcessing;
     const currentLang = isTop ? state.theirLanguage : state.myLanguage;
@@ -144,17 +146,21 @@ export function ConversationView({ chat, state, loadError }: Props) {
 
     const statusLabel = isCurrentRecording
       ? 'LISTENING'
-      : isCurrentProcessing
-        ? 'TRANSLATING'
-        : isOtherActive
-          ? "PARTNER'S TURN"
-          : '';
+      : isCurrentStarting
+        ? 'CONNECTING...'
+        : isCurrentProcessing
+          ? 'TRANSLATING'
+          : isOtherActive
+            ? "PARTNER'S TURN"
+            : '';
 
     const statusColor = isCurrentRecording
       ? '#FB7185'
-      : isCurrentProcessing
-        ? '#FBBF24'
-        : palette.textSubtle;
+      : isCurrentStarting
+        ? '#38BDF8'
+        : isCurrentProcessing
+          ? '#FBBF24'
+          : palette.textSubtle;
 
     const transcriptBlock = (
       <View
@@ -202,20 +208,22 @@ export function ConversationView({ chat, state, loadError }: Props) {
           accessibilityLabel={
             isCurrentRecording
               ? `Stop ${getNativeLanguageName(currentLang)} recording`
-              : `Tap to speak (${getNativeLanguageName(currentLang)})`
+              : isCurrentStarting
+                ? `Connecting ${getNativeLanguageName(currentLang)} microphone`
+                : `Tap to speak (${getNativeLanguageName(currentLang)})`
           }
-          disabled={isOtherActive || isProcessing || (!chat && !isCurrentRecording)}
+          disabled={isOtherActive || isProcessing || (!chat && !isCurrentRecording && !isCurrentStarting)}
           onPress={() => handleMicPress(side)}
           style={[
             styles.micCircle,
             isLandscape && styles.micCircleLandscape,
             isCurrentRecording && styles.micCircleRecording,
-            isCurrentProcessing && styles.micCircleProcessing,
+            (isCurrentProcessing || isCurrentStarting) && styles.micCircleProcessing,
           ]}
         >
           {isCurrentRecording ? (
             <View style={styles.stopSquare} />
-          ) : isCurrentProcessing ? (
+          ) : isCurrentStarting || isCurrentProcessing ? (
             <ActivityIndicator size="small" color={palette.text} />
           ) : (
             <>
@@ -246,7 +254,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
             <LanguagePicker
               label={isTop ? 'Partner language' : 'My language'}
               value={currentLang}
-              disabled={locked || isRecording || isProcessing}
+              disabled={locked || isStarting || isRecording || isProcessing}
               compact
               onSelect={code => {
                 if (isTop) {
@@ -277,7 +285,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open history"
-          disabled={!chat || isRecording || isProcessing}
+          disabled={!chat || isStarting || isRecording || isProcessing}
           onPress={() => setHistoryVisible(true)}
           style={styles.historyBtn}
         >

@@ -160,7 +160,7 @@ export function TranscriptCard({
                 if (isPlayingSource) {
                   onStopPlayback?.();
                 } else {
-                  onPlaySource?.(message.id, true);
+                  onPlaySource?.(message.id, false);
                 }
               }}
               style={[styles.audioBtn, isPlayingSource && styles.audioBtnActive]}

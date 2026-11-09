@@ -63,6 +63,7 @@ export function SingleView({ chat, state, loadError }: Props) {
     }
   }, [isFocused, state.busy, chat, state.conversation]);
 
+  const isStarting = liveFlow.status === 'starting';
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const activeAction = liveFlow.activeAction;
@@ -93,13 +94,13 @@ export function SingleView({ chat, state, loadError }: Props) {
       ]
     : state.messages;
 
-  const showWaveform = (isRecording || isProcessing) && !liveFlow.liveDraft?.transcript;
+  const showWaveform = isRecording && !liveFlow.liveDraft?.transcript;
   const activeError = loadError || liveFlow.error || audioPlayback.errorNotice || phrasebook.error;
   const activeNotice = phrasebook.notice || liveFlow.notice || state.notice;
-  const languageControlsDisabled = locked || isRecording || isProcessing;
+  const languageControlsDisabled = locked || isStarting || isRecording || isProcessing;
 
   function handleActionPress(action: 'speak' | 'listen') {
-    if (isRecording) {
+    if (isRecording || isStarting) {
       void liveFlow.stopRecording();
       return;
     }
@@ -130,6 +131,9 @@ export function SingleView({ chat, state, loadError }: Props) {
 
       <View style={styles.stage}>
         <View style={styles.topStatusSlot}>
+          {isStarting && (
+            <Text style={styles.connectingStatusText}>CONNECTING...</Text>
+          )}
           {isRecording && (
             <View style={styles.recordingPill}>
               <View
@@ -138,7 +142,7 @@ export function SingleView({ chat, state, loadError }: Props) {
                   activeAction === 'speak' ? styles.dotRose : styles.dotIndigo,
                 ]}
               />
-              <Text style={styles.recordingTimerText}>{liveFlow.recordingTimer}s</Text>
+              <Text style={styles.recordingTimerText}>LISTENING · {liveFlow.recordingTimer}s</Text>
             </View>
           )}
           {isProcessing && (
@@ -224,20 +228,22 @@ export function SingleView({ chat, state, loadError }: Props) {
               accessibilityLabel={
                 isRecording && activeAction === 'speak'
                   ? 'Stop speak recording'
-                  : `Speak (${getNativeLanguageName(state.myLanguage)})`
+                  : isStarting && activeAction === 'speak'
+                    ? 'Connecting microphone...'
+                    : `Speak (${getNativeLanguageName(state.myLanguage)})`
               }
-              disabled={activeAction === 'listen' || isProcessing || (!chat && !(isRecording && activeAction === 'speak'))}
+              disabled={activeAction === 'listen' || isProcessing || (!chat && !(isRecording && activeAction === 'speak') && !(isStarting && activeAction === 'speak'))}
               onPress={() => handleActionPress('speak')}
               style={[
                 styles.actionButton,
                 activeAction === 'listen' && styles.actionButtonDimmed,
                 isRecording && activeAction === 'speak' && styles.speakButtonActive,
-                isProcessing && activeAction === 'speak' && styles.actionButtonProcessing,
+                (isProcessing || isStarting) && activeAction === 'speak' && styles.actionButtonProcessing,
               ]}
             >
               {isRecording && activeAction === 'speak' ? (
                 <View style={styles.stopSquare} />
-              ) : isProcessing && activeAction === 'speak' ? (
+              ) : (isProcessing || isStarting) && activeAction === 'speak' ? (
                 <ActivityIndicator size="small" color={palette.text} />
               ) : (
                 <>
@@ -256,20 +262,22 @@ export function SingleView({ chat, state, loadError }: Props) {
               accessibilityLabel={
                 isRecording && activeAction === 'listen'
                   ? 'Stop listen recording'
-                  : `Listen (${getNativeLanguageName(state.theirLanguage)})`
+                  : isStarting && activeAction === 'listen'
+                    ? 'Connecting microphone...'
+                    : `Listen (${getNativeLanguageName(state.theirLanguage)})`
               }
-              disabled={activeAction === 'speak' || isProcessing || (!chat && !(isRecording && activeAction === 'listen'))}
+              disabled={activeAction === 'speak' || isProcessing || (!chat && !(isRecording && activeAction === 'listen') && !(isStarting && activeAction === 'listen'))}
               onPress={() => handleActionPress('listen')}
               style={[
                 styles.actionButton,
                 activeAction === 'speak' && styles.actionButtonDimmed,
                 isRecording && activeAction === 'listen' && styles.listenButtonActive,
-                isProcessing && activeAction === 'listen' && styles.actionButtonProcessing,
+                (isProcessing || isStarting) && activeAction === 'listen' && styles.actionButtonProcessing,
               ]}
             >
               {isRecording && activeAction === 'listen' ? (
                 <View style={styles.stopSquare} />
-              ) : isProcessing && activeAction === 'listen' ? (
+              ) : (isProcessing || isStarting) && activeAction === 'listen' ? (
                 <ActivityIndicator size="small" color={palette.text} />
               ) : (
                 <>
@@ -397,6 +405,12 @@ const styles = StyleSheet.create({
     color: '#D4D4D8',
     fontSize: 12,
     fontWeight: '700',
+  },
+  connectingStatusText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   translatingStatusText: {
     color: '#FBBF24',

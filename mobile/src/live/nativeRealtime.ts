@@ -7,8 +7,11 @@ import { nativeLiveApi } from '../adapters/live';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const ICE_GATHER_TIMEOUT_MS = 10_000;
-const ICE_CANDIDATE_SETTLE_MS = 220;
+const ICE_CANDIDATE_SETTLE_MS = 60;
 const CHANNEL_OPEN_TIMEOUT_MS = 15_000;
+const PEER_CONNECT_SETTLE_TIMEOUT_MS = 400;
+const SESSION_EVENT_SETTLE_TIMEOUT_MS = 250;
+const MIC_TRACK_LIVE_TIMEOUT_MS = 1_500;
 const SECRET_CACHE_TTL_MS = 45_000;
 type RTCDataChannelLike = ReturnType<RTCPeerConnection['createDataChannel']>;
 type CachedSecret = {
@@ -141,25 +144,84 @@ function waitForIceGathering(peer: RTCPeerConnection) {
 function waitForChannelOpen(channel: RTCDataChannelLike) {
   if (channel.readyState === 'open') return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
+    const priorOnOpen = channel.onopen;
+    const priorOnClose = channel.onclose;
     const timeout = setTimeout(() => {
-      channel.onopen = null;
-      channel.onclose = null;
+      channel.onopen = priorOnOpen;
+      channel.onclose = priorOnClose;
       reject(new Error('Live transcription did not connect. Check your internet and try again.'));
     }, CHANNEL_OPEN_TIMEOUT_MS);
     function opened() {
       clearTimeout(timeout);
-      channel.onopen = null;
-      channel.onclose = null;
+      channel.onopen = priorOnOpen;
+      channel.onclose = priorOnClose;
       resolve();
     }
     function closed() {
       clearTimeout(timeout);
-      channel.onopen = null;
-      channel.onclose = null;
+      channel.onopen = priorOnOpen;
+      channel.onclose = priorOnClose;
       reject(new Error('Live transcription disconnected before it was ready.'));
     }
     channel.onopen = opened;
     channel.onclose = closed;
+  });
+}
+
+function isPeerMediaConnected(peer: RTCPeerConnection): boolean {
+  return (
+    peer.connectionState === 'connected' ||
+    peer.iceConnectionState === 'connected' ||
+    peer.iceConnectionState === 'completed'
+  );
+}
+
+function waitForPeerConnected(peer: RTCPeerConnection) {
+  if (isPeerMediaConnected(peer)) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(poll);
+      if (err) reject(err);
+      else resolve();
+    };
+    const timeout = setTimeout(() => finish(), PEER_CONNECT_SETTLE_TIMEOUT_MS);
+    const poll = setInterval(() => {
+      if (peer.connectionState === 'failed' || peer.iceConnectionState === 'failed') {
+        finish(new Error('Live transcription connection failed. Check your internet and try again.'));
+        return;
+      }
+      if (isPeerMediaConnected(peer)) {
+        finish();
+      }
+    }, 15);
+  });
+}
+
+function isStreamAudioLive(stream: MediaStream | null): boolean {
+  if (!stream) return false;
+  const tracks = stream.getAudioTracks();
+  return tracks.length > 0 && tracks.some(track => track.enabled && track.readyState === 'live');
+}
+
+function waitForLiveMicrophoneTrack(stream: MediaStream | null) {
+  if (isStreamAudioLive(stream)) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const startedAt = Date.now();
+    const poll = setInterval(() => {
+      if (isStreamAudioLive(stream)) {
+        clearInterval(poll);
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= MIC_TRACK_LIVE_TIMEOUT_MS) {
+        clearInterval(poll);
+        reject(new Error('Microphone could not start. Check microphone permissions and try again.'));
+      }
+    }, 15);
   });
 }
 
@@ -169,12 +231,23 @@ export class NativeLiveConnection {
   private stream: MediaStream | null = null;
   private clientSecret = '';
   private closing = false;
+  private sessionConfirmed = false;
+  private resolveSessionReady: (() => void) | null = null;
+  private sessionReadyPromise: Promise<void> = Promise.resolve();
   liveMode = 'fallback-transcription';
   fallbackReason = '';
 
   constructor(private readonly handlers: NativeRealtimeHandlers) {}
 
   async prepare(sourceLanguage: string, targetLanguage: string) {
+    this.sessionConfirmed = false;
+    this.sessionReadyPromise = new Promise<void>(resolve => {
+      this.resolveSessionReady = () => {
+        this.sessionConfirmed = true;
+        resolve();
+      };
+    });
+
     const secretPromise = consumeOrCreateTranscriptionSecret(sourceLanguage, targetLanguage);
     const localOfferPromise = (async () => {
       const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
@@ -183,6 +256,8 @@ export class NativeLiveConnection {
         throw new Error('Live session closed during preparation.');
       }
       this.stream = stream;
+      await waitForLiveMicrophoneTrack(stream);
+
       const peer = new RTCPeerConnection({});
       this.peer = peer;
       const channel = peer.createDataChannel('oai-events');
@@ -192,7 +267,21 @@ export class NativeLiveConnection {
         if (typeof event.data !== 'string') return;
         try {
           const parsed = JSON.parse(event.data);
-          if (parsed && typeof parsed === 'object') this.handlers.onEvent(parsed as RealtimeEvent);
+          if (parsed && typeof parsed === 'object') {
+            const eventObj = parsed as RealtimeEvent;
+            const eventType = typeof eventObj.type === 'string' ? eventObj.type : '';
+            if (
+              eventType === 'session.created' ||
+              eventType === 'transcription_session.created' ||
+              eventType === 'session.updated' ||
+              eventType === 'transcription_session.updated' ||
+              eventType.startsWith('input_audio_buffer.') ||
+              eventType.startsWith('conversation.item.')
+            ) {
+              this.resolveSessionReady?.();
+            }
+            this.handlers.onEvent(eventObj);
+          }
         } catch {
           // Ignore non-protocol frames without interrupting the audio session.
         }
@@ -239,13 +328,36 @@ export class NativeLiveConnection {
     if (!response.ok) throw new Error('Live transcription could not connect. Check your internet and try again.');
     const answer = await response.text();
     await this.peer.setRemoteDescription({ type: 'answer', sdp: answer });
-    await waitForChannelOpen(this.channel);
+    await Promise.all([
+      waitForChannelOpen(this.channel),
+      waitForPeerConnected(this.peer),
+      waitForLiveMicrophoneTrack(this.stream),
+    ]);
+    await Promise.race([
+      this.sessionReadyPromise,
+      new Promise<void>(resolve => setTimeout(() => {
+        this.resolveSessionReady?.();
+        resolve();
+      }, SESSION_EVENT_SETTLE_TIMEOUT_MS)),
+    ]);
+    if (!this.isMicrophoneActive()) {
+      throw new Error('Microphone is not active. Try again.');
+    }
   }
 
   commitCurrentAudio() {
     if (this.channel?.readyState !== 'open') return false;
     this.channel.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
     return true;
+  }
+
+  isMicrophoneActive(): boolean {
+    if (this.closing) return false;
+    return isStreamAudioLive(this.stream);
+  }
+
+  isReady(): boolean {
+    return this.isMicrophoneActive() && this.channel?.readyState === 'open' && this.sessionConfirmed;
   }
 
   stopMicrophone() {

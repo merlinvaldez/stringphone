@@ -1565,16 +1565,20 @@ function UserSection({
             className={`animate-pulse text-[10px] font-medium uppercase tracking-[0.2em] sm:text-xs ${
               userState === "recording"
                 ? "text-rose-400"
-                : userState === "processing"
-                  ? "text-amber-400"
-                  : "text-emerald-400"
+                : userState === "starting"
+                  ? "text-sky-400"
+                  : userState === "processing"
+                    ? "text-amber-400"
+                    : "text-emerald-400"
             }`}
           >
             {userState === "recording"
               ? uiStrings.listening
-              : userState === "processing"
-                ? uiStrings.translating
-                : uiStrings.speaking}
+              : userState === "starting"
+                ? "Connecting..."
+                : userState === "processing"
+                  ? uiStrings.translating
+                  : uiStrings.speaking}
           </span>
         ) : null}
 
@@ -1633,10 +1637,10 @@ function UserSection({
             <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
           ) : null}
 
-          {userState === "processing" && isActiveSpeaker && !isFinalizing ? (
+          {(userState === "processing" || userState === "starting") && isActiveSpeaker && !isFinalizing ? (
             <Loader2
               size={20}
-              className="animate-spin text-amber-400 sm:h-9 sm:w-9"
+              className={`animate-spin sm:h-9 sm:w-9 ${userState === "starting" ? "text-sky-400" : "text-amber-400"}`}
               strokeWidth={1.5}
             />
           ) : null}
@@ -1942,7 +1946,7 @@ function ActionColumn({
             <div className="h-8 w-8 animate-pulse rounded-sm bg-white" />
           ) : null}
 
-          {visualStatus === "processing" && isActive ? (
+          {(visualStatus === "processing" || visualStatus === "starting") && isActive ? (
             <Loader2
               size={36}
               className="animate-spin text-white"
@@ -2043,6 +2047,12 @@ function SingleModeScreen({
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
         <div className="relative flex min-h-[160px] w-full max-w-lg flex-1 flex-col items-center justify-center">
           <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
+            {flow.status === "starting" ? (
+              <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-sky-400">
+                Connecting...
+              </span>
+            ) : null}
+
             {flow.status === "recording" ? (
               <div className="flex items-center space-x-2 rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1 backdrop-blur-sm">
                 <div
@@ -2050,8 +2060,8 @@ function SingleModeScreen({
                     activeAction === "speak" ? "bg-rose-500" : "bg-indigo-500"
                   }`}
                 />
-                <span className="font-mono text-xs font-medium text-zinc-300">
-                  {recordingTimer}s
+                <span className="font-mono text-xs font-medium uppercase tracking-[0.12em] text-zinc-300">
+                  {screenUiStrings.listening} · {recordingTimer}s
                 </span>
               </div>
             ) : null}

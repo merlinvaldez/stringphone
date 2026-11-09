@@ -7,6 +7,7 @@ const CLOSE_TIMEOUT_MS = 5000;
 const SILENCE_FINALIZE_MS = 1000;
 const MIN_SPEECH_MS = 550;
 const SPEECH_RMS_THRESHOLD = 0.018;
+const ICE_CANDIDATE_SETTLE_MS = 60;
 
 function calculateRms(samples) {
   let sum = 0;
@@ -37,22 +38,90 @@ function waitForIceGatheringComplete(peerConnection) {
   }
 
   return new Promise((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => {
+    let settled = false;
+    let candidateTimer = 0;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeoutId);
+      if (candidateTimer) {
+        window.clearTimeout(candidateTimer);
+      }
       peerConnection.removeEventListener("icegatheringstatechange", onStateChange);
+      peerConnection.removeEventListener("icecandidate", onIceCandidate);
+      resolve();
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      if (peerConnection.localDescription?.sdp) {
+        finish();
+        return;
+      }
+      settled = true;
+      if (candidateTimer) {
+        window.clearTimeout(candidateTimer);
+      }
+      peerConnection.removeEventListener("icegatheringstatechange", onStateChange);
+      peerConnection.removeEventListener("icecandidate", onIceCandidate);
       reject(new Error("Timed out while preparing the live transcription connection."));
     }, 10000);
 
     function onStateChange() {
-      if (peerConnection.iceGatheringState !== "complete") {
+      if (peerConnection.iceGatheringState === "complete") {
+        finish();
+      }
+    }
+
+    function onIceCandidate(event) {
+      if (!event?.candidate) {
+        finish();
         return;
       }
-
-      window.clearTimeout(timeoutId);
-      peerConnection.removeEventListener("icegatheringstatechange", onStateChange);
-      resolve();
+      if (!candidateTimer) {
+        candidateTimer = window.setTimeout(finish, ICE_CANDIDATE_SETTLE_MS);
+      }
     }
 
     peerConnection.addEventListener("icegatheringstatechange", onStateChange);
+    peerConnection.addEventListener("icecandidate", onIceCandidate);
+  });
+}
+
+function waitForEventsChannelOpen(eventsChannel) {
+  if (!eventsChannel || eventsChannel.readyState === "open") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for live transcription channel to open."));
+    }, 15000);
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      eventsChannel.removeEventListener("open", onOpen);
+      eventsChannel.removeEventListener("close", onClose);
+    }
+
+    function onOpen() {
+      cleanup();
+      resolve();
+    }
+
+    function onClose() {
+      cleanup();
+      reject(new Error("Live transcription disconnected before it was ready."));
+    }
+
+    eventsChannel.addEventListener("open", onOpen);
+    eventsChannel.addEventListener("close", onClose);
   });
 }
 
@@ -412,6 +481,14 @@ export function useLiveConversationCapture({
         sessionStartedAt: new Date().toISOString(),
       });
 
+      const latest = latestValuesRef.current;
+      const clientSecretPromise = createLiveTranscriptionClientSecret({
+        sourceLanguage: sessionLanguages.sourceLanguage,
+        targetLanguage: sessionLanguages.targetLanguage,
+        authFetch: latest.authFetch,
+        forceFallback: true,
+      });
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       const peerConnection = new RTCPeerConnection();
@@ -427,7 +504,6 @@ export function useLiveConversationCapture({
       audioContextRef.current = audioContext;
       const audioSource = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      const latest = latestValuesRef.current;
 
       analyser.fftSize = 1024;
       audioSource.connect(analyser);
@@ -474,12 +550,22 @@ export function useLiveConversationCapture({
         track.enabled = false;
       });
 
-      const clientSecret = await createLiveTranscriptionClientSecret({
-        sourceLanguage: sessionLanguages.sourceLanguage,
-        targetLanguage: sessionLanguages.targetLanguage,
-        authFetch: latest.authFetch,
-        forceFallback: true,
-      });
+      const localSdpPromise = (async () => {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        await waitForIceGatheringComplete(peerConnection);
+        const sdp = peerConnection.localDescription?.sdp;
+
+        if (!sdp) {
+          throw new Error("Unable to prepare the live transcription connection.");
+        }
+        return sdp;
+      })();
+
+      const [clientSecret, sdp] = await Promise.all([
+        clientSecretPromise,
+        localSdpPromise,
+      ]);
 
       if (typeof clientSecret?.value !== "string" || !clientSecret.value) {
         throw new Error("Live transcription did not return a session credential.");
@@ -489,15 +575,6 @@ export function useLiveConversationCapture({
         liveMode: "realtime-transcription",
         fallbackReason: "",
       });
-
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      await waitForIceGatheringComplete(peerConnection);
-      const sdp = peerConnection.localDescription?.sdp;
-
-      if (!sdp) {
-        throw new Error("Unable to prepare the live transcription connection.");
-      }
 
       const response = await fetch(OPENAI_REALTIME_TRANSCRIPTION_CALLS_URL, {
         method: "POST",
@@ -516,6 +593,14 @@ export function useLiveConversationCapture({
         type: "answer",
         sdp: await response.text(),
       });
+
+      await waitForEventsChannelOpen(eventsChannel);
+      const hasLiveTrack = stream
+        .getAudioTracks()
+        .some((track) => track.enabled && (track.readyState === "live" || !track.readyState));
+      if (!hasLiveTrack) {
+        throw new Error("Microphone is not active. Check your microphone and try again.");
+      }
 
       isListeningRef.current = true;
       patchCaptureState({ status: "listening", lastError: "" });

@@ -140,7 +140,7 @@ export function MessageCard({
                   if (isPlayingSource) {
                     onStopPlayback?.();
                   } else {
-                    onPlaySource?.(message.id, true);
+                    onPlaySource?.(message.id, canPlaySourceTts);
                   }
                 }}
                 style={[styles.audioBtn, isPlayingSource && styles.audioBtnActive]}

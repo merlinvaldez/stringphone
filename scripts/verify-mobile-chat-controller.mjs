@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import historyModule from '../mobile/src/storage/history.ts';
+import audioModule from '../mobile/src/storage/audio.ts';
 import processingModule from '../mobile/src/storage/processing.ts';
 import controllerModule from '../mobile/src/chat/controller.ts';
 import migrations from '../mobile/src/storage/migrations.ts';
@@ -118,6 +119,71 @@ try {
   assert.equal(await restarted.swapLanguages('conversation'), true);
   assert.equal(restarted.getState().myLanguage, 'es');
   assert.equal(restarted.getState().theirLanguage, 'es');
+
+  // Live message source audio persistence and deferred attachment
+  let audioId = 0;
+  const storedFiles = new Map();
+  const audio = audioModule.createAudioStorage(connection, {
+    async save(name, input) {
+      const bytes = input.bytes ?? new Uint8Array([1, 2, 3]);
+      storedFiles.set(name, bytes);
+      return bytes.length;
+    },
+    async stat(name) {
+      return storedFiles.has(name) ? { uri: `file://${name}`, size: storedFiles.get(name).length } : null;
+    },
+    async list() { return [...storedFiles.keys()]; },
+    async remove(name) { storedFiles.delete(name); },
+  }, () => `audio_${++audioId}`);
+
+  const liveController = controllerModule.createTextChatController(
+    history,
+    processingModule.createSavedMessageFlow(history, audio),
+    translate,
+    () => `id_${++id}`,
+    'mobile-text-chat',
+    undefined,
+    undefined,
+    audio,
+  );
+  await liveController.initialize();
+
+  // 1. Direct save with recording attached
+  await liveController.saveLiveMessage({
+    id: 'live_turn_1',
+    requestId: 'req_live_1',
+    conversationId: 'mobile-text-chat',
+    speaker: 'me',
+    originMode: 'single',
+    sourceLanguage: 'en',
+    targetLanguage: 'es',
+    originalText: 'Hello world',
+    translatedText: 'Hola mundo',
+  }, { uri: 'file://recording1.m4a', durationMs: 1200 });
+
+  const resolved1 = await audio.resolve({ kind: 'message', id: 'live_turn_1', role: 'source' });
+  assert.equal(resolved1?.availability, 'available');
+  assert.equal(resolved1?.uri, 'file://audio_1.m4a');
+
+  // 2. Save without recording (transcription finished before stopCapture), then attachSourceAudio
+  await liveController.saveLiveMessage({
+    id: 'live_turn_2',
+    requestId: 'req_live_2',
+    conversationId: 'mobile-text-chat',
+    speaker: 'them',
+    originMode: 'conversation',
+    sourceLanguage: 'es',
+    targetLanguage: 'en',
+    originalText: 'Buenas tardes',
+    translatedText: 'Good afternoon',
+  });
+
+  assert.equal(await audio.resolve({ kind: 'message', id: 'live_turn_2', role: 'source' }), null);
+
+  await liveController.attachSourceAudio('live_turn_2', { uri: 'file://recording2.m4a', durationMs: 1800 });
+  const resolved2 = await audio.resolve({ kind: 'message', id: 'live_turn_2', role: 'source' });
+  assert.equal(resolved2?.availability, 'available');
+  assert.equal(resolved2?.uri, 'file://audio_2.m4a');
 
   console.log('Mobile chat controller passed: SQLite-before-dispatch, pending state, repeat send/retry locks, same-row retry, restart recovery, storage failure, swapLanguages modes and identity boundary.');
 } finally { db.close(); }

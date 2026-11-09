@@ -61,11 +61,12 @@ export function ChatView({ chat, state, loadError }: Props) {
     },
   });
 
+  const isStarting = liveFlow.status === 'starting';
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const hasDraft = Boolean(draft.trim());
-  const sendDisabled = locked || !id || !hasDraft || isRecording || isProcessing;
-  const languageControlsDisabled = locked || isRecording || isProcessing;
+  const sendDisabled = locked || !id || !hasDraft || isStarting || isRecording || isProcessing;
+  const languageControlsDisabled = locked || isStarting || isRecording || isProcessing;
   const myNativeLanguageName = getNativeLanguageName(state.myLanguage);
 
   useEffect(() => {
@@ -121,7 +122,7 @@ export function ChatView({ chat, state, loadError }: Props) {
   }
 
   function handlePrimaryAction() {
-    if (isRecording) {
+    if (isRecording || isStarting) {
       void liveFlow.stopRecording();
       return;
     }
@@ -139,7 +140,7 @@ export function ChatView({ chat, state, loadError }: Props) {
     });
   }
 
-  const primaryDisabled = isRecording
+  const primaryDisabled = (isRecording || isStarting)
     ? false
     : hasDraft
       ? sendDisabled
@@ -356,18 +357,27 @@ export function ChatView({ chat, state, loadError }: Props) {
           )}
 
           <View style={styles.composerCard}>
-            {(isRecording || isProcessing) && (
+            {(isStarting || isRecording || isProcessing) && (
               <View style={styles.recordingBanner}>
                 <View style={styles.recordingBannerLeft}>
-                  <View style={[styles.statusDot, isRecording ? styles.dotRose : styles.dotAmber]} />
+                  <View
+                    style={[
+                      styles.statusDot,
+                      isRecording ? styles.dotRose : isStarting ? styles.dotSky : styles.dotAmber,
+                    ]}
+                  />
                   <Text style={styles.recordingBannerText}>
-                    {isRecording ? `${liveFlow.secondsRemaining}s left` : 'Translating voice note...'}
+                    {isStarting
+                      ? 'Connecting microphone...'
+                      : isRecording
+                        ? `Listening · ${liveFlow.secondsRemaining}s left`
+                        : 'Translating voice note...'}
                   </Text>
                 </View>
                 {isRecording ? (
                   <AudioWave active color="#FB7185" style={styles.bannerWave} />
                 ) : (
-                  <ActivityIndicator size="small" color="#FBBF24" />
+                  <ActivityIndicator size="small" color={isStarting ? '#38BDF8' : '#FBBF24'} />
                 )}
               </View>
             )}
@@ -382,7 +392,7 @@ export function ChatView({ chat, state, loadError }: Props) {
                 onChangeText={text => {
                   if (id) setDrafts(current => ({ ...current, [id]: text }));
                 }}
-                editable={!!chat && !!id && !isRecording && !isProcessing}
+                editable={!!chat && !!id && !isStarting && !isRecording && !isProcessing}
                 multiline={false}
                 returnKeyType="send"
                 onFocus={() => {
@@ -399,9 +409,11 @@ export function ChatView({ chat, state, loadError }: Props) {
                 accessibilityLabel={
                   isRecording
                     ? 'Stop voice recording'
-                    : hasDraft
-                      ? 'Send message'
-                      : 'Record voice message'
+                    : isStarting
+                      ? 'Connecting microphone...'
+                      : hasDraft
+                        ? 'Send message'
+                        : 'Record voice message'
                 }
                 disabled={primaryDisabled}
                 onPress={handlePrimaryAction}
@@ -415,7 +427,7 @@ export function ChatView({ chat, state, loadError }: Props) {
                   primaryDisabled && styles.disabledBtn,
                 ]}
               >
-                {isProcessing && !isRecording ? (
+                {(isProcessing || isStarting) && !isRecording ? (
                   <ActivityIndicator size="small" color={palette.text} />
                 ) : isRecording ? (
                   <Feather name="square" size={18} color={palette.text} />
@@ -592,6 +604,9 @@ const styles = StyleSheet.create({
   },
   dotRose: {
     backgroundColor: '#FB7185',
+  },
+  dotSky: {
+    backgroundColor: '#38BDF8',
   },
   dotAmber: {
     backgroundColor: '#FBBF24',

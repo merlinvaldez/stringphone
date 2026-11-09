@@ -15,6 +15,8 @@ export class NativeLiveConnection {
   }
 
   commitCurrentAudio() { return false; }
+  isMicrophoneActive() { return false; }
+  isReady() { return false; }
   stopMicrophone() {}
   close() {}
 }

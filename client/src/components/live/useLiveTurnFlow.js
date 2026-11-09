@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLiveConversationCapture } from "./useLiveConversationCapture.js";
 
 function mapCaptureStatus(status) {
+  if (status === "starting") {
+    return "starting";
+  }
+
   if (
-    status === "starting" ||
     status === "listening" ||
     status === "processing"
   ) {
