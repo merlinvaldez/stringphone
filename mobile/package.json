@@ -32,6 +32,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "eas-build-pre-install": "npm run check:api-config",
     "dev": "expo start",
     "dev:client": "expo start --dev-client",
     "dev:client:debug": "node scripts/run-expo-variant.mjs development start --dev-client",
