@@ -1783,6 +1783,7 @@ function ConversationScreen({
   onLiveCaptureClosed,
   sharedRoomSession,
   onLeaveSharedRoom,
+  onBeforeCapture,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useLiveTurnFlow({
@@ -1795,6 +1796,7 @@ function ConversationScreen({
     onLiveTranscriptDelta,
     onLiveTranscript,
     onLiveCaptureClosed,
+    onBeforeCapture,
   });
   const activeSpeaker = flow.currentRun?.speaker ?? null;
   const history = [
@@ -2044,6 +2046,7 @@ function SingleModeScreen({
   onLiveCaptureClosed,
   sharedRoomSession,
   onLeaveSharedRoom,
+  onBeforeCapture,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useLiveTurnFlow({
@@ -2056,6 +2059,7 @@ function SingleModeScreen({
     onLiveTranscriptDelta,
     onLiveTranscript,
     onLiveCaptureClosed,
+    onBeforeCapture,
   });
   const activeAction = flow.currentRun?.action ?? null;
   const screenLanguage = activeAction === "listen" ? theirLang : myLang;
@@ -2949,6 +2953,7 @@ export default function StringPhoneApp() {
       throw new Error("Audio unavailable.");
     }
 
+    pauseActiveAudio();
     generatedSpeechAbortControllerRef.current?.abort();
 
     const requestId = generatedSpeechRequestIdRef.current + 1;
@@ -5060,6 +5065,7 @@ export default function StringPhoneApp() {
           onLiveTranscript={submitLiveConversationTranscript}
           onLiveCaptureClosed={resetLiveCaptureState}
           onLeaveSharedRoom={leaveSharedRoom}
+          onBeforeCapture={stopAllPlayback}
         />
       ) : null}
 
@@ -5084,6 +5090,7 @@ export default function StringPhoneApp() {
           onLiveCaptureClosed={resetLiveCaptureState}
           sharedRoomSession={sharedRoomSession}
           onLeaveSharedRoom={leaveSharedRoom}
+          onBeforeCapture={stopAllPlayback}
         />
       ) : null}
 
@@ -5132,6 +5139,7 @@ export default function StringPhoneApp() {
           onLiveCaptureClosed={resetLiveCaptureState}
           sharedRoomSession={sharedRoomSession}
           onLeaveSharedRoom={leaveSharedRoom}
+          onBeforeCapture={stopAllPlayback}
         />
       ) : null}
     </main>

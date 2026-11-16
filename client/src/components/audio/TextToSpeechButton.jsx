@@ -12,6 +12,7 @@ export function TextToSpeechButton({
   text,
   languageCode,
   onPlay,
+  onAudioPlay,
   uiStrings = FALLBACK_UI_STRINGS,
   className = "",
 }) {
@@ -98,6 +99,7 @@ export function TextToSpeechButton({
 
     try {
       setError("");
+      onAudioPlay?.(null);
       setIsLoading(true);
       const player = await onPlay({ text, languageCode });
 
@@ -106,6 +108,7 @@ export function TextToSpeechButton({
         typeof player === "object" &&
         typeof player.pause === "function"
       ) {
+        onAudioPlay?.(player);
         bindPlayerState(player);
       }
     } catch (playbackError) {

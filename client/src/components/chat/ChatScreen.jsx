@@ -39,6 +39,7 @@ export function ChatScreen({
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  onBeforeCapture,
 }) {
   const mountedRef = useRef(true);
   const [composerText, setComposerText] = useState("");
@@ -87,6 +88,7 @@ export function ChatScreen({
     onLiveTranscript: (payload) =>
       onLiveTranscript?.(addCaptureContext(payload)),
     onLiveCaptureClosed,
+    onBeforeCapture,
   });
   const liveStatus = liveCaptureState?.status ?? "idle";
   const liveIsActive =
