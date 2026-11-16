@@ -7,6 +7,7 @@ import {
   archiveLanguageCollectionEntryForUser,
   CollectionRequestError,
   saveLanguageCollectionEntryForUser,
+  updateLanguageCollectionEntryForUser,
 } from "../../src/services/languageCollections.js";
 
 export const config = {
@@ -19,7 +20,11 @@ export default {
       return authRouteOptionsResponse();
     }
 
-    if (request.method !== "POST" && request.method !== "DELETE") {
+    if (
+      request.method !== "POST" &&
+      request.method !== "DELETE" &&
+      request.method !== "PATCH"
+    ) {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
@@ -49,6 +54,16 @@ export default {
         return jsonResponse(archivedEntry);
       }
 
+      if (request.method === "PATCH") {
+        const body = await request.json().catch(() => null);
+        const updatedEntry = await updateLanguageCollectionEntryForUser({
+          userId: authenticatedRequest.appUser.id,
+          body,
+        });
+
+        return jsonResponse(updatedEntry, 200);
+      }
+
       const body = await request.json().catch(() => null);
       return jsonResponse(
         await saveLanguageCollectionEntryForUser({
@@ -61,7 +76,9 @@ export default {
       console.error(
         request.method === "DELETE"
           ? "Failed to archive collection entry"
-          : "Failed to save collection entry",
+          : request.method === "PATCH"
+            ? "Failed to update collection entry"
+            : "Failed to save collection entry",
         error,
       );
       return jsonResponse(
@@ -71,7 +88,9 @@ export default {
               ? error.message
               : request.method === "DELETE"
                 ? "Failed to archive collection entry"
-                : "Failed to save collection entry",
+                : request.method === "PATCH"
+                  ? "Failed to update collection entry"
+                  : "Failed to save collection entry",
         },
         error instanceof CollectionRequestError ? error.status : 500,
       );

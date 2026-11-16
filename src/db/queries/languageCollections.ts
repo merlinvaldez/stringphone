@@ -275,14 +275,17 @@ async function ensureLanguageCollectionsSchema() {
   await ensureLanguageCollectionsSchemaPromise;
 }
 
-async function getOrCreateLanguageCollection(params: {
-  userId: number;
-  languageCode: string;
-}) {
+async function getOrCreateLanguageCollection(
+  params: {
+    userId: number;
+    languageCode: string;
+  },
+  executor: { query: typeof db.query } = db,
+) {
   await ensureLanguageCollectionsSchema();
 
   const language = buildLanguageMetadata(params.languageCode);
-  const existingResult = await db.query<CollectionRow>(
+  const existingResult = await executor.query<CollectionRow>(
     `
     SELECT id, user_id, language_code, language_name, language_sort_name,
            created_at, updated_at, archived_at
@@ -299,7 +302,7 @@ async function getOrCreateLanguageCollection(params: {
     return existingResult.rows[0];
   }
 
-  const createdResult = await db.query<CollectionRow>(
+  const createdResult = await executor.query<CollectionRow>(
     `
     INSERT INTO public.language_collections (
       id,
@@ -593,6 +596,132 @@ export async function upsertLanguageCollectionEntry(params: {
     },
     entry: normalizeEntry(insertedResult.rows[0]),
   };
+}
+
+export type UpdateLanguageCollectionEntryParams = {
+  entryId: string;
+  userId: number;
+  targetLanguageCode: string;
+  sourceLanguageCode: string;
+  phraseText: string;
+  phrasePronunciation: string;
+  meaningText: string;
+  meaningPronunciation: string;
+  noteText: string;
+};
+
+export async function updateLanguageCollectionEntry(
+  params: UpdateLanguageCollectionEntryParams,
+) {
+  await ensureLanguageCollectionsSchema();
+
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+
+    const existingResult = await client.query<EntryRow>(
+      `
+      SELECT *
+      FROM public.language_collection_entries
+      WHERE id = $1
+        AND user_id = $2
+        AND archived_at IS NULL
+      FOR UPDATE
+      `,
+      [params.entryId, params.userId],
+    );
+
+    const existingEntry = existingResult.rows[0];
+    if (!existingEntry) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const targetCollection = await getOrCreateLanguageCollection(
+      {
+        userId: params.userId,
+        languageCode: params.targetLanguageCode,
+      },
+      client,
+    );
+
+    const isMovingCollection =
+      existingEntry.collection_id !== targetCollection.id;
+
+    if (isMovingCollection) {
+      await client.query(
+        `
+        UPDATE public.language_collections
+        SET updated_at = now()
+        WHERE id = $1
+        `,
+        [existingEntry.collection_id],
+      );
+    }
+
+    const updateResult = await client.query<EntryRow>(
+      `
+      UPDATE public.language_collection_entries
+      SET collection_id = $1,
+          phrase_text = $2,
+          phrase_pronunciation = $3,
+          meaning_text = $4,
+          meaning_pronunciation = $5,
+          note_text = $6,
+          source_language_code = $7,
+          target_language_code = $8,
+          updated_at = now()
+      WHERE id = $9
+        AND user_id = $10
+        AND archived_at IS NULL
+      RETURNING *
+      `,
+      [
+        targetCollection.id,
+        params.phraseText,
+        params.phrasePronunciation || null,
+        params.meaningText,
+        params.meaningPronunciation || null,
+        params.noteText || null,
+        params.sourceLanguageCode,
+        targetCollection.language_code,
+        params.entryId,
+        params.userId,
+      ],
+    );
+
+    const updatedEntry = updateResult.rows[0];
+    if (!updatedEntry) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `
+      UPDATE public.language_collections
+      SET updated_at = now()
+      WHERE id = $1
+      `,
+      [targetCollection.id],
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      collection: {
+        id: targetCollection.id,
+        languageCode: targetCollection.language_code,
+        languageName: targetCollection.language_name,
+        languageSortName: targetCollection.language_sort_name,
+      },
+      entry: normalizeEntry(updatedEntry),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function archiveLanguageCollectionEntry(params: {

@@ -430,6 +430,22 @@ export async function saveCollectionEntry(authFetch, payload) {
   return response.json();
 }
 
+export async function updateCollectionEntry(authFetch, payload) {
+  const response = await authFetch(`${API_BASE_URL}/collections/entries`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to update collection entry"),
+    );
+  }
+
+  return response.json();
+}
+
 export async function archiveCollectionEntry(authFetch, entryId) {
   const response = await authFetch(
     buildApiUrl("/collections/entries", { entryId }),
