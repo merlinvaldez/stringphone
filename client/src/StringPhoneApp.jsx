@@ -1,6 +1,6 @@
 import { LANGUAGE_OPTIONS } from "../../shared/languageOptions.ts";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useUser } from "@clerk/clerk-react";
+import { SignInButton, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   Copy,
   Ear,
   Loader2,
+  LogOut,
   Menu,
   MessageSquare,
   Mic,
@@ -17,6 +18,7 @@ import {
   Radio,
   Search,
   Send,
+  Settings,
   Share2,
   Square,
   User,
@@ -319,34 +321,46 @@ function FloatingAuthControls({
       style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}
     >
       {!isLoaded ? (
-        <div className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-3 py-2 text-[0.72rem] font-medium text-zinc-300 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+        <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/12 bg-black/35 text-zinc-300 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         </div>
-      ) : isSignedIn ? (
+      ) : (
         <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setIsMenuOpen((currentOpen) => !currentOpen)}
-            className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-black/35 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06]"
-            aria-label="Open account menu"
-            title={accountLabel}
-          >
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={accountLabel}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="text-sm font-semibold text-zinc-100">
-                {accountLabel.charAt(0).toUpperCase()}
-              </span>
-            )}
-          </button>
+          {isSignedIn ? (
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen((currentOpen) => !currentOpen)}
+              className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-black/35 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06]"
+              aria-label="Open account menu"
+              title={accountLabel}
+            >
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={accountLabel}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-sm font-semibold text-zinc-100">
+                  {accountLabel.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen((currentOpen) => !currentOpen)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/12 bg-black/35 text-zinc-400 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+              aria-label="AI TTS voice settings"
+              title="AI TTS voice settings"
+            >
+              <Settings size={16} strokeWidth={1.8} />
+            </button>
+          )}
 
           {isMenuOpen ? (
             <div className="absolute right-0 mt-2 min-w-[13rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
-              <div className="mb-2 border-b border-white/10 px-2 pb-2">
+              <div className="mb-2 px-2 pb-1">
                 <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                   AI TTS voice
                 </p>
@@ -371,25 +385,42 @@ function FloatingAuthControls({
                   ))}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                disabled={isSigningOut}
-                className="flex w-full items-center justify-center rounded-[0.8rem] px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSigningOut ? "Logging out" : "Sign out"}
-              </button>
+              <div className="border-t border-white/10 pt-1">
+                {isSignedIn ? (
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    disabled={isSigningOut}
+                    className="flex w-full items-center justify-center gap-2 rounded-[0.8rem] px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <LogOut size={14} className="text-zinc-400" />
+                    <span>{isSigningOut ? "Logging out" : "Sign out"}</span>
+                  </button>
+                ) : (
+                  <SignInButton mode="modal">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveAuthReturnState({
+                          appMode: resolveVisibleAppMode(appMode),
+                          myLanguageCode,
+                          theirLanguageCode,
+                          joinQueryToken,
+                          learningView: "collections",
+                          activeCollectionLanguageCode,
+                        });
+                        setIsMenuOpen(false);
+                      }}
+                      className="flex w-full items-center justify-center rounded-[0.8rem] px-3 py-2 text-[0.72rem] font-semibold text-zinc-100 transition hover:bg-white/[0.06]"
+                    >
+                      Sign in
+                    </button>
+                  </SignInButton>
+                )}
+              </div>
             </div>
           ) : null}
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => handleAuthNavigation("/login")}
-          className="inline-flex items-center gap-2 rounded-[1rem] border border-white/12 bg-black/35 px-4 py-2.5 text-[0.72rem] font-semibold text-zinc-100 shadow-[0_18px_40px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/6 backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <span>Sign in</span>
-        </button>
       )}
     </div>
   );
@@ -1750,6 +1781,8 @@ function ConversationScreen({
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  sharedRoomSession,
+  onLeaveSharedRoom,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useLiveTurnFlow({
@@ -1786,6 +1819,18 @@ function ConversationScreen({
       >
         <HistoryShortcutButton onClick={onOpenSidebar} />
       </div>
+
+      {sharedRoomSession ? (
+        <div
+          className="absolute right-4 z-20 sm:right-6"
+          style={{ top: "calc(env(safe-area-inset-top, 16px) + 4.75rem)" }}
+        >
+          <SharedRoomControls
+            roomSession={sharedRoomSession}
+            onLeaveRoom={onLeaveSharedRoom}
+          />
+        </div>
+      ) : null}
 
       <UserSection
         position="top"
@@ -1997,6 +2042,8 @@ function SingleModeScreen({
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  sharedRoomSession,
+  onLeaveSharedRoom,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const flow = useLiveTurnFlow({
@@ -2043,6 +2090,18 @@ function SingleModeScreen({
       >
         <HistoryShortcutButton onClick={onOpenSidebar} />
       </div>
+
+      {sharedRoomSession ? (
+        <div
+          className="absolute right-4 z-20 sm:right-6"
+          style={{ top: "calc(env(safe-area-inset-top, 16px) + 4.75rem)" }}
+        >
+          <SharedRoomControls
+            roomSession={sharedRoomSession}
+            onLeaveRoom={onLeaveSharedRoom}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-8 flex w-full flex-1 flex-col items-center justify-center px-4">
         <div className="relative flex min-h-[160px] w-full max-w-lg flex-1 flex-col items-center justify-center">
@@ -2174,6 +2233,7 @@ export function SharedRoomControls({
   onDismissCopyNotice,
   onToggleRoom,
   onCopyInviteLink,
+  onLeaveRoom,
 }) {
   const [controlsExpanded, setControlsExpanded] = useState(false);
 
@@ -2204,9 +2264,23 @@ export function SharedRoomControls({
 
     if (isGuestParticipant) {
       return (
-        <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
-          <span className="sm:hidden">{participantCountLabel}</span>
-          <span className="hidden sm:inline">{participantLabel}</span>
+        <div className="flex items-center gap-2">
+          <div className="whitespace-nowrap rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+            <span className="sm:hidden">{participantCountLabel}</span>
+            <span className="hidden sm:inline">{participantLabel}</span>
+          </div>
+          {onLeaveRoom ? (
+            <button
+              type="button"
+              onClick={() => {
+                void onLeaveRoom();
+              }}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              title="Leave shared chat"
+            >
+              Leave
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -2250,6 +2324,19 @@ export function SharedRoomControls({
             <span className="sm:hidden">{participantCountLabel}</span>
             <span className="hidden sm:inline">{participantLabel}</span>
           </div>
+
+          {onLeaveRoom ? (
+            <button
+              type="button"
+              onClick={() => {
+                void onLeaveRoom();
+              }}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+              title="Leave shared chat"
+            >
+              Leave
+            </button>
+          ) : null}
         </div>
 
         <div
@@ -4255,6 +4342,9 @@ export default function StringPhoneApp() {
     setSharedRoomError("");
     setSharedRoomStatus("idle");
     setSharedRoomSession(null);
+    persistSharedRoomSession(null);
+    setSharedRoom(null);
+    setSharedRoomMessages([]);
     setPendingInviteToken("");
     syncSharedRoomInviteToken("");
   };
@@ -4857,8 +4947,6 @@ export default function StringPhoneApp() {
     }
 
     setIsSidebarOpen(false);
-    clearMessages();
-    setCurrentConversationId(null);
     setActiveLesson(null);
     setActiveCollectionLanguageCode(null);
     setLearningView("collections");
@@ -4971,6 +5059,7 @@ export default function StringPhoneApp() {
           onLiveTranscriptDelta={appendLiveTranscriptDelta}
           onLiveTranscript={submitLiveConversationTranscript}
           onLiveCaptureClosed={resetLiveCaptureState}
+          onLeaveSharedRoom={leaveSharedRoom}
         />
       ) : null}
 
@@ -4993,6 +5082,8 @@ export default function StringPhoneApp() {
           onLiveTranscriptDelta={appendLiveTranscriptDelta}
           onLiveTranscript={submitLiveConversationTranscript}
           onLiveCaptureClosed={resetLiveCaptureState}
+          sharedRoomSession={sharedRoomSession}
+          onLeaveSharedRoom={leaveSharedRoom}
         />
       ) : null}
 
@@ -5039,6 +5130,8 @@ export default function StringPhoneApp() {
           onLiveTranscriptDelta={appendLiveTranscriptDelta}
           onLiveTranscript={submitLiveConversationTranscript}
           onLiveCaptureClosed={resetLiveCaptureState}
+          sharedRoomSession={sharedRoomSession}
+          onLeaveSharedRoom={leaveSharedRoom}
         />
       ) : null}
     </main>

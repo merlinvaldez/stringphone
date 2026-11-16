@@ -32,6 +32,7 @@ export function ChatScreen({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
   onOpenSidebar,
+  onLeaveSharedRoom,
   liveCaptureState,
   setLiveCaptureState,
   authFetch,
@@ -209,6 +210,7 @@ export function ChatScreen({
         onToggleSharedRoom={onToggleSharedRoom}
         onCopySharedRoomInvite={onCopySharedRoomInvite}
         onOpenSidebar={onOpenSidebar}
+        onLeaveSharedRoom={onLeaveSharedRoom}
       />
 
       {sharedRoomError ? (

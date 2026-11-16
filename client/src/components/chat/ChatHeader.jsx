@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ArrowLeftRight, Menu } from "lucide-react";
-import { LanguageSelector } from "../../StringPhoneApp.jsx";
+import { LanguageSelector, SharedRoomControls } from "../../StringPhoneApp.jsx";
 
 export function ChatHeader({
   myLang,
@@ -20,6 +20,7 @@ export function ChatHeader({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
   onOpenSidebar,
+  onLeaveSharedRoom,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
   const useCompactMobileLanguageButtons = Boolean(sharedRoomSession);
@@ -118,6 +119,22 @@ export function ChatHeader({
         />
       </div>
 
+      {sharedRoomSession ? (
+        <div className="flex items-center justify-end">
+          <SharedRoomControls
+            roomSession={sharedRoomSession}
+            room={sharedRoom}
+            roomStatus={sharedRoomStatus}
+            pendingInviteToken={pendingInviteToken}
+            disabled={disabled}
+            copyNoticeMessage={sharedRoomCopyNotice}
+            onDismissCopyNotice={onDismissSharedRoomCopyNotice}
+            onToggleRoom={onToggleSharedRoom}
+            onCopyInviteLink={onCopySharedRoomInvite}
+            onLeaveRoom={onLeaveSharedRoom}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
