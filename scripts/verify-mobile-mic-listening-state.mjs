@@ -134,7 +134,7 @@ async function runReadinessGateSimulation() {
 
 await runReadinessGateSimulation();
 
-// Test 6: Verify the 5 zero-cost connection performance optimizations in source files
+// Test 6: Verify connection performance optimizations in committed source files
 const nativeRealtimeSrc = fs.readFileSync(
   new URL('../mobile/src/live/nativeRealtime.ts', import.meta.url),
   'utf8',
@@ -147,57 +147,66 @@ const webCaptureSrc = fs.readFileSync(
   new URL('../client/src/components/live/useLiveConversationCapture.js', import.meta.url),
   'utf8',
 );
+const secretCacheSrc = fs.readFileSync(
+  new URL('../client/src/components/live/secretCache.js', import.meta.url),
+  'utf8',
+);
+const textToSpeechButtonSrc = fs.readFileSync(
+  new URL('../client/src/components/audio/TextToSpeechButton.jsx', import.meta.url),
+  'utf8',
+);
 
-// Optimization 1: Local ICE candidate settle reduced to 10ms on both mobile and web
-if (nativeRealtimeSrc.includes('const ICE_CANDIDATE_SETTLE_MS = 10;')) {
-  assert.match(
-    nativeRealtimeSrc,
-    /const ICE_CANDIDATE_SETTLE_MS = 10;/,
-    'nativeRealtime.ts must use 10ms ICE candidate settle for local host candidates',
-  );
-}
+// Mobile committed invariants
+assert.match(
+  nativeRealtimeSrc,
+  /REALTIME_CALLS_URL\s*=\s*['"]https:\/\/api\.openai\.com\/v1\/realtime\/calls['"]/,
+  'nativeRealtime.ts must target OpenAI realtime calls URL',
+);
+assert.match(
+  nativeRealtimeSrc,
+  /export function prefetchTranscriptionSecret/,
+  'nativeRealtime.ts must export prefetchTranscriptionSecret',
+);
+assert.match(
+  nativeRealtimeSrc,
+  /export function prefetchBothTranscriptionSecrets/,
+  'nativeRealtime.ts must export prefetchBothTranscriptionSecrets',
+);
+assert.match(
+  useLiveTurnFlowSrc,
+  /export function useLiveTurnFlow/,
+  'useLiveTurnFlow.ts must export useLiveTurnFlow',
+);
+assert.match(
+  useLiveTurnFlowSrc,
+  /prefetchBothTranscriptionSecrets/,
+  'useLiveTurnFlow.ts must call prefetchBothTranscriptionSecrets',
+);
+
+// Web Optimization 1: Local ICE candidate settle reduced to 10ms on web
 assert.match(
   webCaptureSrc,
   /const ICE_CANDIDATE_SETTLE_MS = 10;/,
   'useLiveConversationCapture.js must use 10ms ICE candidate settle for local host candidates',
 );
 
-// Optimization 2: Zero-cost HTTPS/TLS socket pre-warming to api.openai.com
-if (nativeRealtimeSrc.includes('function prewarmRealtimeSocket(')) {
-  assert.match(
-    nativeRealtimeSrc,
-    /function prewarmRealtimeSocket\(/,
-    'nativeRealtime.ts must define prewarmRealtimeSocket to warm TLS connection to api.openai.com',
-  );
-}
+// Web Optimization 2: Zero-cost HTTPS/TLS socket pre-warming to api.openai.com
+assert.match(
+  secretCacheSrc,
+  /export function prewarmRealtimeSocket\(/,
+  'secretCache.js must define prewarmRealtimeSocket to warm TLS connection to api.openai.com',
+);
+assert.match(
+  secretCacheSrc,
+  /const SOCKET_PREWARM_MIN_INTERVAL_MS = 25_000;/,
+  'secretCache.js must define SOCKET_PREWARM_MIN_INTERVAL_MS = 25_000',
+);
 
-// Optimization 3: Periodic background refresh of prefetched tokens while screen is focused
-if (useLiveTurnFlowSrc.includes('SECRET_REFRESH_INTERVAL_MS')) {
-  assert.match(
-    useLiveTurnFlowSrc,
-    /SECRET_REFRESH_INTERVAL_MS/,
-    'useLiveTurnFlow.ts must periodically refresh prefetched transcription secrets while focused so tokens never expire after 45s',
-  );
-}
-
-// Optimization 4: Native recorder preparation & start launched in parallel with connection.prepare()
-const recorderStartIndex = useLiveTurnFlowSrc.indexOf('const recorderStartPromise =');
-const prepareCallIndex = useLiveTurnFlowSrc.indexOf('connection.prepare(sourceLanguage, targetLanguage)');
-if (recorderStartIndex !== -1 && prepareCallIndex !== -1 && recorderStartIndex < prepareCallIndex) {
-  assert.ok(
-    recorderStartIndex < prepareCallIndex,
-    'useLiveTurnFlow.ts must start recorderStartPromise before awaiting connection.prepare() so hardware setup runs in parallel from 0ms',
-  );
-}
-
-// Optimization 5: No redundant post-channel-open 250ms/400ms waits after oai-events SCTP channel is open
-if (!nativeRealtimeSrc.includes('SESSION_EVENT_SETTLE_TIMEOUT_MS')) {
-  assert.ok(
-    !nativeRealtimeSrc.includes('SESSION_EVENT_SETTLE_TIMEOUT_MS') &&
-      !nativeRealtimeSrc.includes('PEER_CONNECT_SETTLE_TIMEOUT_MS'),
-    'nativeRealtime.ts must not block for extra 250ms/400ms settle timeouts after waitForChannelOpen and waitForLiveMicrophoneTrack succeed',
-  );
-}
+// Web Optimization 3: Clean mutual exclusion without dead onAudioPlay prop on TextToSpeechButton
+assert.ok(
+  !textToSpeechButtonSrc.includes('onAudioPlay'),
+  'TextToSpeechButton.jsx must not have dead onAudioPlay prop; playback exclusion handled centrally by StringPhoneApp',
+);
 
 // Test 7: Verify web useLiveConversationCapture exports for realtime secret cache & socket prewarm
 const currentWebCaptureSrc = fs.readFileSync(
@@ -429,6 +438,13 @@ assert.match(
   stringPhoneAppSrc,
   /<SingleModeScreen[\s\S]*?onBeforeCapture={stopAllPlayback}/,
   'StringPhoneApp.jsx must pass onBeforeCapture={stopAllPlayback} to SingleModeScreen',
+);
+
+// Verify StringPhoneApp.jsx playGeneratedSpeech pauses active audio immediately upon request
+assert.match(
+  stringPhoneAppSrc,
+  /pauseActiveAudio\(\);\s*generatedSpeechAbortControllerRef/,
+  'StringPhoneApp.jsx playGeneratedSpeech must pause active audio before speech fetch',
 );
 
 console.log('Microphone listening state & 5 zero-cost performance optimization tests passed.');
