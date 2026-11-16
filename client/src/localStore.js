@@ -136,6 +136,9 @@ export function createMemoryStorageDriver() {
 
   return {
     async get(storeName, key) {
+      if (key === null || key === undefined) {
+        return null;
+      }
       const map = getMap(storeName);
       const val = map.get(key);
       return val !== undefined ? cloneValue(val) : null;
@@ -147,6 +150,9 @@ export function createMemoryStorageDriver() {
     },
 
     async getByIndex(storeName, indexName, value) {
+      if (value === null || value === undefined) {
+        return [];
+      }
       const map = getMap(storeName);
       const results = [];
       for (const item of map.values()) {
@@ -168,6 +174,9 @@ export function createMemoryStorageDriver() {
     },
 
     async delete(storeName, key) {
+      if (key === null || key === undefined) {
+        return;
+      }
       const map = getMap(storeName);
       map.delete(key);
     },
@@ -238,8 +247,21 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
         }
       };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          dbPromise = null;
+        };
+        db.onclose = () => {
+          dbPromise = null;
+        };
+        resolve(db);
+      };
+      request.onerror = () => {
+        dbPromise = null;
+        reject(request.error);
+      };
     });
 
     return dbPromise;
@@ -247,6 +269,9 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
 
   return {
     async get(storeName, key) {
+      if (key === null || key === undefined) {
+        return null;
+      }
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readonly');
@@ -254,6 +279,8 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
         const req = store.get(key);
         req.onsuccess = () => resolve(req.result !== undefined ? req.result : null);
         req.onerror = () => reject(req.error);
+        tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+        tx.onerror = () => reject(tx.error);
       });
     },
 
@@ -265,10 +292,15 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
         const req = store.getAll();
         req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
+        tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+        tx.onerror = () => reject(tx.error);
       });
     },
 
     async getByIndex(storeName, indexName, value) {
+      if (value === null || value === undefined) {
+        return [];
+      }
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readonly');
@@ -277,6 +309,8 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
         const req = index.getAll(value);
         req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
+        tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+        tx.onerror = () => reject(tx.error);
       });
     },
 
@@ -293,6 +327,9 @@ export function createIndexedDbDriver(dbName = LOCAL_DB_NAME) {
     },
 
     async delete(storeName, key) {
+      if (key === null || key === undefined) {
+        return;
+      }
       const db = await openDb();
       return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
@@ -595,6 +632,7 @@ export function createLocalStore(options = {}) {
    * @returns {Promise<object | null>}
    */
   async function updateConversationLanguages(id, myLanguageCode, theirLanguageCode) {
+    if (!id) return null;
     const existing = await driver.get('conversations', id);
     if (!existing) return null;
 
@@ -616,6 +654,9 @@ export function createLocalStore(options = {}) {
    * @returns {Promise<{ deleted: boolean, orphanedAudioCount: number }>}
    */
   async function deleteConversation(id) {
+    if (!id) {
+      return { deleted: false, orphanedAudioCount: 0 };
+    }
     const existing = await driver.get('conversations', id);
     if (!existing) {
       return { deleted: false, orphanedAudioCount: 0 };
@@ -691,7 +732,9 @@ export function createLocalStore(options = {}) {
       ...existing,
       ...messageRecord,
       id,
-      conversationId: messageRecord.conversationId,
+      conversationId: messageRecord.conversationId !== undefined
+        ? messageRecord.conversationId
+        : (existing?.conversationId || null),
       speaker: messageRecord.speaker || existing?.speaker || 'self',
       originMode: messageRecord.originMode || existing?.originMode || 'chat',
       kind: messageRecord.kind || existing?.kind || 'text',
@@ -1103,6 +1146,9 @@ export function createLocalStore(options = {}) {
    * @returns {Promise<{ deleted: boolean }>}
    */
   async function deletePhrasebookEntry(id) {
+    if (!id) {
+      return { deleted: false };
+    }
     const existing = await driver.get('phrasebook', id);
     if (!existing) {
       return { deleted: false };

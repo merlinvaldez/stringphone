@@ -169,6 +169,8 @@ const store = createLocalStore({
   assert.equal(messages.length, 1);
   assert.equal(messages[0].status, 'error');
   assert.equal(messages[0].errorMessage, 'Network timeout');
+  const initialCreatedAt = messages[0].createdAt;
+  assert.ok(initialCreatedAt > 0);
 
   // Retry with same id, updated to ready
   await store.saveMessage({
@@ -188,6 +190,34 @@ const store = createLocalStore({
   assert.equal(messages[0].status, 'ready');
   assert.equal(messages[0].translatedText, 'Mensaje fallido para reintentar');
   assert.equal(messages[0].errorMessage, null);
+  assert.equal(messages[0].createdAt, initialCreatedAt, 'createdAt must be preserved across retries');
+
+  // Partial update omitting conversationId must preserve existing conversationId and trigger auto-titling
+  const partialConv = await store.createConversation({ originMode: 'chat' });
+  await store.saveMessage({
+    id: 'msg-partial-1',
+    conversationId: partialConv.id,
+    speaker: 'self',
+    kind: 'text',
+    status: 'pending',
+    originalText: 'Pending initial draft',
+  });
+
+  // Second save omits conversationId completely
+  await store.saveMessage({
+    id: 'msg-partial-1',
+    status: 'ready',
+    originalText: 'Pending initial draft',
+    translatedText: 'Borrador inicial pendiente',
+  });
+
+  const partialMsgs = await store.listMessages(partialConv.id);
+  assert.equal(partialMsgs.length, 1, 'Message must remain in conversation when conversationId omitted on update');
+  assert.equal(partialMsgs[0].id, 'msg-partial-1');
+  assert.equal(partialMsgs[0].conversationId, partialConv.id);
+
+  const titledConv = await store.getConversation(partialConv.id);
+  assert.equal(titledConv.title, 'Pending initial draft', 'Auto-titling must succeed using preserved conversationId');
 
   console.log('✓ 3. Retry deduplication passed');
 }
@@ -490,6 +520,135 @@ const store = createLocalStore({
   assert.equal(typeof defaultStore.getPreferences, 'function');
   assert.equal(typeof defaultStore.listConversations, 'function');
   console.log('✓ 8. Driver factories and Node import safety passed');
+}
+
+// 9. Null, undefined, and empty key safety & IDB connection lifecycle
+{
+  assert.equal(await store.updateConversationLanguages(null, 'en', 'es'), null);
+  assert.equal(await store.updateConversationLanguages('', 'en', 'es'), null);
+  assert.equal(await store.updateConversationLanguages(undefined, 'en', 'es'), null);
+
+  assert.deepEqual(await store.deleteConversation(null), { deleted: false, orphanedAudioCount: 0 });
+  assert.deepEqual(await store.deleteConversation(''), { deleted: false, orphanedAudioCount: 0 });
+  assert.deepEqual(await store.deleteConversation(undefined), { deleted: false, orphanedAudioCount: 0 });
+
+  assert.deepEqual(await store.deletePhrasebookEntry(null), { deleted: false });
+  assert.deepEqual(await store.deletePhrasebookEntry(''), { deleted: false });
+  assert.deepEqual(await store.deletePhrasebookEntry(undefined), { deleted: false });
+
+  // Driver level guards for null/undefined keys
+  const memDriver = createMemoryStorageDriver();
+  assert.equal(await memDriver.get('conversations', null), null);
+  assert.equal(await memDriver.get('conversations', undefined), null);
+  assert.deepEqual(await memDriver.getByIndex('messages', 'conversationId', null), []);
+  assert.deepEqual(await memDriver.getByIndex('messages', 'conversationId', undefined), []);
+  await memDriver.delete('conversations', null);
+  await memDriver.delete('conversations', undefined);
+
+  // Mock IndexedDB driver verification
+  let openCallCount = 0;
+  let mockClosed = false;
+  let onversionchangeHandler = null;
+  let oncloseHandler = null;
+
+  const mockFactory = {
+    open(name, version) {
+      openCallCount++;
+      const req = {
+        result: {
+          objectStoreNames: { contains: () => true },
+          transaction: () => ({
+            objectStore: () => ({
+              get: (k) => {
+                if (k === null || k === undefined) throw new Error('DataError');
+                const getReq = { onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  getReq.result = undefined;
+                  getReq.onsuccess?.({ target: getReq });
+                });
+                return getReq;
+              },
+              delete: (k) => {
+                if (k === null || k === undefined) throw new Error('DataError');
+                const delReq = { onsuccess: null, onerror: null };
+                queueMicrotask(() => delReq.onsuccess?.({ target: delReq }));
+                return delReq;
+              },
+              getAll: () => {
+                const allReq = { onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  allReq.result = [];
+                  allReq.onsuccess?.({ target: allReq });
+                });
+                return allReq;
+              },
+              index: () => ({
+                getAll: (v) => {
+                  if (v === null || v === undefined) throw new Error('DataError');
+                  const idxReq = { onsuccess: null, onerror: null };
+                  queueMicrotask(() => {
+                    idxReq.result = [];
+                    idxReq.onsuccess?.({ target: idxReq });
+                  });
+                  return idxReq;
+                },
+              }),
+            }),
+            oncomplete: null,
+            onerror: null,
+            onabort: null,
+          }),
+          close: () => { mockClosed = true; },
+          set onversionchange(fn) { onversionchangeHandler = fn; },
+          get onversionchange() { return onversionchangeHandler; },
+          set onclose(fn) { oncloseHandler = fn; },
+          get onclose() { return oncloseHandler; },
+        },
+        onsuccess: null,
+        onerror: null,
+        onupgradeneeded: null,
+      };
+      queueMicrotask(() => req.onsuccess?.({ target: req }));
+      return req;
+    },
+  };
+
+  const prevIdb = globalThis.indexedDB;
+  globalThis.indexedDB = mockFactory;
+  try {
+    const idbDriver = createIndexedDbDriver('test-mock-db');
+    // Early guards return without throwing DataError even before open or without touching store
+    assert.equal(await idbDriver.get('conversations', null), null);
+    assert.equal(await idbDriver.get('conversations', undefined), null);
+    assert.deepEqual(await idbDriver.getByIndex('messages', 'conversationId', null), []);
+    assert.deepEqual(await idbDriver.getByIndex('messages', 'conversationId', undefined), []);
+    await idbDriver.delete('conversations', null);
+    await idbDriver.delete('conversations', undefined);
+
+    // Now trigger open to test connection event listeners
+    const allRes = await idbDriver.getAll('conversations');
+    assert.deepEqual(allRes, []);
+    assert.equal(openCallCount, 1);
+
+    // Simulate onversionchange - should close and reset dbPromise
+    assert.equal(typeof onversionchangeHandler, 'function');
+    onversionchangeHandler();
+    assert.equal(mockClosed, true);
+
+    // Next operation should reopen
+    await idbDriver.getAll('conversations');
+    assert.equal(openCallCount, 2);
+
+    // Simulate onclose
+    assert.equal(typeof oncloseHandler, 'function');
+    oncloseHandler();
+    await idbDriver.getAll('conversations');
+    assert.equal(openCallCount, 3);
+  } finally {
+    globalThis.indexedDB = prevIdb;
+  }
+
+  console.log('✓ 9. Null/undefined key guards and IDB connection lifecycle passed');
 }
 
 console.log('All web local store tests passed successfully!');
