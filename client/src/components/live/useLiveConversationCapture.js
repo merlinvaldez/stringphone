@@ -7,7 +7,7 @@ const CLOSE_TIMEOUT_MS = 5000;
 const SILENCE_FINALIZE_MS = 1000;
 const MIN_SPEECH_MS = 550;
 const SPEECH_RMS_THRESHOLD = 0.018;
-const ICE_CANDIDATE_SETTLE_MS = 60;
+const ICE_CANDIDATE_SETTLE_MS = 10;
 
 function calculateRms(samples) {
   let sum = 0;

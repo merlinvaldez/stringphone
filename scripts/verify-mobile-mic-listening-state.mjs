@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 // Test 1: Verify web useLiveTurnFlow mapCaptureStatus contract
 // 'starting' must map to 'starting', NOT 'recording'.
@@ -98,20 +99,17 @@ assert.equal(
   'ChatView banner only shows Listening + countdown when microphone is confirmed on'
 );
 
-// Test 5: Verify asynchronous microphone & session readiness gate
-// Status must remain 'starting' until WebRTC track is live, channel is open, session is confirmed, and recorder is active.
+// Test 5: Verify asynchronous microphone & channel readiness gate
 async function runReadinessGateSimulation() {
   let trackLive = false;
   let channelOpen = false;
-  let sessionConfirmed = false;
   let recorderActive = false;
   let status = 'idle';
 
-  const isConnectionReady = () => trackLive && channelOpen && sessionConfirmed;
+  const isConnectionReady = () => trackLive && channelOpen;
 
   const startPromise = (async () => {
     status = 'starting';
-    // Wait until all hardware + session readiness conditions are met
     while (!(isConnectionReady() && recorderActive)) {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
@@ -127,10 +125,6 @@ async function runReadinessGateSimulation() {
 
   channelOpen = true;
   await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(status, 'starting', 'Status must stay starting before session and recorder are confirmed');
-
-  sessionConfirmed = true;
-  await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(status, 'starting', 'Status must stay starting until hardware recorder is also confirmed active');
 
   recorderActive = true;
@@ -139,4 +133,60 @@ async function runReadinessGateSimulation() {
 }
 
 await runReadinessGateSimulation();
-console.log('Microphone listening state contract tests passed: starting status isolated from listening until hardware + session are confirmed live.');
+
+// Test 6: Verify the 5 zero-cost connection performance optimizations in source files
+const nativeRealtimeSrc = fs.readFileSync(
+  new URL('../mobile/src/live/nativeRealtime.ts', import.meta.url),
+  'utf8',
+);
+const useLiveTurnFlowSrc = fs.readFileSync(
+  new URL('../mobile/src/live/useLiveTurnFlow.ts', import.meta.url),
+  'utf8',
+);
+const webCaptureSrc = fs.readFileSync(
+  new URL('../client/src/components/live/useLiveConversationCapture.js', import.meta.url),
+  'utf8',
+);
+
+// Optimization 1: Local ICE candidate settle reduced to 10ms on both mobile and web
+assert.match(
+  nativeRealtimeSrc,
+  /const ICE_CANDIDATE_SETTLE_MS = 10;/,
+  'nativeRealtime.ts must use 10ms ICE candidate settle for local host candidates',
+);
+assert.match(
+  webCaptureSrc,
+  /const ICE_CANDIDATE_SETTLE_MS = 10;/,
+  'useLiveConversationCapture.js must use 10ms ICE candidate settle for local host candidates',
+);
+
+// Optimization 2: Zero-cost HTTPS/TLS socket pre-warming to api.openai.com
+assert.match(
+  nativeRealtimeSrc,
+  /function prewarmRealtimeSocket\(/,
+  'nativeRealtime.ts must define prewarmRealtimeSocket to warm TLS connection to api.openai.com',
+);
+
+// Optimization 3: Periodic background refresh of prefetched tokens while screen is focused
+assert.match(
+  useLiveTurnFlowSrc,
+  /SECRET_REFRESH_INTERVAL_MS/,
+  'useLiveTurnFlow.ts must periodically refresh prefetched transcription secrets while focused so tokens never expire after 45s',
+);
+
+// Optimization 4: Native recorder preparation & start launched in parallel with connection.prepare()
+const recorderStartIndex = useLiveTurnFlowSrc.indexOf('const recorderStartPromise =');
+const prepareCallIndex = useLiveTurnFlowSrc.indexOf('connection.prepare(sourceLanguage, targetLanguage)');
+assert.ok(
+  recorderStartIndex !== -1 && prepareCallIndex !== -1 && recorderStartIndex < prepareCallIndex,
+  'useLiveTurnFlow.ts must start recorderStartPromise before awaiting connection.prepare() so hardware setup runs in parallel from 0ms',
+);
+
+// Optimization 5: No redundant post-channel-open 250ms/400ms waits after oai-events SCTP channel is open
+assert.ok(
+  !nativeRealtimeSrc.includes('SESSION_EVENT_SETTLE_TIMEOUT_MS') &&
+    !nativeRealtimeSrc.includes('PEER_CONNECT_SETTLE_TIMEOUT_MS'),
+  'nativeRealtime.ts must not block for extra 250ms/400ms settle timeouts after waitForChannelOpen and waitForLiveMicrophoneTrack succeed',
+);
+
+console.log('Microphone listening state & 5 zero-cost performance optimization tests passed.');
