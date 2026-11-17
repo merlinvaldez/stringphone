@@ -1,5 +1,16 @@
 import { useEffect, useRef } from "react";
 import { createLiveTranscriptionClientSecret } from "../../chatApi.js";
+import { consumeOrCreateTranscriptionSecret } from "./secretCache.js";
+
+export {
+  SECRET_REFRESH_INTERVAL_MS,
+  prefetchTranscriptionSecret,
+  prefetchBothTranscriptionSecrets,
+  clearPrefetchedTranscriptionSecrets,
+  prewarmRealtimeSocket,
+  consumeOrCreateTranscriptionSecret,
+  createSecretCacheHarness,
+} from "./secretCache.js";
 
 const OPENAI_REALTIME_TRANSCRIPTION_CALLS_URL =
   "https://api.openai.com/v1/realtime/calls";
@@ -7,7 +18,7 @@ const CLOSE_TIMEOUT_MS = 5000;
 const SILENCE_FINALIZE_MS = 1000;
 const MIN_SPEECH_MS = 550;
 const SPEECH_RMS_THRESHOLD = 0.018;
-const ICE_CANDIDATE_SETTLE_MS = 60;
+const ICE_CANDIDATE_SETTLE_MS = 10;
 
 function calculateRms(samples) {
   let sum = 0;
@@ -482,11 +493,10 @@ export function useLiveConversationCapture({
       });
 
       const latest = latestValuesRef.current;
-      const clientSecretPromise = createLiveTranscriptionClientSecret({
+      const clientSecretPromise = consumeOrCreateTranscriptionSecret({
         sourceLanguage: sessionLanguages.sourceLanguage,
         targetLanguage: sessionLanguages.targetLanguage,
         authFetch: latest.authFetch,
-        forceFallback: true,
       });
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

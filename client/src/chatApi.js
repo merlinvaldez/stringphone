@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
+  import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
 function buildApiUrl(path, query = {}) {
   const params = new URLSearchParams();
@@ -424,6 +424,22 @@ export async function saveCollectionEntry(authFetch, payload) {
   if (!response.ok) {
     throw new Error(
       await parseApiError(response, "Failed to save collection entry"),
+    );
+  }
+
+  return response.json();
+}
+
+export async function updateCollectionEntry(authFetch, payload) {
+  const response = await authFetch(`${API_BASE_URL}/collections/entries`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to update collection entry"),
     );
   }
 

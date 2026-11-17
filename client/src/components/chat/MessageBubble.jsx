@@ -4,6 +4,7 @@ import { TextToSpeechButton } from "../audio/TextToSpeechButton.jsx";
 import { VoiceMessagePlayer } from "./VoiceMessagePlayer.jsx";
 import { MessageStatusPill } from "./MessageStatusPill.jsx";
 import { formatTimestamp, formatPronunciationGuide } from "../../utils.js";
+import { getTextDirectionAttrs } from "../../chatParityHelpers.js";
 
 function PronunciationGuide({ value, className }) {
   const pronunciation = formatPronunciationGuide(value);
@@ -23,6 +24,8 @@ export function MessageBubble({
   onSaveToCollection,
   uiStrings,
   baseLanguageCode = "",
+  isSaved = false,
+  isSaving = false,
 }) {
   const isSelf = message.sender === "self";
   const showOriginalPronunciation = !isSelf || message.sourceLanguageCode === "zh";
@@ -37,7 +40,14 @@ export function MessageBubble({
   const bubbleClasses = isLanguageOne
     ? "ml-auto border-emerald-500/25 bg-emerald-500/10"
     : "mr-auto border-sky-500/25 bg-sky-500/10";
-  const [saveState, setSaveState] = useState("idle");
+  const [saveState, setSaveState] = useState(isSaved ? "saved" : "idle");
+
+  const isSavedInPhrasebook = isSaved || saveState === "saved";
+  const isSavingPhrase = isSaving || saveState === "saving";
+
+  const sourceAttrs = getTextDirectionAttrs(message.sourceLanguageCode);
+  const targetAttrs = getTextDirectionAttrs(message.targetLanguageCode);
+
   const canSaveToCollection =
     typeof onSaveToCollection === "function" &&
     message.status === "ready" &&
@@ -68,11 +78,11 @@ export function MessageBubble({
   };
 
   useEffect(() => {
-    setSaveState("idle");
-  }, [message.id]);
+    setSaveState(isSaved ? "saved" : "idle");
+  }, [message.id, isSaved]);
 
   const handleSaveToCollection = async () => {
-    if (!canSaveToCollection || saveState === "saving") {
+    if (!canSaveToCollection || isSavingPhrase || isSavedInPhrasebook) {
       return;
     }
 
@@ -86,12 +96,14 @@ export function MessageBubble({
     }
   };
 
-  const saveLabel =
-    saveState === "saving"
-      ? "Saving to phrasebook"
-      : saveState === "saved"
-        ? "Saved to phrasebook"
-        : "Save to phrasebook";
+  const saveLabel = isSavingPhrase
+    ? "Saving to phrasebook"
+    : isSavedInPhrasebook
+      ? "Saved to phrasebook"
+      : "Save to phrasebook";
+
+  const isPending = message.status === "pending";
+  const hasError = message.status === "error" || Boolean(message.errorMessage);
 
   return (
     <article className={`flex w-full ${isSelf ? "justify-end" : "justify-start"}`}>
@@ -100,10 +112,21 @@ export function MessageBubble({
           className={`rounded-[1.75rem] border px-4 py-3 shadow-xl backdrop-blur-md ${bubbleClasses}`}
         >
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="pt-1">
+            <div className="flex items-center gap-2 pt-1">
               <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
                 {formatTimestamp(message.createdAt)}
               </span>
+              {isPending ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-200">
+                  <Loader2 size={10} className="animate-spin" />
+                  <span>Translating</span>
+                </span>
+              ) : null}
+              {hasError ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/20 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-300">
+                  <span>Needs retry</span>
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               {canSaveToCollection ? (
@@ -113,27 +136,27 @@ export function MessageBubble({
                     event.stopPropagation();
                     void handleSaveToCollection();
                   }}
-                  disabled={saveState === "saving"}
+                  disabled={isSavingPhrase || isSavedInPhrasebook}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
-                    saveState === "saved"
+                    isSavedInPhrasebook
                       ? "border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 hover:text-emerald-100"
                       : ""
                   } ${
-                    saveState === "saving" ? "cursor-wait opacity-60" : ""
+                    isSavingPhrase ? "cursor-wait opacity-60" : ""
                   }`}
                   title={saveLabel}
                   aria-label={saveLabel}
                 >
-                  {saveState === "saving" ? (
+                  {isSavingPhrase ? (
                     <Loader2 size={14} className="animate-spin" />
-                  ) : saveState === "saved" ? (
+                  ) : isSavedInPhrasebook ? (
                     <Check size={14} />
                   ) : (
                     <Bookmark size={14} />
                   )}
                 </button>
               ) : null}
-              {!showEmbeddedVoicePlayer ? (
+              {!showEmbeddedVoicePlayer && !isPending && !hasError ? (
                 <MessageStatusPill status={message.status} uiStrings={uiStrings} />
               ) : null}
             </div>
@@ -144,11 +167,16 @@ export function MessageBubble({
               {message.transcript ? (
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-6 text-white">{message.transcript}</p>
+                    <p
+                      dir={sourceAttrs.dir}
+                      className={`text-sm leading-6 text-white ${sourceAttrs.className}`.trim()}
+                    >
+                      {message.transcript}
+                    </p>
                     {showOriginalPronunciation ? (
                       <PronunciationGuide
                         value={message.originalPronunciation}
-                        className="mt-2 text-sm leading-6 text-zinc-300"
+                        className={`mt-2 text-sm leading-6 text-zinc-300 ${sourceAttrs.className}`.trim()}
                       />
                     ) : null}
                   </div>
@@ -171,13 +199,16 @@ export function MessageBubble({
                 <div className="border-t border-white/10 pt-3">
                   <div className="flex items-end gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-6 text-zinc-200">
+                      <p
+                        dir={targetAttrs.dir}
+                        className={`text-sm leading-6 text-zinc-200 ${targetAttrs.className}`.trim()}
+                      >
                         {message.translatedText}
                       </p>
                       {showTranslatedPronunciation ? (
                         <PronunciationGuide
                           value={message.translatedPronunciation}
-                          className="mt-2 text-xs leading-5 text-zinc-400"
+                          className={`mt-2 text-xs leading-5 text-zinc-400 ${targetAttrs.className}`.trim()}
                         />
                       ) : null}
                     </div>
@@ -199,13 +230,16 @@ export function MessageBubble({
               <div>
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-6 text-white">
+                    <p
+                      dir={sourceAttrs.dir}
+                      className={`text-sm leading-6 text-white ${sourceAttrs.className}`.trim()}
+                    >
                       {message.originalText}
                     </p>
                     {showOriginalPronunciation ? (
                       <PronunciationGuide
                         value={message.originalPronunciation}
-                        className="mt-2 text-sm leading-6 text-zinc-300"
+                        className={`mt-2 text-sm leading-6 text-zinc-300 ${sourceAttrs.className}`.trim()}
                       />
                     ) : null}
                   </div>
@@ -224,16 +258,19 @@ export function MessageBubble({
               <div className="border-t border-white/10 pt-3">
                 <div className="flex items-end gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm leading-6 text-zinc-200">
+                    <p
+                      dir={targetAttrs.dir}
+                      className={`text-sm leading-6 text-zinc-200 ${targetAttrs.className}`.trim()}
+                    >
                       {message.translatedText ||
                         (message.status === "error"
                           ? uiStrings.translationFailed
-                          : uiStrings.translatingShort)}
+                          : "Translating")}
                     </p>
                     {showTranslatedPronunciation ? (
                       <PronunciationGuide
                         value={message.translatedPronunciation}
-                        className="mt-2 text-xs leading-5 text-zinc-400"
+                        className={`mt-2 text-xs leading-5 text-zinc-400 ${targetAttrs.className}`.trim()}
                       />
                     ) : null}
                   </div>
@@ -251,9 +288,16 @@ export function MessageBubble({
             </div>
           )}
 
-          {message.errorMessage ? (
+          {hasError ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
-              <span className="text-xs text-rose-200">{message.errorMessage}</span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-300">
+                  Needs retry
+                </span>
+                {message.errorMessage ? (
+                  <span className="text-xs text-rose-200">{message.errorMessage}</span>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => onRetry(message)}

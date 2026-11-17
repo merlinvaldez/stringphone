@@ -10,6 +10,8 @@ export function ChatThread({
   onSaveToCollection,
   uiStrings,
   baseLanguageCode,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
 }) {
   const threadRef = useRef(null);
   const messageContentVersion = messages
@@ -34,6 +36,17 @@ export function ChatThread({
     return <ChatEmptyState />;
   }
 
+  const checkIsSaved = (id) => {
+    if (!savedSourceMessageIds || !id) return false;
+    if (savedSourceMessageIds instanceof Set) {
+      return savedSourceMessageIds.has(id);
+    }
+    if (Array.isArray(savedSourceMessageIds)) {
+      return savedSourceMessageIds.includes(id);
+    }
+    return false;
+  };
+
   return (
     <div
       ref={threadRef}
@@ -50,6 +63,8 @@ export function ChatThread({
             onSaveToCollection={onSaveToCollection}
             uiStrings={uiStrings}
             baseLanguageCode={baseLanguageCode}
+            isSaved={checkIsSaved(message.id)}
+            isSaving={savingMessageId === message.id}
           />
         ))}
       </div>

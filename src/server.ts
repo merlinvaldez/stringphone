@@ -56,6 +56,7 @@ import {
   getLanguageCollectionForUser,
   listLanguageCollectionsForUser,
   saveLanguageCollectionEntryForUser,
+  updateLanguageCollectionEntryForUser,
 } from "./services/languageCollections.js";
 
 const app = express();
@@ -690,6 +691,37 @@ app.delete(
           error instanceof Error
             ? error.message
             : "Failed to archive collection entry",
+      });
+    }
+  },
+);
+
+app.patch(
+  "/collections/entries",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      return res.status(200).json(
+        await updateLanguageCollectionEntryForUser({
+          userId: authenticatedRequest.appUser.id,
+          body: req.body,
+        }),
+      );
+    } catch (error) {
+      console.error("Failed to update collection entry", error);
+      return res.status(
+        error instanceof CollectionRequestError ? error.status : 500,
+      ).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to update collection entry",
       });
     }
   },

@@ -21,6 +21,8 @@ export function ChatScreen({
   onAudioPlay,
   onPlayTranslatedSpeech,
   onSaveToCollection,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   sharedRoomSession,
   sharedRoom,
   sharedRoomStatus,
@@ -32,12 +34,14 @@ export function ChatScreen({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
   onOpenSidebar,
+  onLeaveSharedRoom,
   liveCaptureState,
   setLiveCaptureState,
   authFetch,
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  onBeforeCapture,
 }) {
   const mountedRef = useRef(true);
   const [composerText, setComposerText] = useState("");
@@ -86,6 +90,7 @@ export function ChatScreen({
     onLiveTranscript: (payload) =>
       onLiveTranscript?.(addCaptureContext(payload)),
     onLiveCaptureClosed,
+    onBeforeCapture,
   });
   const liveStatus = liveCaptureState?.status ?? "idle";
   const liveIsActive =
@@ -209,6 +214,7 @@ export function ChatScreen({
         onToggleSharedRoom={onToggleSharedRoom}
         onCopySharedRoomInvite={onCopySharedRoomInvite}
         onOpenSidebar={onOpenSidebar}
+        onLeaveSharedRoom={onLeaveSharedRoom}
       />
 
       {sharedRoomError ? (
@@ -226,6 +232,8 @@ export function ChatScreen({
           onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
           baseLanguageCode={myLang.code}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
         />
       </div>
 
