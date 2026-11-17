@@ -3,8 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
+  ArrowLeftRight,
   ArrowRight,
   Bookmark,
+  Check,
   Copy,
   Ear,
   Loader2,
@@ -76,6 +78,12 @@ import { LearningScreen } from "./components/learning/LearningScreen.jsx";
 import { translateTextMessage, translateVoiceMessage } from './chatApi.js';
 import { formatTimestamp, formatDuration, formatPronunciationGuide } from './utils.js';
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
+import { createLocalStore, createIndexedDbDriver } from "./localStore.js";
+import {
+  getCarouselMessages,
+  getTranscriptCardControlFlags,
+  getTextDirectionAttrs,
+} from "./chatParityHelpers.js";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
@@ -1376,19 +1384,31 @@ const TranscriptCard = React.forwardRef(
       onActivate,
       onAudioPlay,
       onPlayTranslatedSpeech,
+      onSaveToPhrasebook,
+      isSavedInPhrasebook = false,
+      isSavingPhrase = false,
+      savedSourceMessageIds = null,
+      savingMessageId = null,
       uiStrings,
     },
     ref,
   ) => {
+    const sourceAttrs = getTextDirectionAttrs(message.sourceLanguageCode);
+    const targetAttrs = getTextDirectionAttrs(message.targetLanguageCode);
+
     const sourceLine = {
       label: message.sourceLanguageLabel ?? "Original",
+      languageCode: message.sourceLanguageCode,
       text: message.transcript || message.originalText || "",
       pronunciation: formatPronunciationGuide(message.originalPronunciation),
+      attrs: sourceAttrs,
     };
     const translatedLine = {
       label: message.targetLanguageLabel ?? "Translation",
+      languageCode: message.targetLanguageCode,
       text: message.translatedText || "",
       pronunciation: formatPronunciationGuide(message.translatedPronunciation),
+      attrs: targetAttrs,
     };
     const visualLines =
       message.sourceLanguageCode === viewerLanguageCode
@@ -1396,10 +1416,23 @@ const TranscriptCard = React.forwardRef(
         : [translatedLine, sourceLine];
     const lines = isRotated ? [...visualLines].reverse() : visualLines;
     const [primaryLine, secondaryLine] = lines;
-    const shouldPlayOriginal =
-      playbackMode === "original" || playbackMode === "both";
-    const shouldPlayTranslated =
-      playbackMode === "translated" || playbackMode === "both";
+
+    const { showSourcePlayer, showTranslationPlayer, canSaveToPhrasebook } =
+      getTranscriptCardControlFlags(
+        message,
+        playbackMode,
+        Boolean(onSaveToPhrasebook),
+      );
+
+    const isSaved = Boolean(
+      isSavedInPhrasebook ||
+        (savedSourceMessageIds &&
+          (savedSourceMessageIds instanceof Set
+            ? savedSourceMessageIds.has(message.id)
+            : savedSourceMessageIds.includes(message.id))),
+    );
+    const isSaving = isSavingPhrase || savingMessageId === message.id;
+
     const translatedSpeechUiStrings = {
       ...uiStrings,
       playAudio: "Play AI-generated translated audio",
@@ -1423,7 +1456,10 @@ const TranscriptCard = React.forwardRef(
           />
           <span>{primaryLine.label}</span>
         </div>
-        <p className="mb-1 text-base font-medium leading-snug tracking-tight text-white md:text-2xl sm:mb-2">
+        <p
+          dir={primaryLine.attrs.dir}
+          className={`mb-1 text-base font-medium leading-snug tracking-tight text-white md:text-2xl sm:mb-2 ${primaryLine.attrs.className}`.trim()}
+        >
           &ldquo;{primaryLine.text}&rdquo;
         </p>
         {primaryLine.pronunciation ? (
@@ -1431,7 +1467,10 @@ const TranscriptCard = React.forwardRef(
             ({primaryLine.pronunciation})
           </p>
         ) : null}
-        <p className="text-xs text-zinc-400 md:text-base">
+        <p
+          dir={secondaryLine.attrs.dir}
+          className={`text-xs text-zinc-400 md:text-base ${secondaryLine.attrs.className}`.trim()}
+        >
           &ldquo;{secondaryLine.text}&rdquo;
         </p>
         {secondaryLine.pronunciation ? (
@@ -1440,7 +1479,44 @@ const TranscriptCard = React.forwardRef(
           </p>
         ) : null}
         <div className="mt-3 flex items-center justify-center gap-2">
-          {shouldPlayOriginal && message.audioUrl ? (
+          {canSaveToPhrasebook ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSaveToPhrasebook?.(message.id, message);
+              }}
+              disabled={isSaved || isSaving}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+                isSaved
+                  ? "border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10 hover:text-emerald-100"
+                  : ""
+              } ${isSaving ? "cursor-wait opacity-60" : ""}`}
+              title={
+                isSaved
+                  ? "Saved to phrasebook"
+                  : isSaving
+                    ? "Saving to phrasebook"
+                    : "Save to Phrasebook"
+              }
+              aria-label={
+                isSaved
+                  ? "Saved to phrasebook"
+                  : isSaving
+                    ? "Saving to phrasebook"
+                    : "Save to Phrasebook"
+              }
+            >
+              {isSaving ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : isSaved ? (
+                <Check size={14} className="text-emerald-300" />
+              ) : (
+                <Bookmark size={14} />
+              )}
+            </button>
+          ) : null}
+          {showSourcePlayer && message.audioUrl ? (
             <VoiceMessagePlayer
               audioUrl={message.audioUrl}
               onAudioPlay={(audioElement) => {
@@ -1455,7 +1531,7 @@ const TranscriptCard = React.forwardRef(
               }}
             />
           ) : null}
-          {shouldPlayTranslated && message.translatedText && onPlayTranslatedSpeech ? (
+          {showTranslationPlayer && message.translatedText && onPlayTranslatedSpeech ? (
             <TextToSpeechButton
               text={message.translatedText}
               languageCode={message.targetLanguageCode}
@@ -1482,6 +1558,11 @@ function TranscriptCarousel({
   onAudioPlay,
   onPlayTranslatedSpeech,
   onActivate,
+  onSaveToPhrasebook,
+  isSavedInPhrasebook = false,
+  isSavingPhrase = false,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   uiStrings,
   className = "",
 }) {
@@ -1541,6 +1622,11 @@ function TranscriptCarousel({
                 onActivate={() => onActivate?.(message)}
                 onAudioPlay={onAudioPlay}
                 onPlayTranslatedSpeech={onPlayTranslatedSpeech}
+                onSaveToPhrasebook={onSaveToPhrasebook}
+                isSavedInPhrasebook={isSavedInPhrasebook}
+                isSavingPhrase={isSavingPhrase}
+                savedSourceMessageIds={savedSourceMessageIds}
+                savingMessageId={savingMessageId}
                 uiStrings={uiStrings}
               />
             );
@@ -1570,6 +1656,11 @@ function UserSection({
   onActivate,
   onStartInteraction,
   onStopInteraction,
+  onSaveToPhrasebook = null,
+  isSavedInPhrasebook = false,
+  isSavingPhrase = false,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   captureStatus = "idle",
 }) {
   const uiStrings = useUiStrings(language);
@@ -1712,6 +1803,11 @@ function UserSection({
             onAudioPlay={onAudioPlay}
             onPlayTranslatedSpeech={onPlayTranslatedSpeech}
             onActivate={onActivate}
+            onSaveToPhrasebook={onSaveToPhrasebook}
+            isSavedInPhrasebook={isSavedInPhrasebook}
+            isSavingPhrase={isSavingPhrase}
+            savedSourceMessageIds={savedSourceMessageIds}
+            savingMessageId={savingMessageId}
             uiStrings={uiStrings}
             className="h-full"
           />
@@ -1767,6 +1863,8 @@ function ConversationScreen({
   setMyLang,
   theirLang,
   setTheirLang,
+  onInvertLanguages,
+  messages = [],
   voiceHistory,
   autoplayAudioUrl,
   submitVoiceMessage,
@@ -1775,6 +1873,9 @@ function ConversationScreen({
   onPlayTranslatedSpeech,
   onOpenSidebar,
   liveDrafts = [],
+  onSaveToPhrasebook = null,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   captureState,
   setCaptureState,
   authFetch,
@@ -1786,6 +1887,9 @@ function ConversationScreen({
   onBeforeCapture,
 }) {
   const [openLanguageSelector, setOpenLanguageSelector] = useState(null);
+  const [spinCount, setSpinCount] = useState(0);
+  const isSpinningRef = useRef(false);
+
   const flow = useLiveTurnFlow({
     myLang,
     theirLang,
@@ -1799,13 +1903,28 @@ function ConversationScreen({
     onBeforeCapture,
   });
   const activeSpeaker = flow.currentRun?.speaker ?? null;
-  const history = [
-    ...voiceHistory,
-    ...liveDrafts.filter((draft) => draft.originMode === "conversation"),
-  ].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  const history = getCarouselMessages(
+    messages && messages.length > 0 ? messages : voiceHistory || [],
+    liveDrafts,
+    "conversation",
   );
+
+  const languageControlsDisabled =
+    flow.status === "starting" ||
+    flow.status === "recording" ||
+    flow.status === "processing" ||
+    captureState?.status === "stopping" ||
+    myLang.code === theirLang.code;
+
+  const handleInvertLanguages = () => {
+    if (languageControlsDisabled || isSpinningRef.current) return;
+    isSpinningRef.current = true;
+    setSpinCount((c) => c + 1);
+    setTimeout(() => {
+      isSpinningRef.current = false;
+    }, 450);
+    onInvertLanguages?.();
+  };
 
   return (
     <div
@@ -1868,15 +1987,39 @@ function ConversationScreen({
           })
         }
         onStopInteraction={flow.stopRecording}
+        onSaveToPhrasebook={onSaveToPhrasebook}
+        savedSourceMessageIds={savedSourceMessageIds}
+        savingMessageId={savingMessageId}
       />
 
       <div className="group relative z-10 flex h-2 w-full shrink-0 items-center justify-center landscape:h-full landscape:w-2">
         <div className="absolute inset-0 bg-zinc-950" />
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent landscape:bg-gradient-to-b" />
-        <StringPhoneBrand
-          compact
-          className="relative z-10 whitespace-nowrap landscape:-rotate-90"
-        />
+        <button
+          type="button"
+          aria-label="Invert languages"
+          disabled={languageControlsDisabled}
+          onClick={handleInvertLanguages}
+          className={`relative z-10 inline-flex items-center justify-center rounded-[1rem] p-0.5 transition ${
+            languageControlsDisabled
+              ? "cursor-not-allowed opacity-50"
+              : "hover:scale-105 active:scale-95"
+          }`}
+          title="Invert languages"
+        >
+          <div
+            style={{
+              transform: `rotate(${spinCount * 360}deg)`,
+              transition: "transform 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            className="landscape:-rotate-90"
+          >
+            <StringPhoneBrand
+              compact
+              className="whitespace-nowrap"
+            />
+          </div>
+        </button>
       </div>
 
       <UserSection
@@ -1913,6 +2056,9 @@ function ConversationScreen({
           })
         }
         onStopInteraction={flow.stopRecording}
+        onSaveToPhrasebook={onSaveToPhrasebook}
+        savedSourceMessageIds={savedSourceMessageIds}
+        savingMessageId={savingMessageId}
       />
 
       <ErrorNotice message={flow.error} onDismiss={flow.clearError} />
@@ -1935,6 +2081,7 @@ function ActionColumn({
   onStart,
   onStop,
   isFinalizing = false,
+  hideLanguageSelector = false,
 }) {
   const inactive =
     !isFinalizing && status !== "idle" && activeAction !== action;
@@ -2011,16 +2158,18 @@ function ActionColumn({
         </button>
       </div>
 
-      <LanguageSelector
-        selected={language}
-        onSelect={setLanguage}
-        options={languageOptions}
-        orientation="up"
-        disabled={isFinalizing || status !== "idle"}
-        searchPlaceholder={uiStrings.searchLanguages}
-        isOpen={languageMenuOpen}
-        onOpenChange={onLanguageMenuOpenChange}
-      />
+      {!hideLanguageSelector ? (
+        <LanguageSelector
+          selected={language}
+          onSelect={setLanguage}
+          options={languageOptions}
+          orientation="up"
+          disabled={isFinalizing || status !== "idle"}
+          searchPlaceholder={uiStrings.searchLanguages}
+          isOpen={languageMenuOpen}
+          onOpenChange={onLanguageMenuOpenChange}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2030,6 +2179,8 @@ function SingleModeScreen({
   setMyLang,
   theirLang,
   setTheirLang,
+  onInvertLanguages,
+  messages = [],
   voiceHistory,
   autoplayAudioUrl,
   submitVoiceMessage,
@@ -2038,6 +2189,9 @@ function SingleModeScreen({
   onPlayTranslatedSpeech,
   onOpenSidebar,
   liveDrafts = [],
+  onSaveToPhrasebook = null,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   captureState,
   setCaptureState,
   authFetch,
@@ -2065,11 +2219,10 @@ function SingleModeScreen({
   const screenLanguage = activeAction === "listen" ? theirLang : myLang;
   const screenUiStrings = useUiStrings(screenLanguage);
   const isFinalizing = captureState?.status === "stopping";
-  const history = [...voiceHistory, ...liveDrafts.filter(
-    (draft) => draft.originMode === "single",
-  )].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  const history = getCarouselMessages(
+    messages && messages.length > 0 ? messages : voiceHistory || [],
+    liveDrafts,
+    "single",
   );
   const hasHistory = history.length > 0;
   const hasStreamingDraft = history.some(
@@ -2079,6 +2232,9 @@ function SingleModeScreen({
     active: flow.status === "recording",
     onExpire: flow.stopRecording,
   });
+
+  const languageControlsDisabled =
+    flow.status !== "idle" || isFinalizing;
 
   return (
     <div
@@ -2112,7 +2268,7 @@ function SingleModeScreen({
           <div className="absolute top-0 flex h-8 w-full items-center justify-center text-center">
             {flow.status === "starting" ? (
               <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-sky-400">
-                Connecting...
+                CONNECTING...
               </span>
             ) : null}
 
@@ -2124,14 +2280,14 @@ function SingleModeScreen({
                   }`}
                 />
                 <span className="font-mono text-xs font-medium uppercase tracking-[0.12em] text-zinc-300">
-                  {screenUiStrings.listening} · {recordingTimer}s
+                  LISTENING · {recordingTimer}s
                 </span>
               </div>
             ) : null}
 
             {flow.status === "processing" && !isFinalizing ? (
               <span className="animate-pulse text-xs font-medium uppercase tracking-[0.2em] text-amber-400">
-                {screenUiStrings.translating}
+                TRANSLATING
               </span>
             ) : null}
           </div>
@@ -2157,6 +2313,9 @@ function SingleModeScreen({
                 onAudioPlay={onAudioPlay}
                 onPlayTranslatedSpeech={onPlayTranslatedSpeech}
                 onActivate={(message) => flow.setActiveMessageId(message.id)}
+                onSaveToPhrasebook={onSaveToPhrasebook}
+                savedSourceMessageIds={savedSourceMessageIds}
+                savingMessageId={savingMessageId}
                 uiStrings={screenUiStrings}
                 className="h-full min-h-[12rem] max-h-[28rem] sm:min-h-[18rem]"
               />
@@ -2165,61 +2324,112 @@ function SingleModeScreen({
         </div>
       </div>
 
-      <div className="mt-6 flex w-full max-w-md items-end justify-center space-x-6 sm:mt-12 md:space-x-12">
-        <ActionColumn
-          action="speak"
-          Icon={Mic}
-          language={myLang}
-          setLanguage={setMyLang}
-          languageOptions={VOICE_MODE_LANGUAGES}
-          languageMenuOpen={openLanguageSelector === "speak"}
-          onLanguageMenuOpenChange={(nextOpen) => {
-            setOpenLanguageSelector((currentOpen) =>
-              nextOpen ? "speak" : currentOpen === "speak" ? null : currentOpen,
-            );
-          }}
-          uiStrings={screenUiStrings}
-          status={flow.status}
-          activeAction={activeAction}
-          color="rose"
-          isFinalizing={isFinalizing}
-          onStart={() =>
-            flow.startRecording({
-              action: "speak",
-              sender: "self",
-              sourceLanguage: myLang,
-              targetLanguage: theirLang,
-            })
-          }
-          onStop={flow.stopRecording}
-        />
-        <ActionColumn
-          action="listen"
-          Icon={Ear}
-          language={theirLang}
-          setLanguage={setTheirLang}
-          languageOptions={VOICE_MODE_LANGUAGES}
-          languageMenuOpen={openLanguageSelector === "listen"}
-          onLanguageMenuOpenChange={(nextOpen) => {
-            setOpenLanguageSelector((currentOpen) =>
-              nextOpen ? "listen" : currentOpen === "listen" ? null : currentOpen,
-            );
-          }}
-          uiStrings={screenUiStrings}
-          status={flow.status}
-          activeAction={activeAction}
-          color="indigo"
-          isFinalizing={isFinalizing}
-          onStart={() =>
-            flow.startRecording({
-              action: "listen",
-              sender: "partner",
-              sourceLanguage: theirLang,
-              targetLanguage: myLang,
-            })
-          }
-          onStop={flow.stopRecording}
-        />
+      <div className="mt-6 flex w-full max-w-md flex-col items-center sm:mt-12">
+        <div className="flex w-full items-end justify-center space-x-6 md:space-x-12">
+          <ActionColumn
+            action="speak"
+            Icon={Mic}
+            language={myLang}
+            setLanguage={setMyLang}
+            languageOptions={VOICE_MODE_LANGUAGES}
+            languageMenuOpen={openLanguageSelector === "speak"}
+            onLanguageMenuOpenChange={(nextOpen) => {
+              setOpenLanguageSelector((currentOpen) =>
+                nextOpen ? "speak" : currentOpen === "speak" ? null : currentOpen,
+              );
+            }}
+            uiStrings={screenUiStrings}
+            status={flow.status}
+            activeAction={activeAction}
+            color="rose"
+            isFinalizing={isFinalizing}
+            hideLanguageSelector
+            onStart={() =>
+              flow.startRecording({
+                action: "speak",
+                sender: "self",
+                sourceLanguage: myLang,
+                targetLanguage: theirLang,
+              })
+            }
+            onStop={flow.stopRecording}
+          />
+          <ActionColumn
+            action="listen"
+            Icon={Ear}
+            language={theirLang}
+            setLanguage={setTheirLang}
+            languageOptions={VOICE_MODE_LANGUAGES}
+            languageMenuOpen={openLanguageSelector === "listen"}
+            onLanguageMenuOpenChange={(nextOpen) => {
+              setOpenLanguageSelector((currentOpen) =>
+                nextOpen ? "listen" : currentOpen === "listen" ? null : currentOpen,
+              );
+            }}
+            uiStrings={screenUiStrings}
+            status={flow.status}
+            activeAction={activeAction}
+            color="indigo"
+            isFinalizing={isFinalizing}
+            hideLanguageSelector
+            onStart={() =>
+              flow.startRecording({
+                action: "listen",
+                sender: "partner",
+                sourceLanguage: theirLang,
+                targetLanguage: myLang,
+              })
+            }
+            onStop={flow.stopRecording}
+          />
+        </div>
+
+        <div className="mt-6 flex w-full max-w-sm items-center justify-center gap-3">
+          <div className="flex-1">
+            <LanguageSelector
+              selected={myLang}
+              onSelect={setMyLang}
+              options={VOICE_MODE_LANGUAGES}
+              orientation="up"
+              disabled={languageControlsDisabled}
+              searchPlaceholder={screenUiStrings.searchLanguages}
+              isOpen={openLanguageSelector === "speak"}
+              onOpenChange={(nextOpen) => {
+                setOpenLanguageSelector(nextOpen ? "speak" : null);
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            aria-label="Invert languages"
+            disabled={languageControlsDisabled || myLang.code === theirLang.code}
+            onClick={onInvertLanguages}
+            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
+              languageControlsDisabled || myLang.code === theirLang.code
+                ? "cursor-not-allowed opacity-40"
+                : "active:scale-95"
+            }`}
+            title="Invert languages"
+          >
+            <ArrowLeftRight size={16} />
+          </button>
+
+          <div className="flex-1">
+            <LanguageSelector
+              selected={theirLang}
+              onSelect={setTheirLang}
+              options={VOICE_MODE_LANGUAGES}
+              orientation="up"
+              disabled={languageControlsDisabled}
+              searchPlaceholder={screenUiStrings.searchLanguages}
+              isOpen={openLanguageSelector === "listen"}
+              onOpenChange={(nextOpen) => {
+                setOpenLanguageSelector(nextOpen ? "listen" : null);
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       <ErrorNotice message={flow.error} onDismiss={flow.clearError} />
@@ -2453,6 +2663,133 @@ export default function StringPhoneApp() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  const localStore = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return createLocalStore({
+        driver: createIndexedDbDriver(),
+      });
+    } catch (err) {
+      console.error("Failed to initialize localStore", err);
+      return null;
+    }
+  }, []);
+  const [activeLocalConversationId, setActiveLocalConversationId] = useState(null);
+  const [savedSourceMessageIds, setSavedSourceMessageIds] = useState(() => new Set());
+  const [savingMessageId, setSavingMessageId] = useState(null);
+  const blobUrlsRef = useRef(new Map());
+
+  const getOrCreateBlobUrl = (audioId, blob) => {
+    if (!audioId && !blob) return "";
+    const key = audioId || (blob ? `blob_${Math.random()}` : "");
+    if (blobUrlsRef.current.has(key)) {
+      return blobUrlsRef.current.get(key);
+    }
+    if (blob instanceof Blob) {
+      const url = URL.createObjectURL(blob);
+      blobUrlsRef.current.set(key, url);
+      return url;
+    }
+    return "";
+  };
+
+  const revokeAllBlobUrls = () => {
+    blobUrlsRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        // ignore
+      }
+    });
+    blobUrlsRef.current.clear();
+  };
+
+  useEffect(() => {
+    return () => {
+      revokeAllBlobUrls();
+    };
+  }, []);
+
+  const loadGuestConversation = async (conversationId) => {
+    if (!localStore || !conversationId) return;
+    try {
+      const conv = await localStore.getConversation(conversationId);
+      if (conv) {
+        setActiveLocalConversationId(conv.id);
+        await localStore.setActiveConversationId(conv.id);
+        if (conv.myLanguageCode) setMyLang(getLanguageOption(conv.myLanguageCode));
+        if (conv.theirLanguageCode) setTheirLang(getLanguageOption(conv.theirLanguageCode));
+      }
+      const rawMessages = await localStore.listMessages(conversationId);
+      const loadedMessages = await Promise.all(
+        rawMessages.map(async (msg) => {
+          let audioUrl = msg.audioUrl;
+          if (msg.sourceAudioId && !audioUrl) {
+            const asset = await localStore.getAudioAsset(msg.sourceAudioId);
+            if (asset?.blob) {
+              audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
+            }
+          }
+          return {
+            ...msg,
+            audioUrl: audioUrl || "",
+          };
+        }),
+      );
+      replaceMessages(loadedMessages);
+    } catch (err) {
+      console.error("Failed to load guest conversation", err);
+    }
+  };
+
+  const refreshSavedSourceMessageIds = async () => {
+    if (!isSignedIn && localStore) {
+      try {
+        const savedIds = await localStore.listSavedSourceMessageIds();
+        setSavedSourceMessageIds(savedIds);
+      } catch (err) {
+        console.error("Failed to refresh savedSourceMessageIds", err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (appMode !== "lesson") {
+      void refreshSavedSourceMessageIds();
+    }
+  }, [appMode, isSignedIn]);
+
+  useEffect(() => {
+    if (!isSignedIn && localStore) {
+      let active = true;
+      (async () => {
+        try {
+          const prefs = localStore.getPreferences();
+          if (prefs.myLanguageCode) setMyLang(getLanguageOption(prefs.myLanguageCode));
+          if (prefs.theirLanguageCode) setTheirLang(getLanguageOption(prefs.theirLanguageCode));
+          if (prefs.ttsVoice) setTtsVoice(prefs.ttsVoice);
+
+          const savedIds = await localStore.listSavedSourceMessageIds();
+          if (active) setSavedSourceMessageIds(savedIds);
+
+          if (prefs.activeConversationId) {
+            await loadGuestConversation(prefs.activeConversationId);
+          } else {
+            const convs = await localStore.listConversations();
+            if (convs.length > 0) {
+              await loadGuestConversation(convs[0].id);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to initialize guest store", err);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }
+  }, [isSignedIn, localStore]);
 
   useEffect(() => {
     if (!isAuthLoaded || !isUserLoaded || hasRestoredAuthReturnStateRef.current) {
@@ -2945,6 +3282,9 @@ export default function StringPhoneApp() {
     text,
     languageCode,
     speechVoice = null,
+    ownerKind = "message",
+    ownerId = null,
+    role = "translated",
   }) => {
     const trimmedText = typeof text === "string" ? text.trim() : "";
     const normalizedLanguageCode =
@@ -2966,13 +3306,38 @@ export default function StringPhoneApp() {
     const previousAudioUrl = generatedSpeechPlaybackUrlRef.current;
  
     try {
-      const audioBlob = await fetchOutputSpeech({
-        text: trimmedText,
-        language: normalizedLanguageCode,
-        speechVoice,
-        authFetch: isSignedIn ? authFetch : undefined,
-        signal: abortController.signal,
-      });
+      const activeVoice = speechVoice || ttsVoice;
+      const cacheKey =
+        !isSignedIn && localStore && ownerId
+          ? `${ownerKind}:${ownerId}:${role}:${activeVoice}`
+          : null;
+
+      let audioBlob = null;
+      if (cacheKey) {
+        try {
+          audioBlob = await localStore.getCachedTtsAudio(cacheKey);
+        } catch (e) {
+          console.error("Failed to read TTS cache", e);
+        }
+      }
+
+      if (!audioBlob) {
+        audioBlob = await fetchOutputSpeech({
+          text: trimmedText,
+          language: normalizedLanguageCode,
+          speechVoice: activeVoice,
+          authFetch: isSignedIn ? authFetch : undefined,
+          signal: abortController.signal,
+        });
+
+        if (cacheKey && audioBlob) {
+          try {
+            void localStore.putCachedTtsAudio(cacheKey, audioBlob);
+          } catch (e) {
+            console.error("Failed to store TTS cache", e);
+          }
+        }
+      }
 
       if (
         abortController.signal.aborted ||
@@ -3384,6 +3749,37 @@ export default function StringPhoneApp() {
         return null;
       })) ?? currentConversationId;
 
+    let localConvId = activeLocalConversationId;
+    if (!isSignedIn && localStore) {
+      if (!localConvId) {
+        try {
+          const newConv = await localStore.createConversation({
+            originMode: originMode || appMode || "chat",
+            myLanguageCode: sourceLanguage.code,
+            theirLanguageCode: targetLanguage.code,
+          });
+          localConvId = newConv.id;
+          setActiveLocalConversationId(newConv.id);
+          await localStore.setActiveConversationId(newConv.id);
+        } catch (e) {
+          console.error("Failed to create local conversation", e);
+        }
+      }
+      if (localConvId) {
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          originMode: originMode || appMode || "chat",
+          speaker: sender,
+          kind: "text",
+          status: "pending",
+          originalText: trimmedText,
+          sourceLanguageCode: sourceSnapshot.code,
+          targetLanguageCode: targetSnapshot.code,
+        });
+      }
+    }
+
     try {
       const data = await translateTextMessage({
         text: trimmedText,
@@ -3400,6 +3796,18 @@ export default function StringPhoneApp() {
         translatedPronunciation: data.translatedPronunciation,
         errorMessage: "",
       });
+
+      if (!isSignedIn && localStore && localConvId) {
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          status: "ready",
+          originalText: data.originalText,
+          originalPronunciation: data.originalPronunciation ?? "",
+          translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
+        });
+      }
 
       if (conversationId) {
         void persistConversationLanguages(
@@ -3428,6 +3836,15 @@ export default function StringPhoneApp() {
         status: "error",
         errorMessage: translationError.message,
       });
+
+      if (!isSignedIn && localStore && localConvId) {
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          status: "error",
+          errorMessage: translationError.message,
+        });
+      }
     }
 
     return { messageId };
@@ -3512,6 +3929,46 @@ export default function StringPhoneApp() {
         return null;
       })) ?? currentConversationId;
 
+    let localConvId = activeLocalConversationId;
+    let initialSourceAudioId = null;
+    if (!isSignedIn && localStore) {
+      if (!localConvId) {
+        try {
+          const newConv = await localStore.createConversation({
+            originMode: originMode || appMode || "chat",
+            myLanguageCode: sourceLanguage.code,
+            theirLanguageCode: targetLanguage.code,
+          });
+          localConvId = newConv.id;
+          setActiveLocalConversationId(newConv.id);
+          await localStore.setActiveConversationId(newConv.id);
+        } catch (e) {
+          console.error("Failed to create local conversation", e);
+        }
+      }
+      if (recording?.blob) {
+        try {
+          initialSourceAudioId = await localStore.saveAudioAsset(recording.blob);
+        } catch (e) {
+          console.error("Failed to save recording audio asset", e);
+        }
+      }
+      if (localConvId) {
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          originMode: originMode || appMode || "chat",
+          speaker: sender,
+          kind: "voice",
+          status: "pending",
+          originalText: "",
+          sourceLanguageCode: sourceSnapshot.code,
+          targetLanguageCode: targetSnapshot.code,
+          sourceAudioId: initialSourceAudioId,
+        });
+      }
+    }
+
     try {
       const data = await translateVoiceMessage({
         recording,
@@ -3540,6 +3997,28 @@ export default function StringPhoneApp() {
         audioUrl,
         errorMessage: "",
       });
+
+      if (!isSignedIn && localStore && localConvId) {
+        let finalSourceAudioId = initialSourceAudioId;
+        if (audioBlob) {
+          try {
+            finalSourceAudioId = await localStore.saveAudioAsset(audioBlob);
+          } catch (e) {
+            console.error("Failed to save voice audio blob asset", e);
+          }
+        }
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          status: "ready",
+          originalText: data.transcript,
+          originalPronunciation: data.originalPronunciation ?? "",
+          transcript: data.transcript,
+          translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
+          sourceAudioId: finalSourceAudioId || undefined,
+        });
+      }
 
       if (conversationId) {
         void persistConversationLanguages(
@@ -3570,6 +4049,16 @@ export default function StringPhoneApp() {
         status: "error",
         errorMessage: translationError.message,
       });
+
+      if (!isSignedIn && localStore && localConvId) {
+        await localStore.saveMessage({
+          id: messageId,
+          conversationId: localConvId,
+          status: "error",
+          errorMessage: translationError.message,
+        });
+      }
+
       return { messageId, audioUrl: "" };
     }
   };
@@ -4027,6 +4516,50 @@ export default function StringPhoneApp() {
           }
           draft.audioUrlTransferred = Boolean(draft.audioUrl);
 
+          if (!isSignedIn && localStore) {
+            let localConvId = activeLocalConversationId;
+            if (!localConvId) {
+              try {
+                const newConv = await localStore.createConversation({
+                  originMode: finalMessage.originMode,
+                  myLanguageCode: conversationSourceLanguage.code,
+                  theirLanguageCode: conversationTargetLanguage.code,
+                });
+                localConvId = newConv.id;
+                setActiveLocalConversationId(newConv.id);
+                await localStore.setActiveConversationId(newConv.id);
+              } catch (e) {
+                console.error("Failed to create local conversation", e);
+              }
+            }
+            let sourceAudioId = null;
+            if (audioBlob) {
+              try {
+                sourceAudioId = await localStore.saveAudioAsset(audioBlob);
+              } catch (e) {
+                console.error("Failed to save audio asset", e);
+              }
+            }
+            if (localConvId) {
+              await localStore.saveMessage({
+                id: draft.messageId || finalMessage.id || utteranceId,
+                conversationId: localConvId,
+                originMode: finalMessage.originMode,
+                speaker: finalMessage.sender,
+                kind: finalMessage.kind,
+                status: finalMessage.status,
+                originalText: finalMessage.originalText,
+                originalPronunciation: finalMessage.originalPronunciation,
+                translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
+                transcript: finalMessage.transcript,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceAudioId: sourceAudioId || undefined,
+              });
+            }
+          }
+
           setLiveCaptureStateWithPatch({
             activeSpeaker: finalMessage.sender,
             activeLanguageCode: finalMessage.sourceLanguageCode,
@@ -4050,6 +4583,15 @@ export default function StringPhoneApp() {
               status: "error",
               errorMessage: message,
               retryPayload,
+            });
+          }
+
+          if (!isSignedIn && localStore && activeLocalConversationId) {
+            await localStore.saveMessage({
+              id: draft.messageId || utteranceId,
+              conversationId: activeLocalConversationId,
+              status: "error",
+              errorMessage: message,
             });
           }
           setLiveCaptureStateWithPatch({
@@ -4341,7 +4883,7 @@ export default function StringPhoneApp() {
     await retryMessage(message);
   };
 
-  const leaveSharedRoom = () => {
+  const leaveSharedRoom = async () => {
     setSharedRoomCopyNotice("");
     setModeLockNotice(null);
     setSharedRoomError("");
@@ -4352,6 +4894,40 @@ export default function StringPhoneApp() {
     setSharedRoomMessages([]);
     setPendingInviteToken("");
     syncSharedRoomInviteToken("");
+
+    if (!isSignedIn && localStore) {
+      try {
+        const prefs = localStore.getPreferences();
+        const targetId = activeLocalConversationId || prefs.activeConversationId;
+        if (targetId) {
+          const conv = await localStore.getConversation(targetId);
+          if (conv) {
+            setActiveLocalConversationId(conv.id);
+            await localStore.setActiveConversationId(conv.id);
+            if (conv.myLanguageCode) setMyLang(getLanguageOption(conv.myLanguageCode));
+            if (conv.theirLanguageCode) setTheirLang(getLanguageOption(conv.theirLanguageCode));
+          }
+          const rawMessages = await localStore.listMessages(targetId);
+          const loadedMessages = await Promise.all(
+            rawMessages.map(async (msg) => {
+              let audioUrl = msg.audioUrl;
+              if (msg.sourceAudioId && !audioUrl) {
+                const asset = await localStore.getAudioAsset(msg.sourceAudioId);
+                if (asset?.blob) {
+                  audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
+                }
+              }
+              return { ...msg, audioUrl: audioUrl || "" };
+            }),
+          );
+          replaceMessages(loadedMessages);
+        } else {
+          clearMessages();
+        }
+      } catch (err) {
+        console.error("Failed to restore guest conversation on leaving shared room", err);
+      }
+    }
   };
 
   const mapConversationMessages = (dbMessages, conversation) => {
@@ -4395,11 +4971,20 @@ export default function StringPhoneApp() {
   };
 
   const openSavedConversation = async (conversation) => {
-    const dbMessages = await fetchMessages(authFetch, conversation.id);
-
     if (sharedRoomSession) {
-      leaveSharedRoom();
+      await leaveSharedRoom();
     }
+
+    if (!isSignedIn && localStore) {
+      setAppMode(resolveVisibleAppMode(conversation.originMode || "chat"));
+      await loadGuestConversation(conversation.id);
+      setActiveLesson(null);
+      setLessonBuilderConfig(null);
+      resetLiveCaptureState();
+      return;
+    }
+
+    const dbMessages = await fetchMessages(authFetch, conversation.id);
 
     setAppMode("chat");
     setMyLang(getLanguageOption(conversation.source_language));
@@ -4413,7 +4998,20 @@ export default function StringPhoneApp() {
 
   const startNewConversation = async (conversation) => {
     if (sharedRoomSession) {
-      leaveSharedRoom();
+      await leaveSharedRoom();
+    }
+
+    if (!isSignedIn && localStore) {
+      setActiveLocalConversationId(conversation.id);
+      await localStore.setActiveConversationId(conversation.id);
+      setAppMode(resolveVisibleAppMode(conversation.originMode || "chat"));
+      if (conversation.myLanguageCode) setMyLang(getLanguageOption(conversation.myLanguageCode));
+      if (conversation.theirLanguageCode) setTheirLang(getLanguageOption(conversation.theirLanguageCode));
+      resetLiveCaptureState();
+      clearMessages();
+      setActiveLesson(null);
+      setLessonBuilderConfig(null);
+      return;
     }
 
     setAppMode("chat");
@@ -4427,14 +5025,16 @@ export default function StringPhoneApp() {
   };
 
   const handleArchivedConversation = (conversationId) => {
-    if (conversationId !== currentConversationId) {
-      return;
+    if (conversationId === currentConversationId || conversationId === activeLocalConversationId) {
+      clearMessages();
+      setCurrentConversationId(null);
+      setActiveLocalConversationId(null);
+      setActiveLesson(null);
+      resetLiveCaptureState();
+      if (!isSignedIn && localStore) {
+        void localStore.setActiveConversationId(null);
+      }
     }
-
-    clearMessages();
-    setCurrentConversationId(null);
-    setActiveLesson(null);
-    resetLiveCaptureState();
   };
 
   const handleArchivedLesson = (lessonId) => {
@@ -4659,13 +5259,36 @@ export default function StringPhoneApp() {
   };
 
   const handleSaveMessageToCollection = async (message) => {
-    if (!isSignedIn) {
-      handleRequireSignIn();
-      return { saved: false };
-    }
+    if (!message) return { saved: false };
+    setSavingMessageId(message.id);
+    try {
+      if (!isSignedIn) {
+        if (!localStore) {
+          handleRequireSignIn();
+          return { saved: false };
+        }
+        let audioBlob = null;
+        if (message.sourceAudioId) {
+          const asset = await localStore.getAudioAsset(message.sourceAudioId);
+          audioBlob = asset?.blob ?? null;
+        }
+        await localStore.savePhrasebookFromMessage({
+          ...message,
+          sourceAudioBlob: audioBlob,
+        });
+        await refreshSavedSourceMessageIds();
+        return { saved: true };
+      }
 
-    await saveCollectionEntry(authFetch, buildCollectionPayloadFromMessage(message));
-    return { saved: true };
+      await saveCollectionEntry(authFetch, buildCollectionPayloadFromMessage(message));
+      await refreshSavedSourceMessageIds();
+      return { saved: true };
+    } catch (err) {
+      console.error("Failed to save message to phrasebook", err);
+      return { saved: false };
+    } finally {
+      setSavingMessageId(null);
+    }
   };
 
   const buildCollectionPayloadFromLessonVocabularyItem = ({ lesson, item }) => {
@@ -4714,11 +5337,22 @@ export default function StringPhoneApp() {
     sourceLanguage,
     targetLanguage,
   ) => {
-    await persistConversationLanguages(
-      currentConversationId,
-      sourceLanguage,
-      targetLanguage,
-    );
+    if (isSignedIn) {
+      await persistConversationLanguages(
+        currentConversationId,
+        sourceLanguage,
+        targetLanguage,
+      );
+    } else if (localStore) {
+      await localStore.setLanguagePair(sourceLanguage.code, targetLanguage.code);
+      if (activeLocalConversationId) {
+        await localStore.updateConversationLanguages(
+          activeLocalConversationId,
+          sourceLanguage.code,
+          targetLanguage.code,
+        );
+      }
+    }
   };
 
   const handleToggleSharedRoom = async () => {
@@ -4998,10 +5632,12 @@ export default function StringPhoneApp() {
             : "standard"
         }
         onRequireSignIn={handleRequireSignIn}
-        currentConversationId={currentConversationId}
+        currentConversationId={isSignedIn ? currentConversationId : activeLocalConversationId}
         onSelectConversation={openSavedConversation}
         onNewConversation={startNewConversation}
         onArchiveConversation={handleArchivedConversation}
+        localStore={localStore}
+        currentOriginMode={appMode}
         currentLessonId={null}
         onSelectLesson={(lesson) => {
           if (sharedRoomSession) {
@@ -5047,6 +5683,8 @@ export default function StringPhoneApp() {
           onAudioPlay={handleThreadAudioPlay}
           onPlayTranslatedSpeech={playTranslatedSpeech}
           onSaveToCollection={handleSaveMessageToCollection}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
           sharedRoomSession={sharedRoomSession}
           sharedRoom={sharedRoom}
           sharedRoomStatus={sharedRoomStatus}
@@ -5075,6 +5713,8 @@ export default function StringPhoneApp() {
           setMyLang={setMyLang}
           theirLang={theirLang}
           setTheirLang={setTheirLang}
+          onInvertLanguages={handleInvertChatLanguages}
+          messages={messages}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
           replayVoiceMessage={replayVoiceMessage}
@@ -5082,6 +5722,9 @@ export default function StringPhoneApp() {
           onPlayTranslatedSpeech={playTranslatedSpeech}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           liveDrafts={liveDrafts}
+          onSaveToPhrasebook={handleSaveMessageToCollection}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
           captureState={liveCaptureState}
           setCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}
@@ -5124,6 +5767,8 @@ export default function StringPhoneApp() {
           setMyLang={setMyLang}
           theirLang={theirLang}
           setTheirLang={setTheirLang}
+          onInvertLanguages={handleInvertChatLanguages}
+          messages={messages}
           voiceHistory={voiceHistory}
           autoplayAudioUrl={autoplayAudioUrl}
           replayVoiceMessage={replayVoiceMessage}
@@ -5131,6 +5776,9 @@ export default function StringPhoneApp() {
           onPlayTranslatedSpeech={playTranslatedSpeech}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           liveDrafts={liveDrafts}
+          onSaveToPhrasebook={handleSaveMessageToCollection}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
           captureState={liveCaptureState}
           setCaptureState={setLiveCaptureState}
           authFetch={isSignedIn ? authFetch : undefined}

@@ -7,8 +7,8 @@ import {
   ArrowRight,
   GraduationCap,
   MessageSquare,
-  Mic,
   MoreVertical,
+  Search,
   Trash2,
 } from "lucide-react";
 import {
@@ -21,6 +21,7 @@ import {
 } from "../../chatApi.js";
 import { useAppAuth } from "../../AuthContext.jsx";
 import { getFlagCountryCode, LanguageFlag } from "../../languageFlags.jsx";
+import { formatHistoryRowMeta } from "../../chatParityHelpers.js";
 
 const SHOW_LESSON_HISTORY = false;
 
@@ -49,10 +50,13 @@ export function ChatHistorySidebar({
   onOpenCollections,
   currentSourceLanguage,
   currentTargetLanguage,
+  localStore = null,
+  currentOriginMode = "chat",
 }) {
   const { authFetch, isSignedIn } = useAppAuth();
   const [conversations, setConversations] = useState([]);
   const [collections, setCollections] = useState([]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [archivingConversationId, setArchivingConversationId] = useState(null);
   const [archivingLessonId, setArchivingLessonId] = useState(null);
@@ -63,36 +67,18 @@ export function ChatHistorySidebar({
     getVisibleHistoryType(preferredHistoryType),
   );
   const [error, setError] = useState("");
-  const signedOutCallout =
-    signedOutContext === "voice"
-      ? {
-          Icon: Mic,
-          detail: "to save your voice",
-        }
-      : SHOW_LESSON_HISTORY && historyType === "lessons"
-        ? {
-            Icon: GraduationCap,
-            detail: "to save your lessons",
-          }
-        : historyType === "collections"
-          ? {
-              Icon: Bookmark,
-              detail: "to save your phrasebook",
-            }
-        : {
-            Icon: MessageSquare,
-            detail: "to create new conversations",
-          };
 
   useEffect(() => {
-    if (isOpen && isSignedIn) {
+    if (isOpen) {
       void loadHistory();
     }
-  }, [historyType, isOpen, isSignedIn]);
+  }, [historyType, isOpen, isSignedIn, query]);
 
   useEffect(() => {
     if (isOpen) {
       setHistoryType(getVisibleHistoryType(preferredHistoryType));
+    } else {
+      setQuery("");
     }
   }, [isOpen, preferredHistoryType]);
 
@@ -138,8 +124,27 @@ export function ChatHistorySidebar({
     try {
       setLoading(true);
       setError("");
-      const data = await fetchConversations(authFetch);
-      setConversations(data);
+      if (isSignedIn) {
+        const data = await fetchConversations(authFetch);
+        const q = query.trim().toLowerCase();
+        if (q) {
+          setConversations(
+            data.filter(
+              (c) =>
+                (c.title || "").toLowerCase().includes(q) ||
+                (c.source_language || "").toLowerCase().includes(q) ||
+                (c.target_language || "").toLowerCase().includes(q),
+            ),
+          );
+        } else {
+          setConversations(data);
+        }
+      } else if (localStore) {
+        const data = await localStore.listConversations(query);
+        setConversations(data);
+      } else {
+        setConversations([]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -151,7 +156,11 @@ export function ChatHistorySidebar({
     try {
       setLoading(true);
       setError("");
-      setLessons(await fetchLessons(authFetch));
+      if (isSignedIn) {
+        setLessons(await fetchLessons(authFetch));
+      } else {
+        setLessons([]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -163,7 +172,26 @@ export function ChatHistorySidebar({
     try {
       setLoading(true);
       setError("");
-      setCollections(await fetchCollections(authFetch));
+      if (isSignedIn) {
+        const data = await fetchCollections(authFetch);
+        const q = query.trim().toLowerCase();
+        if (q) {
+          setCollections(
+            data.filter(
+              (col) =>
+                (col.languageName || "").toLowerCase().includes(q) ||
+                (col.languageCode || "").toLowerCase().includes(q),
+            ),
+          );
+        } else {
+          setCollections(data);
+        }
+      } else if (localStore) {
+        const data = await localStore.listPhrasebookCollections(query);
+        setCollections(data);
+      } else {
+        setCollections([]);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -190,13 +218,27 @@ export function ChatHistorySidebar({
       setLoading(true);
       setError("");
       const title = "New chat";
-      const newConv = await createConversation(authFetch, {
-        title,
-        sourceLanguage: currentSourceLanguage,
-        targetLanguage: currentTargetLanguage,
-      });
-      setConversations((previous) => [newConv, ...previous]);
-      await onNewConversation(newConv);
+      if (isSignedIn) {
+        const newConv = await createConversation(authFetch, {
+          title,
+          originMode: currentOriginMode,
+          sourceLanguage: currentSourceLanguage?.code || currentSourceLanguage,
+          targetLanguage: currentTargetLanguage?.code || currentTargetLanguage,
+        });
+        setConversations((previous) => [newConv, ...previous]);
+        await onNewConversation(newConv);
+      } else if (localStore) {
+        const newConv = await localStore.createConversation({
+          originMode: currentOriginMode,
+          myLanguageCode:
+            currentSourceLanguage?.code || currentSourceLanguage || "en",
+          theirLanguageCode:
+            currentTargetLanguage?.code || currentTargetLanguage || "es",
+        });
+        await localStore.setActiveConversationId(newConv.id);
+        setConversations((previous) => [newConv, ...previous]);
+        await onNewConversation(newConv);
+      }
       onClose();
     } catch (err) {
       setError(err.message);
@@ -236,11 +278,23 @@ export function ChatHistorySidebar({
   }
 
   async function handleArchiveConversation(conversationId) {
+    if (!isSignedIn) {
+      const confirmed = window.confirm(
+        "Permanently delete this conversation and its recorded audio?",
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
     try {
       setArchivingConversationId(conversationId);
       setError("");
       setOpenConversationMenuId(null);
-      await archiveConversation(authFetch, conversationId);
+      if (isSignedIn) {
+        await archiveConversation(authFetch, conversationId);
+      } else if (localStore) {
+        await localStore.deleteConversation(conversationId);
+      }
       await Promise.resolve(onArchiveConversation?.(conversationId));
       setConversations((previous) =>
         previous.filter((conversation) => conversation.id !== conversationId),
@@ -268,22 +322,27 @@ export function ChatHistorySidebar({
   }
 
   function getDisplayTitle(conversation) {
-    const title = (conversation.title ?? "")
+    const rawTitle = conversation.title ?? "";
+    const title = rawTitle
       .replace(/^[A-Z]{2}\s*(?:->|\u2192)\s*[A-Z]{2}\s+/i, "")
       .trim();
 
     return title || "New chat";
   }
 
-function renderConversationFlags(conversation) {
-    const sourceCountryCode = getFlagCountryCode(conversation.source_language);
-    const targetCountryCode = getFlagCountryCode(conversation.target_language);
+  function renderConversationFlags(conversation) {
+    const sourceLang =
+      conversation.source_language || conversation.myLanguageCode || "en";
+    const targetLang =
+      conversation.target_language || conversation.theirLanguageCode || "es";
+    const sourceCountryCode = getFlagCountryCode(sourceLang);
+    const targetCountryCode = getFlagCountryCode(targetLang);
 
     return (
       <div className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1">
         <LanguageFlag
           countryCode={sourceCountryCode}
-          label={conversation.source_language}
+          label={sourceLang}
           className="h-4 w-5"
         />
         <ArrowRight
@@ -293,7 +352,7 @@ function renderConversationFlags(conversation) {
         />
         <LanguageFlag
           countryCode={targetCountryCode}
-          label={conversation.target_language}
+          label={targetLang}
           className="h-4 w-5"
         />
       </div>
@@ -324,7 +383,7 @@ function renderConversationFlags(conversation) {
 
   if (!isOpen) return null;
 
-  const actionButton = isSignedIn ? (
+  const actionButton =
     historyType === "chats" ? (
       <button
         onClick={handleNewConversation}
@@ -352,26 +411,7 @@ function renderConversationFlags(conversation) {
         <GraduationCap size={18} />
         New lesson
       </button>
-    )
-  ) : (
-    <button
-      type="button"
-      onClick={onRequireSignIn}
-      className="flex w-full items-center gap-3 rounded-[1.5rem] border border-emerald-300/16 bg-[linear-gradient(135deg,rgba(16,185,129,0.12),rgba(24,24,27,0.88))] px-3.5 py-3 text-left shadow-[0_18px_40px_rgba(0,0,0,0.22)] ring-1 ring-inset ring-white/5 transition hover:border-emerald-300/24 hover:bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(24,24,27,0.92))] focus:outline-none focus:ring-2 focus:ring-emerald-300/25"
-    >
-      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[1rem] border border-emerald-300/20 bg-emerald-400/[0.12] text-emerald-100 shadow-[0_0_24px_rgba(16,185,129,0.10)]">
-        <signedOutCallout.Icon size={20} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-emerald-100/90">
-          Sign in
-        </span>
-        <span className="mt-1 block text-sm font-medium text-zinc-200">
-          {signedOutCallout.detail}
-        </span>
-      </span>
-    </button>
-  );
+    );
 
   return (
     <>
@@ -449,6 +489,33 @@ function renderConversationFlags(conversation) {
 
         <div className="border-b border-white/10 p-4">
           {actionButton}
+          <div className="relative mt-3">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                historyType === "collections"
+                  ? "Search phrasebook"
+                  : "Search titles or messages"
+              }
+              className="w-full rounded-xl border border-white/10 bg-black/25 py-2 pl-8 pr-8 text-xs text-zinc-200 placeholder:text-zinc-500 focus:border-emerald-500/40 focus:outline-none"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-zinc-400 hover:text-white"
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -458,231 +525,255 @@ function renderConversationFlags(conversation) {
             </div>
           )}
 
-          {loading && ((historyType === "chats" && conversations.length === 0) || (historyType === "lessons" && lessons.length === 0) || (historyType === "collections" && collections.length === 0)) && (
-            <div className="flex justify-center p-8">
-              <Loader2 size={24} className="animate-spin text-zinc-500" />
-            </div>
-          )}
+          {loading &&
+            ((historyType === "chats" && conversations.length === 0) ||
+              (historyType === "lessons" && lessons.length === 0) ||
+              (historyType === "collections" && collections.length === 0)) && (
+              <div className="flex justify-center p-8">
+                <Loader2 size={24} className="animate-spin text-zinc-500" />
+              </div>
+            )}
 
-          {!loading && historyType === "chats" && conversations.length === 0 && !error && isSignedIn && (
-            <div className="p-8 text-center text-sm text-zinc-500">
-              No saved conversations yet.
-            </div>
-          )}
+          {!loading &&
+            historyType === "chats" &&
+            conversations.length === 0 &&
+            !error && (
+              <div className="p-8 text-center text-sm text-zinc-500">
+                {query.trim()
+                  ? "No conversations match your search."
+                  : "No saved conversations yet."}
+              </div>
+            )}
 
-          {!loading && historyType === "lessons" && lessons.length === 0 && !error && isSignedIn && (
-            <div className="p-8 text-center text-sm text-zinc-500">
-              No saved lessons yet.
-            </div>
-          )}
+          {!loading &&
+            historyType === "lessons" &&
+            lessons.length === 0 &&
+            !error && (
+              <div className="p-8 text-center text-sm text-zinc-500">
+                {query.trim()
+                  ? "No lessons match your search."
+                  : "No saved lessons yet."}
+              </div>
+            )}
 
-          {!loading && historyType === "collections" && collections.length === 0 && !error && isSignedIn && (
-            <div className="p-8 text-center text-sm text-zinc-500">
-              No saved phrasebook entries yet.
-            </div>
-          )}
+          {!loading &&
+            historyType === "collections" &&
+            collections.length === 0 &&
+            !error && (
+              <div className="p-8 text-center text-sm text-zinc-500">
+                {query.trim()
+                  ? "No phrasebook entries match your search."
+                  : "No saved phrasebook entries yet."}
+              </div>
+            )}
 
-          {historyType === "chats" && conversations.map((conv) => {
-            const isArchiving = archivingConversationId === conv.id;
-            const isSelected = currentConversationId === conv.id;
-            const isMenuOpen = openConversationMenuId === conv.id;
+          {historyType === "chats" &&
+            conversations.map((conv) => {
+              const isArchiving = archivingConversationId === conv.id;
+              const isSelected = currentConversationId === conv.id;
+              const isMenuOpen = openConversationMenuId === conv.id;
 
-            return (
-              <div
-                key={conv.id}
-                className={`mb-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl transition ${
-                  isSelected ? "bg-white/10" : "hover:bg-white/5"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleSelectConversation(conv);
-                  }}
-                  disabled={isBusy}
-                  className={`flex min-w-0 items-start gap-3 p-3 text-left transition ${
-                    isSelected
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-300 hover:bg-white/5"
-                  } ${
-                    isBusy ? "cursor-wait opacity-70" : ""
+              return (
+                <div
+                  key={conv.id}
+                  className={`mb-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl transition ${
+                    isSelected ? "bg-white/10" : "hover:bg-white/5"
                   }`}
                 >
-                  {renderConversationFlags(conv)}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{getDisplayTitle(conv)}</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {new Date(conv.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-                </button>
-
-                <div data-history-actions className="mr-2 flex items-center gap-1">
                   <button
                     type="button"
-                    aria-label="Archive conversation"
-                    title="Archive conversation"
                     onClick={() => {
-                      void handleArchiveConversation(conv.id);
+                      void handleSelectConversation(conv);
                     }}
                     disabled={isBusy}
-                    className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
-                      isMenuOpen
-                        ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
-                        : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
+                    className={`flex min-w-0 items-start gap-3 p-3 text-left transition ${
+                      isSelected
+                        ? "bg-white/10 text-white"
+                        : "text-zinc-300 hover:bg-white/5"
                     } ${
-                      isBusy ? "cursor-wait" : ""
+                      isBusy ? "cursor-wait opacity-70" : ""
                     }`}
                   >
-                    {isArchiving ? (
-                      <Loader2 size={12} className="shrink-0 animate-spin" />
-                    ) : (
-                      <Trash2 size={12} className="shrink-0" />
-                    )}
+                    {renderConversationFlags(conv)}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">
+                        {getDisplayTitle(conv)}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {formatHistoryRowMeta(conv)}
+                      </div>
+                    </div>
                   </button>
 
+                  <div data-history-actions className="mr-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Archive conversation"
+                      title="Archive conversation"
+                      onClick={() => {
+                        void handleArchiveConversation(conv.id);
+                      }}
+                      disabled={isBusy}
+                      className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
+                        isMenuOpen
+                          ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
+                          : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
+                      } ${
+                        isBusy ? "cursor-wait" : ""
+                      }`}
+                    >
+                      {isArchiving ? (
+                        <Loader2 size={12} className="shrink-0 animate-spin" />
+                      ) : (
+                        <Trash2 size={12} className="shrink-0" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label="Conversation actions"
+                      title="Conversation actions"
+                      onClick={() => {
+                        setOpenConversationMenuId((currentId) =>
+                          currentId === conv.id ? null : conv.id,
+                        );
+                      }}
+                      disabled={isBusy}
+                      className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
+                        isBusy ? "cursor-wait" : ""
+                      }`}
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+          {historyType === "lessons" &&
+            lessons.map((lesson) => {
+              const isSelected = currentLessonId === lesson.id;
+              const targetCountryCode = getLessonTargetCountryCode(lesson);
+              const isArchiving = archivingLessonId === lesson.id;
+              const isMenuOpen = openLessonMenuId === lesson.id;
+
+              return (
+                <div
+                  key={lesson.id}
+                  className={`mb-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl transition ${
+                    isSelected ? "bg-white/10" : "hover:bg-white/5"
+                  }`}
+                >
                   <button
                     type="button"
-                    aria-label="Conversation actions"
-                    title="Conversation actions"
-                    onClick={() => {
-                      setOpenConversationMenuId((currentId) =>
-                        currentId === conv.id ? null : conv.id,
-                      );
-                    }}
+                    onClick={() => handleSelectLesson(lesson)}
                     disabled={isBusy}
-                    className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
-                      isBusy ? "cursor-wait" : ""
-                    }`}
+                    className={`flex min-w-0 items-start gap-3 p-3 text-left transition ${
+                      isSelected
+                        ? "bg-white/10 text-white"
+                        : "text-zinc-300 hover:bg-white/5"
+                    } ${isBusy ? "cursor-wait opacity-70" : ""}`}
                   >
-                    <MoreVertical size={15} />
+                    <LanguageFlag
+                      countryCode={targetCountryCode}
+                      label={
+                        lesson.target_language ||
+                        lesson.targetLanguage ||
+                        lesson.targetLanguageCode ||
+                        "Lesson language"
+                      }
+                      className="mt-1 h-5 w-7 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {getLessonTitle(lesson)}
+                      </span>
+                      <span className="mt-1 block text-xs text-zinc-500">
+                        {new Date(lesson.created_at).toLocaleDateString()}
+                      </span>
+                    </span>
                   </button>
+
+                  <div data-history-actions className="mr-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Archive lesson"
+                      title="Archive lesson"
+                      onClick={() => {
+                        void handleArchiveLesson(lesson.id);
+                      }}
+                      disabled={isBusy}
+                      className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
+                        isMenuOpen
+                          ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
+                          : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
+                      } ${isBusy ? "cursor-wait" : ""}`}
+                    >
+                      {isArchiving ? (
+                        <Loader2 size={12} className="shrink-0 animate-spin" />
+                      ) : (
+                        <Trash2 size={12} className="shrink-0" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label="Lesson actions"
+                      title="Lesson actions"
+                      onClick={() => {
+                        setOpenLessonMenuId((currentId) =>
+                          currentId === lesson.id ? null : lesson.id,
+                        );
+                      }}
+                      disabled={isBusy}
+                      className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
+                        isBusy ? "cursor-wait" : ""
+                      }`}
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
-          {historyType === "lessons" && lessons.map((lesson) => {
-            const isSelected = currentLessonId === lesson.id;
-            const targetCountryCode = getLessonTargetCountryCode(lesson);
-            const isArchiving = archivingLessonId === lesson.id;
-            const isMenuOpen = openLessonMenuId === lesson.id;
+          {historyType === "collections" &&
+            collections.map((collection) => {
+              const isSelected =
+                currentCollectionLanguageCode === collection.languageCode;
 
-            return (
-              <div
-                key={lesson.id}
-                className={`mb-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-xl transition ${
-                  isSelected ? "bg-white/10" : "hover:bg-white/5"
-                }`}
-              >
+              return (
                 <button
+                  key={collection.id || collection.languageCode}
                   type="button"
-                  onClick={() => handleSelectLesson(lesson)}
+                  onClick={() => {
+                    onSelectCollection?.(collection.languageCode);
+                    onClose();
+                  }}
                   disabled={isBusy}
-                  className={`flex min-w-0 items-start gap-3 p-3 text-left transition ${
+                  className={`mb-1 flex w-full items-start gap-3 rounded-xl p-3 text-left transition ${
                     isSelected
                       ? "bg-white/10 text-white"
                       : "text-zinc-300 hover:bg-white/5"
                   } ${isBusy ? "cursor-wait opacity-70" : ""}`}
                 >
                   <LanguageFlag
-                    countryCode={targetCountryCode}
-                    label={
-                      lesson.target_language ||
-                      lesson.targetLanguage ||
-                      lesson.targetLanguageCode ||
-                      "Lesson language"
-                    }
+                    countryCode={getFlagCountryCode(collection.languageCode)}
+                    label={collection.languageName}
                     className="mt-1 h-5 w-7 shrink-0"
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">
-                      {getLessonTitle(lesson)}
+                      {collection.languageName}
                     </span>
                     <span className="mt-1 block text-xs text-zinc-500">
-                      {new Date(lesson.created_at).toLocaleDateString()}
+                      {collection.entryCount}{" "}
+                      {collection.entryCount === 1 ? "card" : "cards"}
                     </span>
                   </span>
                 </button>
-
-                <div data-history-actions className="mr-2 flex items-center gap-1">
-                  <button
-                    type="button"
-                    aria-label="Archive lesson"
-                    title="Archive lesson"
-                    onClick={() => {
-                      void handleArchiveLesson(lesson.id);
-                    }}
-                    disabled={isBusy}
-                    className={`flex items-center justify-center overflow-hidden rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300 transition-all duration-200 hover:bg-rose-500/15 hover:text-rose-200 ${
-                      isMenuOpen
-                        ? "pointer-events-auto max-w-9 translate-x-0 p-2 opacity-100"
-                        : "pointer-events-none max-w-0 translate-x-2 p-0 opacity-0"
-                    } ${isBusy ? "cursor-wait" : ""}`}
-                  >
-                    {isArchiving ? (
-                      <Loader2 size={12} className="shrink-0 animate-spin" />
-                    ) : (
-                      <Trash2 size={12} className="shrink-0" />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-label="Lesson actions"
-                    title="Lesson actions"
-                    onClick={() => {
-                      setOpenLessonMenuId((currentId) =>
-                        currentId === lesson.id ? null : lesson.id,
-                      );
-                    }}
-                    disabled={isBusy}
-                    className={`rounded-lg p-2 text-zinc-500 transition hover:bg-white/10 hover:text-white focus-visible:bg-white/10 focus-visible:text-white ${
-                      isBusy ? "cursor-wait" : ""
-                    }`}
-                  >
-                    <MoreVertical size={15} />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
-          {historyType === "collections" && collections.map((collection) => {
-            const isSelected =
-              currentCollectionLanguageCode === collection.languageCode;
-
-            return (
-              <button
-                key={collection.id}
-                type="button"
-                onClick={() => {
-                  onSelectCollection?.(collection.languageCode);
-                  onClose();
-                }}
-                disabled={isBusy}
-                className={`mb-1 flex w-full items-start gap-3 rounded-xl p-3 text-left transition ${
-                  isSelected
-                    ? "bg-white/10 text-white"
-                    : "text-zinc-300 hover:bg-white/5"
-                } ${isBusy ? "cursor-wait opacity-70" : ""}`}
-              >
-                <LanguageFlag
-                  countryCode={getFlagCountryCode(collection.languageCode)}
-                  label={collection.languageName}
-                  className="mt-1 h-5 w-7 shrink-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">
-                    {collection.languageName}
-                  </span>
-                  <span className="mt-1 block text-xs text-zinc-500">
-                    {collection.entryCount} {collection.entryCount === 1 ? "card" : "cards"}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
     </>

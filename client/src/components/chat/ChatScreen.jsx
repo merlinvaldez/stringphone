@@ -21,6 +21,8 @@ export function ChatScreen({
   onAudioPlay,
   onPlayTranslatedSpeech,
   onSaveToCollection,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   sharedRoomSession,
   sharedRoom,
   sharedRoomStatus,
@@ -230,6 +232,8 @@ export function ChatScreen({
           onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
           baseLanguageCode={myLang.code}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
         />
       </div>
 
