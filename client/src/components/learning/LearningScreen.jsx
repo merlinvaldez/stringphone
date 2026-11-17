@@ -37,6 +37,10 @@ export function LearningScreen({
   availableLanguages,
   activeCollectionLanguageCode,
   onSelectCollectionLanguageCode,
+  localStore = null,
+  ttsVoice = null,
+  stopAllPlayback = null,
+  onPhrasebookChanged = null,
 }) {
   const visibleLearningView = SHOW_LESSON_BUILDING ? learningView : "collections";
 
@@ -85,6 +89,10 @@ export function LearningScreen({
           onRequireSignIn={onRequireSignIn}
           onAudioPlay={onAudioPlay}
           onPlayGeneratedSpeech={onPlayGeneratedSpeech}
+          localStore={localStore}
+          ttsVoice={ttsVoice}
+          stopAllPlayback={stopAllPlayback}
+          onPhrasebookChanged={onPhrasebookChanged}
         />
       ) : (
         <LessonScreen

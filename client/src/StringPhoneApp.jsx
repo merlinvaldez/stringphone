@@ -5773,6 +5773,10 @@ export default function StringPhoneApp() {
           availableLanguages={LANGUAGES}
           activeCollectionLanguageCode={activeCollectionLanguageCode}
           onSelectCollectionLanguageCode={setActiveCollectionLanguageCode}
+          localStore={localStore}
+          ttsVoice={ttsVoice}
+          stopAllPlayback={stopAllPlayback}
+          onPhrasebookChanged={refreshSavedSourceMessageIds}
         />
       ) : null}
 
