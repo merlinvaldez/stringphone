@@ -189,3 +189,96 @@ export function getCarouselMessages(messages = [], liveDrafts = [], originMode =
 
   return combined.sort((a, b) => getMessageTimestamp(a) - getMessageTimestamp(b));
 }
+
+/**
+ * Creates a tracker for browser blob URLs that guarantees atomic URL creation,
+ * revocation, and cache eviction so dead or revoked blob URLs are never returned.
+ *
+ * @param {object} [options={}]
+ * @param {(blob: Blob) => string} [options.createObjectURL]
+ * @param {(url: string) => void} [options.revokeObjectURL]
+ * @returns {{
+ *   getOrCreate: (key: string, blob: Blob | null) => string,
+ *   revokeByKey: (key: string) => void,
+ *   revokeByUrl: (url: string) => void,
+ *   revokeAll: () => void,
+ *   has: (key: string) => boolean,
+ *   size: () => number
+ * }}
+ */
+export function createBlobUrlTracker(options = {}) {
+  const urlMap = new Map();
+  const keyByUrl = new Map();
+
+  const doCreate =
+    options.createObjectURL ??
+    (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
+      ? (b) => URL.createObjectURL(b)
+      : () => `blob:mock_${Math.random()}`);
+
+  const doRevoke =
+    options.revokeObjectURL ??
+    (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function'
+      ? (u) => URL.revokeObjectURL(u)
+      : () => {});
+
+  return {
+    getOrCreate(key, blob) {
+      if (!key && !blob) return '';
+      const lookupKey = key || (blob ? `blob_${Math.random()}` : '');
+      if (urlMap.has(lookupKey)) {
+        return urlMap.get(lookupKey);
+      }
+      if (blob) {
+        const url = doCreate(blob);
+        urlMap.set(lookupKey, url);
+        keyByUrl.set(url, lookupKey);
+        return url;
+      }
+      return '';
+    },
+    revokeByKey(key) {
+      if (!key || !urlMap.has(key)) return;
+      const url = urlMap.get(key);
+      urlMap.delete(key);
+      if (url) {
+        keyByUrl.delete(url);
+        try {
+          doRevoke(url);
+        } catch {
+          // ignore
+        }
+      }
+    },
+    revokeByUrl(url) {
+      if (!url) return;
+      const key = keyByUrl.get(url);
+      if (key) {
+        urlMap.delete(key);
+        keyByUrl.delete(url);
+      }
+      try {
+        doRevoke(url);
+      } catch {
+        // ignore
+      }
+    },
+    revokeAll() {
+      for (const url of urlMap.values()) {
+        try {
+          doRevoke(url);
+        } catch {
+          // ignore
+        }
+      }
+      urlMap.clear();
+      keyByUrl.clear();
+    },
+    has(key) {
+      return urlMap.has(key);
+    },
+    size() {
+      return urlMap.size;
+    },
+  };
+}

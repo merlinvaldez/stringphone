@@ -80,6 +80,7 @@ import { formatTimestamp, formatDuration, formatPronunciationGuide } from './uti
 import { getFlagCountryCode, LanguageFlag } from "./languageFlags.jsx";
 import { createLocalStore, createIndexedDbDriver } from "./localStore.js";
 import {
+  createBlobUrlTracker,
   getCarouselMessages,
   getTranscriptCardControlFlags,
   getTextDirectionAttrs,
@@ -1484,7 +1485,7 @@ const TranscriptCard = React.forwardRef(
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onSaveToPhrasebook?.(message.id, message);
+                onSaveToPhrasebook?.(message);
               }}
               disabled={isSaved || isSaving}
               className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white ${
@@ -2007,17 +2008,18 @@ function ConversationScreen({
           }`}
           title="Invert languages"
         >
-          <div
-            style={{
-              transform: `rotate(${spinCount * 360}deg)`,
-              transition: "transform 450ms cubic-bezier(0.22, 1, 0.36, 1)",
-            }}
-            className="landscape:-rotate-90"
-          >
-            <StringPhoneBrand
-              compact
-              className="whitespace-nowrap"
-            />
+          <div className="landscape:-rotate-90">
+            <div
+              style={{
+                transform: `rotate(${spinCount * 360}deg)`,
+                transition: "transform 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            >
+              <StringPhoneBrand
+                compact
+                className="whitespace-nowrap"
+              />
+            </div>
           </div>
         </button>
       </div>
@@ -2678,38 +2680,21 @@ export default function StringPhoneApp() {
   const [activeLocalConversationId, setActiveLocalConversationId] = useState(null);
   const [savedSourceMessageIds, setSavedSourceMessageIds] = useState(() => new Set());
   const [savingMessageId, setSavingMessageId] = useState(null);
-  const blobUrlsRef = useRef(new Map());
+  const blobUrlTrackerRef = useRef(null);
+  if (!blobUrlTrackerRef.current) {
+    blobUrlTrackerRef.current = createBlobUrlTracker();
+  }
+  const blobUrlTracker = blobUrlTrackerRef.current;
 
-  const getOrCreateBlobUrl = (audioId, blob) => {
-    if (!audioId && !blob) return "";
-    const key = audioId || (blob ? `blob_${Math.random()}` : "");
-    if (blobUrlsRef.current.has(key)) {
-      return blobUrlsRef.current.get(key);
-    }
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob);
-      blobUrlsRef.current.set(key, url);
-      return url;
-    }
-    return "";
-  };
-
-  const revokeAllBlobUrls = () => {
-    blobUrlsRef.current.forEach((url) => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        // ignore
-      }
-    });
-    blobUrlsRef.current.clear();
-  };
+  const getOrCreateBlobUrl = (audioId, blob) => blobUrlTracker.getOrCreate(audioId, blob);
+  const revokeBlobUrl = (url) => blobUrlTracker.revokeByUrl(url);
+  const revokeAllBlobUrls = () => blobUrlTracker.revokeAll();
 
   useEffect(() => {
     return () => {
-      revokeAllBlobUrls();
+      blobUrlTracker.revokeAll();
     };
-  }, []);
+  }, [blobUrlTracker]);
 
   const loadGuestConversation = async (conversationId) => {
     if (!localStore || !conversationId) return;
@@ -2761,33 +2746,47 @@ export default function StringPhoneApp() {
   }, [appMode, isSignedIn]);
 
   useEffect(() => {
-    if (!isSignedIn && localStore) {
-      let active = true;
-      (async () => {
-        try {
-          const prefs = localStore.getPreferences();
-          if (prefs.myLanguageCode) setMyLang(getLanguageOption(prefs.myLanguageCode));
-          if (prefs.theirLanguageCode) setTheirLang(getLanguageOption(prefs.theirLanguageCode));
-          if (prefs.ttsVoice) setTtsVoice(prefs.ttsVoice);
+    if (!isSignedIn) {
+      setCurrentConversationId(null);
+      if (localStore) {
+        let active = true;
+        (async () => {
+          try {
+            const prefs = localStore.getPreferences();
+            if (prefs.myLanguageCode) setMyLang(getLanguageOption(prefs.myLanguageCode));
+            if (prefs.theirLanguageCode) setTheirLang(getLanguageOption(prefs.theirLanguageCode));
+            if (prefs.ttsVoice) setTtsVoice(prefs.ttsVoice);
 
-          const savedIds = await localStore.listSavedSourceMessageIds();
-          if (active) setSavedSourceMessageIds(savedIds);
+            const savedIds = await localStore.listSavedSourceMessageIds();
+            if (active) setSavedSourceMessageIds(savedIds);
 
-          if (prefs.activeConversationId) {
-            await loadGuestConversation(prefs.activeConversationId);
-          } else {
-            const convs = await localStore.listConversations();
-            if (convs.length > 0) {
-              await loadGuestConversation(convs[0].id);
+            if (prefs.activeConversationId) {
+              await loadGuestConversation(prefs.activeConversationId);
+            } else {
+              const convs = await localStore.listConversations();
+              if (convs.length > 0) {
+                await loadGuestConversation(convs[0].id);
+              } else {
+                setActiveLocalConversationId(null);
+                clearMessages();
+              }
             }
+          } catch (err) {
+            console.error("Failed to initialize guest store", err);
           }
-        } catch (err) {
-          console.error("Failed to initialize guest store", err);
-        }
-      })();
-      return () => {
-        active = false;
-      };
+        })();
+        return () => {
+          active = false;
+        };
+      } else {
+        setActiveLocalConversationId(null);
+        clearMessages();
+        setSavedSourceMessageIds(new Set());
+      }
+    } else {
+      setActiveLocalConversationId(null);
+      setSavedSourceMessageIds(new Set());
+      blobUrlTracker.revokeAll();
     }
   }, [isSignedIn, localStore]);
 
@@ -3472,7 +3471,17 @@ export default function StringPhoneApp() {
 
   const replaceMessages = (nextMessages) => {
     stopAllPlayback();
-    revokeMessageAudioUrls(messagesRef.current);
+    if (messagesRef.current) {
+      messagesRef.current.forEach((message) => {
+        if (message.audioUrl) {
+          blobUrlTracker.revokeByUrl(message.audioUrl);
+        }
+        if (message.sourceAudioId) {
+          blobUrlTracker.revokeByKey(message.sourceAudioId);
+        }
+      });
+      revokeMessageAudioUrls(messagesRef.current);
+    }
     messagesRef.current = nextMessages;
     setMessages(nextMessages);
   };
@@ -5258,8 +5267,14 @@ export default function StringPhoneApp() {
     };
   };
 
-  const handleSaveMessageToCollection = async (message) => {
-    if (!message) return { saved: false };
+  const handleSaveMessageToCollection = async (messageOrId, maybeMessage) => {
+    const message =
+      typeof messageOrId === "object" && messageOrId !== null
+        ? messageOrId
+        : typeof maybeMessage === "object" && maybeMessage !== null
+          ? maybeMessage
+          : null;
+    if (!message || !message.id) return { saved: false };
     setSavingMessageId(message.id);
     try {
       if (!isSignedIn) {

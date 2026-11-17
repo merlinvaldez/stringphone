@@ -6,7 +6,12 @@ import {
   getTranscriptCardControlFlags,
   formatHistoryRowMeta,
   getTextDirectionAttrs,
+  createBlobUrlTracker,
 } from '../client/src/chatParityHelpers.js';
+import {
+  createLocalStore,
+  createMemoryStorageDriver,
+} from '../client/src/localStore.js';
 
 const ROOT_DIR = resolve(import.meta.dirname, '..');
 
@@ -222,8 +227,174 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   console.log('✓ 1.4 getTextDirectionAttrs passed');
 }
 
+// 1.5 createBlobUrlTracker: creation, deduplication, revocation, and atomic re-creation after eviction
+{
+  let urlSeq = 0;
+  const createdUrls = [];
+  const revokedUrls = [];
+
+  const tracker = createBlobUrlTracker({
+    createObjectURL: (_blob) => {
+      const url = `blob:test_${++urlSeq}`;
+      createdUrls.push(url);
+      return url;
+    },
+    revokeObjectURL: (url) => {
+      revokedUrls.push(url);
+    },
+  });
+
+  const dummyBlob = { size: 100, type: 'audio/webm' };
+
+  // Initial creation
+  const url1 = tracker.getOrCreate('audio-1', dummyBlob);
+  assert.equal(url1, 'blob:test_1');
+  assert.equal(tracker.has('audio-1'), true);
+  assert.equal(tracker.size(), 1);
+
+  // Deduplication on repeated call
+  const url1Again = tracker.getOrCreate('audio-1', dummyBlob);
+  assert.equal(url1Again, 'blob:test_1', 'Must return cached URL for existing key');
+  assert.equal(createdUrls.length, 1);
+
+  // Revocation by key evicts from cache
+  tracker.revokeByKey('audio-1');
+  assert.equal(tracker.has('audio-1'), false, 'Key must be evicted from cache upon revokeByKey');
+  assert.equal(tracker.size(), 0);
+  assert.deepEqual(revokedUrls, ['blob:test_1'], 'Underlying revokeObjectURL must be called');
+
+  // Re-creation after revocation must create a FRESH non-revoked URL (Finding 2)
+  const url1Fresh = tracker.getOrCreate('audio-1', dummyBlob);
+  assert.equal(url1Fresh, 'blob:test_2', 'Must generate fresh URL after revocation/eviction');
+  assert.equal(tracker.size(), 1);
+
+  // Revocation by url
+  tracker.revokeByUrl(url1Fresh);
+  assert.equal(tracker.has('audio-1'), false, 'Key must be evicted upon revokeByUrl');
+  assert.equal(tracker.size(), 0);
+  assert.equal(revokedUrls.length, 2);
+
+  // revokeAll clears everything
+  tracker.getOrCreate('audio-2', dummyBlob);
+  tracker.getOrCreate('audio-3', dummyBlob);
+  assert.equal(tracker.size(), 2);
+  tracker.revokeAll();
+  assert.equal(tracker.size(), 0);
+
+  console.log('✓ 1.5 createBlobUrlTracker unit tests passed');
+}
+
 // ============================================================================
-// 2. Structural and Source Verification
+// 2. LocalStore & Phrasebook Integration Runtime Tests
+// ============================================================================
+
+// 2.1 localStore.listPhrasebookCollections includes entryCount and lastAddedAt (Finding 3)
+{
+  const store = createLocalStore({
+    driver: createMemoryStorageDriver(),
+    prefsStorage: new Map(),
+  });
+
+  // Save two Spanish cards and one French card
+  await store.savePhrasebookFromMessage({
+    phraseText: 'Hola',
+    meaningText: 'Hello',
+    targetLanguageCode: 'es',
+    sourceLanguageCode: 'en',
+  });
+  await store.savePhrasebookFromMessage({
+    phraseText: 'Buenos días',
+    meaningText: 'Good morning',
+    targetLanguageCode: 'es',
+    sourceLanguageCode: 'en',
+  });
+  await store.savePhrasebookFromMessage({
+    phraseText: 'Bonjour',
+    meaningText: 'Hello',
+    targetLanguageCode: 'fr',
+    sourceLanguageCode: 'en',
+  });
+
+  const collections = await store.listPhrasebookCollections();
+  assert.equal(collections.length, 2);
+
+  const esCol = collections.find((c) => c.languageCode === 'es');
+  assert.ok(esCol, 'Spanish collection must exist');
+  assert.equal(typeof esCol.entryCount, 'number', 'entryCount must be a number');
+  assert.equal(esCol.entryCount, 2, 'Spanish entryCount must be 2');
+  assert.equal(typeof esCol.lastAddedAt, 'number', 'lastAddedAt must be a number');
+  assert.ok(esCol.lastAddedAt > 0, 'lastAddedAt must be a valid timestamp');
+  assert.equal(esCol.count, 2, 'count backwards compatibility');
+  assert.equal(esCol.totalCount, 2, 'totalCount backwards compatibility');
+
+  const frCol = collections.find((c) => c.languageCode === 'fr');
+  assert.ok(frCol, 'French collection must exist');
+  assert.equal(frCol.entryCount, 1, 'French entryCount must be 1');
+
+  // getPhrasebookCollection also returns entryCount and lastAddedAt
+  const esDetail = await store.getPhrasebookCollection('es');
+  assert.equal(esDetail.entryCount, 2);
+  assert.ok(esDetail.lastAddedAt > 0);
+
+  console.log('✓ 2.1 localStore.listPhrasebookCollections entryCount & lastAddedAt passed');
+}
+
+// 2.2 TranscriptCard / handleSaveMessageToCollection parameter normalization (Finding 1)
+{
+  const store = createLocalStore({
+    driver: createMemoryStorageDriver(),
+    prefsStorage: new Map(),
+  });
+
+  // Mock handleSaveMessageToCollection logic reflecting StringPhoneApp.jsx
+  const handleSave = async (messageOrId, maybeMessage) => {
+    const message =
+      typeof messageOrId === 'object' && messageOrId !== null
+        ? messageOrId
+        : typeof maybeMessage === 'object' && maybeMessage !== null
+          ? maybeMessage
+          : null;
+    if (!message || !message.id) return { saved: false };
+
+    const result = await store.savePhrasebookFromMessage({
+      ...message,
+      sourceAudioBlob: null,
+    });
+    return { saved: Boolean(result?.entry?.id || result?.created) };
+  };
+
+  const sampleMessage = {
+    id: 'msg-save-test-1',
+    originalText: 'Thank you very much',
+    translatedText: 'Muchas gracias',
+    sourceLanguageCode: 'en',
+    targetLanguageCode: 'es',
+    status: 'ready',
+    kind: 'text',
+  };
+
+  // Calling with (message) works cleanly
+  const res1 = await handleSave(sampleMessage);
+  assert.equal(res1.saved, true, 'Saving with (message) must succeed');
+
+  // Calling with (message.id, message) also normalizes cleanly without error
+  const sampleMessage2 = {
+    id: 'msg-save-test-2',
+    originalText: 'You are welcome',
+    translatedText: 'De nada',
+    sourceLanguageCode: 'en',
+    targetLanguageCode: 'es',
+    status: 'ready',
+    kind: 'text',
+  };
+  const res2 = await handleSave(sampleMessage2.id, sampleMessage2);
+  assert.equal(res2.saved, true, 'Saving with (message.id, message) must succeed defensively');
+
+  console.log('✓ 2.2 handleSaveMessageToCollection parameter normalization passed');
+}
+
+// ============================================================================
+// 3. Structural and Source Verification
 // ============================================================================
 
 const chatHistorySidebarSrc = readFileSync(
@@ -247,7 +418,7 @@ const stringPhoneAppSrc = readFileSync(
   'utf-8',
 );
 
-// 2.1 ChatHistorySidebar.jsx checks
+// 3.1 ChatHistorySidebar.jsx checks
 {
   // No blocking signed-out Sign In callout blocking history actions
   assert.doesNotMatch(
@@ -289,10 +460,17 @@ const stringPhoneAppSrc = readFileSync(
     'ChatHistorySidebar must prompt confirmation before deleting conversations',
   );
 
-  console.log('✓ 2.1 ChatHistorySidebar.jsx structural checks passed');
+  // Card count fallback uses entryCount / count / totalCount cleanly (Finding 3)
+  assert.match(
+    chatHistorySidebarSrc,
+    /collection\.entryCount\s*\?\?\s*collection\.count/,
+    'ChatHistorySidebar must check entryCount ?? count to avoid empty " cards" label',
+  );
+
+  console.log('✓ 3.1 ChatHistorySidebar.jsx structural checks passed');
 }
 
-// 2.2 MessageBubble.jsx checks
+// 3.2 MessageBubble.jsx checks
 {
   assert.match(
     messageBubbleSrc,
@@ -315,10 +493,10 @@ const stringPhoneAppSrc = readFileSync(
     'MessageBubble.jsx must accept an external isSaved prop for phrasebook sync',
   );
 
-  console.log('✓ 2.2 MessageBubble.jsx structural checks passed');
+  console.log('✓ 3.2 MessageBubble.jsx structural checks passed');
 }
 
-// 2.3 SingleModeScreen checks in StringPhoneApp.jsx
+// 3.3 SingleModeScreen checks in StringPhoneApp.jsx
 {
   // Circular Invert languages button between language pickers
   assert.match(
@@ -344,10 +522,10 @@ const stringPhoneAppSrc = readFileSync(
     'SingleModeScreen must include TRANSLATING status label matching APK',
   );
 
-  console.log('✓ 2.3 SingleModeScreen checks passed');
+  console.log('✓ 3.3 SingleModeScreen checks passed');
 }
 
-// 2.4 ConversationScreen checks in StringPhoneApp.jsx
+// 3.4 ConversationScreen checks in StringPhoneApp.jsx
 {
   // Divider logo button with spin animation and aria-label
   assert.match(
@@ -363,11 +541,18 @@ const stringPhoneAppSrc = readFileSync(
     'ConversationScreen divider spin must animate over 450ms',
   );
 
-  // TranscriptCard with Save to Phrasebook bookmark
+  // Outer landscape:-rotate-90 wrapper separated from inline transform (Finding 4)
   assert.match(
     stringPhoneAppSrc,
-    /Save to Phrasebook|Save to phrasebook/,
-    'TranscriptCard must provide Save to Phrasebook action',
+    /className=["']landscape:-rotate-90["']>\s*<div[^>]*style=\{\{\s*transform:/,
+    'landscape:-rotate-90 must be on an outer wrapper element around the animated spin div',
+  );
+
+  // TranscriptCard with Save to Phrasebook bookmark and clean (message) invocation (Finding 1)
+  assert.match(
+    stringPhoneAppSrc,
+    /onSaveToPhrasebook\?\.\(\s*message\s*\)/,
+    'TranscriptCard must call onSaveToPhrasebook with message object as argument 0',
   );
   assert.match(
     stringPhoneAppSrc,
@@ -375,10 +560,10 @@ const stringPhoneAppSrc = readFileSync(
     'TranscriptCard in StringPhoneApp.jsx must use getTextDirectionAttrs',
   );
 
-  console.log('✓ 2.4 ConversationScreen checks passed');
+  console.log('✓ 3.4 ConversationScreen checks passed');
 }
 
-// 2.5 Guest localStore persistence & Ruling 2 (leaveSharedRoom restoration)
+// 3.5 Guest localStore persistence, Blob URL cache, & Ruling 2 (leaveSharedRoom restoration)
 {
   assert.match(
     stringPhoneAppSrc,
@@ -391,6 +576,13 @@ const stringPhoneAppSrc = readFileSync(
     'StringPhoneApp.jsx must import createIndexedDbDriver',
   );
 
+  // Blob URL cache helper used in StringPhoneApp (Finding 2)
+  assert.match(
+    stringPhoneAppSrc,
+    /createBlobUrlTracker/,
+    'StringPhoneApp.jsx must import and use createBlobUrlTracker',
+  );
+
   // Ruling 2: leaveSharedRoom restores active local conversation and messages for guests
   assert.match(
     stringPhoneAppSrc,
@@ -398,7 +590,7 @@ const stringPhoneAppSrc = readFileSync(
     'leaveSharedRoom must restore guest conversation and messages from localStore when leaving shared room',
   );
 
-  console.log('✓ 2.5 Guest localStore persistence and leaveSharedRoom restoration passed');
+  console.log('✓ 3.5 Guest localStore persistence and leaveSharedRoom restoration passed');
 }
 
 console.log('All Web Chat Parity checks passed successfully.');

@@ -766,10 +766,18 @@ export function ChatHistorySidebar({
                     <span className="block truncate font-medium">
                       {collection.languageName}
                     </span>
-                    <span className="mt-1 block text-xs text-zinc-500">
-                      {collection.entryCount}{" "}
-                      {collection.entryCount === 1 ? "card" : "cards"}
-                    </span>
+                    {(() => {
+                      const count =
+                        collection.entryCount ??
+                        collection.count ??
+                        collection.totalCount ??
+                        0;
+                      return (
+                        <span className="mt-1 block text-xs text-zinc-500">
+                          {count} {count === 1 ? "card" : "cards"}
+                        </span>
+                      );
+                    })()}
                   </span>
                 </button>
               );

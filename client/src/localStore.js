@@ -441,7 +441,7 @@ function validatePhrasebookInput(input, allowOptionalMeaning) {
  */
 export function createLocalStore(options = {}) {
   const hasBrowserStorage = typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
-  const driver = options.driver ?? (hasBrowserStorage ? createIndexedDbDriver() : createMemoryStorageDriver());
+  const driver = options.driver ?? options.storage ?? (hasBrowserStorage ? createIndexedDbDriver() : createMemoryStorageDriver());
   const prefsStorage = options.prefsStorage ?? (typeof window !== 'undefined' && window.localStorage ? window.localStorage : createMemoryPrefsStorage());
   const newId = options.newId ?? generateLocalId;
   const now = options.now ?? Date.now;
@@ -902,6 +902,8 @@ export function createLocalStore(options = {}) {
       collections.push({
         languageCode: code,
         languageName,
+        entryCount: items.length,
+        lastAddedAt: maxUpdatedAt,
         count: matchingItems.length,
         totalCount: items.length,
         updatedAt: maxUpdatedAt,
@@ -956,6 +958,8 @@ export function createLocalStore(options = {}) {
     return {
       languageCode: code,
       languageName,
+      entryCount: inCollection.length,
+      lastAddedAt: inCollection.reduce((max, cur) => Math.max(max, cur.updatedAt || 0), 0),
       totalCount: inCollection.length,
       count: filtered.length,
       entries: filtered,
