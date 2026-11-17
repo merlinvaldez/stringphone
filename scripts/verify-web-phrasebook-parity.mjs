@@ -378,6 +378,30 @@ assert.match(
   'CollectionScreen must use getFlashcardBackDisplay to handle empty meaning gracefully',
 );
 
+// stopAllPlayback invoked on CollectionEntryViewer close and unmount
+assert.match(
+  collectionScreenSrc,
+  /stopAllPlaybackRef\.current\?\.\(\)/,
+  'CollectionEntryViewer must call stopAllPlayback on unmount via ref',
+);
+assert.match(
+  collectionScreenSrc,
+  /onClose=\{[\s\S]*?stopAllPlayback\?\.\(\)[\s\S]*?onActiveViewerEntryIdChange\(null\)/,
+  'CollectionDetailView must invoke stopAllPlayback when closing the viewer',
+);
+
+// RTL/LTR direction attributes on manualMeaningText and quick add in CollectionComposer
+assert.match(
+  collectionScreenSrc,
+  /sourceDirAttrs\s*=\s*getTextDirectionAttrs/,
+  'CollectionComposer must compute sourceDirAttrs from sourceLanguageCode',
+);
+assert.match(
+  collectionScreenSrc,
+  /manualMeaningText[\s\S]*?dir=\{sourceDirAttrs\.dir\}/,
+  'CollectionComposer must apply sourceDirAttrs.dir to manualMeaningText',
+);
+
 console.log('✓ 3.2 CollectionScreen source checks passed');
 
 // 3.3 LearningScreen.jsx & StringPhoneApp.jsx prop threading

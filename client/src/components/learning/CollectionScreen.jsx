@@ -107,6 +107,7 @@ function SearchField({
 function CollectionComposer({
   availableLanguages,
   selectedLanguageCode,
+  sourceLanguageCode = "en",
   languageSearchQuery,
   onLanguageSearchQueryChange,
   onSelectLanguageCode,
@@ -152,6 +153,7 @@ function CollectionComposer({
   }, [availableLanguages, languageSearchQuery]);
 
   const phraseDirAttrs = getTextDirectionAttrs(selectedLanguageCode);
+  const sourceDirAttrs = getTextDirectionAttrs(sourceLanguageCode);
 
   return (
     <div className="rounded-[1.75rem] border border-white/10 bg-zinc-900/95 p-5 shadow-2xl backdrop-blur-xl">
@@ -239,7 +241,8 @@ function CollectionComposer({
               onChange={(e) => onManualMeaningTextChange(e.target.value)}
               placeholder={requireMeaning ? "Meaning" : "Meaning (optional)"}
               aria-label="Meaning"
-              className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-emerald-400/40"
+              dir={sourceDirAttrs.dir}
+              className={`h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-emerald-400/40 ${sourceDirAttrs.className}`}
             />
           </div>
           <div>
@@ -248,7 +251,8 @@ function CollectionComposer({
               onChange={(e) => onManualMeaningPronunciationChange(e.target.value)}
               placeholder="Meaning pronunciation (optional)"
               aria-label="Meaning pronunciation"
-              className="h-10 w-full rounded-xl border border-white/10 bg-black/30 px-3.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-emerald-400/40"
+              dir={sourceDirAttrs.dir}
+              className={`h-10 w-full rounded-xl border border-white/10 bg-black/30 px-3.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-emerald-400/40 ${sourceDirAttrs.className}`}
             />
           </div>
           <div>
@@ -273,7 +277,8 @@ function CollectionComposer({
               }
             }}
             placeholder="Word or phrase"
-            className="h-12 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40"
+            dir={sourceDirAttrs.dir}
+            className={`h-12 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-emerald-400/40 ${sourceDirAttrs.className}`}
           />
         </div>
       )}
@@ -708,7 +713,10 @@ function CollectionDetailView({
         <CollectionEntryViewer
           entries={collection.entries}
           activeEntryIndex={viewerEntryIndex}
-          onClose={() => onActiveViewerEntryIdChange(null)}
+          onClose={() => {
+            stopAllPlayback?.();
+            onActiveViewerEntryIdChange(null);
+          }}
           onSelectIndex={(nextIndex) =>
             onActiveViewerEntryIdChange(
               collection.entries[nextIndex]?.id ?? null,
@@ -761,11 +769,22 @@ function CollectionEntryViewer({
   const canNavigate = entries.length > 1;
   const hasRandomAlternative = entries.length > 1;
 
+  const stopAllPlaybackRef = useRef(stopAllPlayback);
+  useEffect(() => {
+    stopAllPlaybackRef.current = stopAllPlayback;
+  });
+
   useEffect(() => {
     return () => {
       blobTrackerRef.current?.revokeAll();
+      stopAllPlaybackRef.current?.();
     };
   }, []);
+
+  const handleClose = () => {
+    stopAllPlaybackRef.current?.();
+    onClose?.();
+  };
 
   useEffect(() => {
     if (activeEntryIndex !== displayedIndex) {
@@ -780,7 +799,7 @@ function CollectionEntryViewer({
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        onClose();
+        handleClose();
         return;
       }
 
@@ -1022,7 +1041,7 @@ function CollectionEntryViewer({
   return (
     <div
       className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div className="mx-auto flex h-full max-w-5xl items-center justify-center px-12 py-4 sm:px-0 sm:py-6">
         <div
@@ -1046,7 +1065,7 @@ function CollectionEntryViewer({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="absolute right-4 top-4 z-20 inline-flex p-2 text-zinc-400 transition hover:text-white sm:right-5 sm:top-5"
             aria-label="Close card viewer"
             title="Close card viewer"
@@ -1645,6 +1664,7 @@ export function CollectionScreen({
             <CollectionComposer
               availableLanguages={availableLanguages}
               selectedLanguageCode={selectedLanguageCode}
+              sourceLanguageCode={myLang?.code || "en"}
               languageSearchQuery={languageSearchQuery}
               onLanguageSearchQueryChange={setLanguageSearchQuery}
               onSelectLanguageCode={setSelectedLanguageCode}
