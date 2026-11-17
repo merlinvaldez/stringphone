@@ -1,3 +1,5 @@
+import { createLiveTranscriptionClientSecret } from "../../chatApi.js";
+
 export const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 export const SECRET_CACHE_TTL_MS = 50_000;
 export const SECRET_EARLY_REFRESH_WINDOW_MS = 12_000;
@@ -61,17 +63,13 @@ export function createSecretCacheHarness(options = {}) {
   const fetchSecret =
     typeof options.fetchSecret === "function"
       ? options.fetchSecret
-      : async ({ sourceLanguage, targetLanguage, authFetch }) => {
-          const { createLiveTranscriptionClientSecret } = await import(
-            "../../chatApi.js"
-          );
-          return createLiveTranscriptionClientSecret({
+      : ({ sourceLanguage, targetLanguage, authFetch }) =>
+          createLiveTranscriptionClientSecret({
             sourceLanguage: toLanguageParam(sourceLanguage),
             targetLanguage: toLanguageParam(targetLanguage),
             forceFallback: true,
             authFetch,
           });
-        };
 
   const prefetchedSecrets = new Map();
   let lastSocketPrewarmAt = 0;
@@ -82,7 +80,39 @@ export function createSecretCacheHarness(options = {}) {
       return false;
     }
     lastSocketPrewarmAt = now;
-    if (fetchFn) {
+
+    if (typeof options.fetchFn === "function") {
+      try {
+        const p = options.fetchFn(REALTIME_CALLS_URL, { method: "HEAD" });
+        if (p && typeof p.catch === "function") {
+          p.catch(() => undefined);
+        }
+      } catch {
+        // Non-blocking socket prewarm
+      }
+    } else if (typeof document !== "undefined") {
+      try {
+        let link = document.querySelector(
+          'link[rel="preconnect"][href="https://api.openai.com"]'
+        );
+        if (!link) {
+          link = document.createElement("link");
+          link.rel = "preconnect";
+          link.href = "https://api.openai.com";
+          link.crossOrigin = "anonymous";
+          if (link.setAttribute) {
+            link.setAttribute("crossorigin", "anonymous");
+          }
+          if (document.head) {
+            document.head.appendChild(link);
+          } else if (document.body) {
+            document.body.appendChild(link);
+          }
+        }
+      } catch {
+        // Non-blocking socket prewarm via link preconnect
+      }
+    } else if (fetchFn) {
       try {
         const p = fetchFn(REALTIME_CALLS_URL, { method: "HEAD" });
         if (p && typeof p.catch === "function") {

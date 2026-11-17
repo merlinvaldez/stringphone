@@ -391,6 +391,74 @@ assert.equal(typeof createSecretCacheHarness, 'function', 'createSecretCacheHarn
   earlyHarness.prefetchTranscriptionSecret('en', 'es');
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(earlyFetchCount, 2, 'Prefetch within 12s early refresh window must trigger background refresh');
+
+  // h) In browser DOM, prewarm injects <link rel="preconnect" href="https://api.openai.com"> instead of HEAD fetch
+  {
+    const headAppended = [];
+    let headFetchCalled = false;
+
+    const mockDocument = {
+      head: {
+        appendChild(el) {
+          headAppended.push(el);
+        },
+      },
+      querySelector(selector) {
+        return (
+          headAppended.find(
+            (el) =>
+              el.rel === 'preconnect' &&
+              el.href === 'https://api.openai.com'
+          ) || null
+        );
+      },
+      createElement(tag) {
+        return {
+          tagName: tag,
+          rel: '',
+          href: '',
+          crossOrigin: '',
+          setAttribute(name, val) {
+            this[name] = val;
+          },
+        };
+      },
+    };
+
+    const originalDocument = globalThis.document;
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.document = mockDocument;
+      globalThis.fetch = async () => {
+        headFetchCalled = true;
+        return { ok: true };
+      };
+
+      const domHarness = createSecretCacheHarness();
+      const warmedFirst = domHarness.prewarmRealtimeSocket();
+      assert.equal(warmedFirst, true, 'First DOM prewarm must return true');
+      assert.equal(headFetchCalled, false, 'Browser DOM prewarm must NOT issue fetch request to /v1/realtime/calls');
+      assert.equal(headAppended.length, 1, 'Browser DOM prewarm must inject exactly one link element');
+      assert.equal(headAppended[0].rel, 'preconnect', 'Injected link rel must be preconnect');
+      assert.equal(headAppended[0].href, 'https://api.openai.com', 'Injected link href must be https://api.openai.com');
+      assert.equal(headAppended[0].crossOrigin, 'anonymous', 'Injected link crossOrigin must be anonymous');
+
+      // Subsequent call within interval is throttled
+      const warmedThrottled = domHarness.prewarmRealtimeSocket();
+      assert.equal(warmedThrottled, false, 'Prewarm within interval must be throttled');
+
+      // Subsequent call after interval reuses existing link (idempotent, 0 new elements)
+      let currentTime = Date.now() + 30_000;
+      domHarness.setNow(() => currentTime);
+      const warmedSecond = domHarness.prewarmRealtimeSocket();
+      assert.equal(warmedSecond, true, 'Prewarm after 25s window must succeed');
+      assert.equal(headAppended.length, 1, 'Subsequent DOM prewarm must be idempotent and reuse existing link');
+      assert.equal(headFetchCalled, false, 'Subsequent DOM prewarm must not issue fetch request');
+    } finally {
+      globalThis.document = originalDocument;
+      globalThis.fetch = originalFetch;
+    }
+  }
 }
 
 // Test 9: Verify useLiveTurnFlow onBeforeCapture & playback coordination

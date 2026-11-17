@@ -2506,7 +2506,7 @@ export function SharedRoomControls({
         <button
           type="button"
           onClick={() => {
-            void onToggleRoom();
+            void onToggleRoom?.();
           }}
           className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-400 text-zinc-950 shadow-lg transition duration-300 hover:bg-emerald-300"
           title="Untoggle shared chat"
@@ -2528,7 +2528,7 @@ export function SharedRoomControls({
           <button
             type="button"
             onClick={() => {
-              void onCopyInviteLink();
+              void onCopyInviteLink?.();
             }}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-zinc-200 shadow-lg transition duration-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             title="Copy invite"

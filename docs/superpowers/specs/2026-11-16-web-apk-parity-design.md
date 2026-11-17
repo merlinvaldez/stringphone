@@ -141,4 +141,3 @@ The goal is to make the Vercel production web app match the Android APK user exp
 - Checking `src/db/queries/languageCollections.ts` and `src/services/languageCollections.ts` to decide whether signed-in Postgres Phrasebook cards also get a `PATCH` handler in `api/collections/entries.ts` (without schema changes) or whether card editing is scoped cleanly to guest IndexedDB.
 - Checking Safari iOS `MediaRecorder` / `AudioContext` edge cases (such as reusing or resuming `AudioContext` inside the user click handler and handling missing `MediaRecorder` formats gracefully) during mobile browser testing.
 - Executing `npm run build` and end-to-end verification tests, and preparing a clean commit/deployment step for user confirmation before deploying to Vercel production.
-

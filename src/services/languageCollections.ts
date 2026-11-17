@@ -249,4 +249,3 @@ export async function updateLanguageCollectionEntryForUser(params: {
 
   return result;
 }
-
