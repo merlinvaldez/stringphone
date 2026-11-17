@@ -14,6 +14,7 @@ import type { ChatState, createTextChatController } from '../chat/controller';
 import {
   NativeLiveConnection,
   prefetchBothTranscriptionSecrets,
+  SECRET_REFRESH_INTERVAL_MS,
   type RealtimeEvent,
 } from './nativeRealtime';
 
@@ -144,11 +145,17 @@ export function useLiveTurnFlow({
     };
   }, []);
 
-  // Warm up OpenAI Realtime transcription client secrets in both directions as soon as the screen is focused
-  // so tapping the microphone on any screen/action starts recording instantly without waiting for a token roundtrip.
+  // Warm up OpenAI Realtime transcription client secrets and HTTPS socket in both directions as soon as the screen
+  // is focused, and refresh them periodically so tapping the mic never waits for an expired token roundtrip.
   useEffect(() => {
     if (!isFocused || !state.myLanguage || !state.theirLanguage) return;
     prefetchBothTranscriptionSecrets(state.myLanguage, state.theirLanguage);
+    const refreshTimer = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        prefetchBothTranscriptionSecrets(state.myLanguage, state.theirLanguage);
+      }
+    }, SECRET_REFRESH_INTERVAL_MS);
+    return () => clearInterval(refreshTimer);
   }, [isFocused, state.myLanguage, state.theirLanguage]);
 
   // Track elapsed time for the 30s countdown timer during WebRTC live recording.
@@ -567,10 +574,8 @@ export function useLiveTurnFlow({
 
         // Ensure the OS audio session is in recording mode before opening microphone streams
         await configureNativeAudioSession(true);
-        const sdp = await connection.prepare(sourceLanguage, targetLanguage);
-        if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
 
-        // Start native recorder concurrently during the WebRTC handshake and confirm it is actively recording
+        // Start native recorder concurrently at 0ms alongside WebRTC preparation and confirm it is actively recording
         // BEFORE showing the listening state, avoiding any hardware startup glitch when the user speaks.
         const recorderStartPromise = (async () => {
           try {
@@ -582,6 +587,9 @@ export function useLiveTurnFlow({
             console.warn('Native recorder notice alongside live connection:', recErr);
           }
         })();
+
+        const sdp = await connection.prepare(sourceLanguage, targetLanguage);
+        if (cancelledRef.current || AppState.currentState !== 'active') throw new Error('Turn stopped before connection.');
 
         await Promise.all([
           connection.connect(sdp),

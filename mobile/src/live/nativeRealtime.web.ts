@@ -1,5 +1,9 @@
 import type { NativeRealtimeHandlers, RealtimeEvent } from './nativeRealtime';
 
+export const SECRET_REFRESH_INTERVAL_MS = 40_000;
+export function prefetchTranscriptionSecret(_sourceLanguage: string, _targetLanguage: string) {}
+export function prefetchBothTranscriptionSecrets(_langA: string, _langB: string) {}
+
 export class NativeLiveConnection {
   liveMode = 'fallback-transcription';
   fallbackReason = '';
