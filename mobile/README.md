@@ -24,6 +24,10 @@ The mobile package installs independently; root postinstall/build still target t
 
 `npm.cmd run android` builds and installs the standalone Android APK locally. `npm.cmd run ios` can open a simulator on macOS; Windows cannot run the iOS simulator. Chat translation now requires a reachable API URL configured below.
 
+## iPhone builds with Expo cloud
+
+iPhone development and standalone preview `.ipa` files can be built online with Expo (EAS) **without a local Mac**, from this feature branch. EAS configuration lives in `mobile/eas.json`. Start with [the iPhone cloud build, Apple signing, device registration, and API setup guide](docs/ios-eas-build.md). The first build still requires an Expo account, Apple developer signing authorization, a registered iPhone, and an API that native guests can reach. This setup is separate from the Windows Android APK workflow below.
+
 ## Text chat and explicit retry
 
 Step 5, updated October 15, 2026: Chat opens migrated local SQLite once per app lifetime and recovers interrupted requests without redispatching them. First use starts with English-to-Spanish. Searchable language controls, Swap, New chat and History now persist selections and reopen separate conversations. The message list loads the newest 50 messages with explicit older pages; history loads 50 conversations at a time. See [native Chat/history behavior and device checks](docs/chat-history.md).
