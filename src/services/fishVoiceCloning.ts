@@ -102,7 +102,7 @@ export async function createFishVoiceClone(
     "description",
     `StringPhone chat-scoped voice clone for ${input.languageName} (${input.languageCode})`,
   );
-  formData.append("visibility", "private");
+  formData.append("visibility", "unlist");
   formData.append("train_mode", "fast");
   formData.append("enhance_audio_quality", "true");
   formData.append(
@@ -210,21 +210,10 @@ export async function generateFishClonedSpeech(
       FishVoiceCloningDeps["generateSpeechImpl"]
     >);
 
-  const providerOptions: Record<string, Record<string, unknown>> = {
-    fishAudio: {
-      referenceId: clonedVoiceId,
-      normalizeLoudness: true,
-      latency: "balanced",
-    },
-    ...(fishApiKey
-      ? {
-          gateway: {
-            byok: {
-              "fish-audio": [{ apiKey: fishApiKey }],
-            },
-          },
-        }
-      : {}),
+  const fishAudioOptions: Record<string, unknown> = {
+    referenceId: clonedVoiceId,
+    normalizeLoudness: true,
+    latency: "balanced",
   };
 
   if (useGateway || deps.generateSpeechImpl) {
@@ -232,12 +221,15 @@ export async function generateFishClonedSpeech(
       const gateway = createGateway({
         ...(gatewayApiKey ? { apiKey: gatewayApiKey } : {}),
       });
+      // First attempt uses Vercel AI Gateway system credits (requires visibility='unlist' on Fish Audio).
       const result = await generateSpeechFn({
         model: gateway.speechModel(gatewayModelSlug),
         text: input.text,
         voice: clonedVoiceId,
         outputFormat: "wav",
-        providerOptions,
+        providerOptions: {
+          fishAudio: fishAudioOptions,
+        },
       });
 
       return ensureCanonicalWavOutput(Buffer.from(result.audio.uint8Array));
@@ -261,7 +253,7 @@ export async function generateFishClonedSpeech(
     voice: clonedVoiceId,
     outputFormat: "wav",
     providerOptions: {
-      fishAudio: providerOptions.fishAudio,
+      fishAudio: fishAudioOptions,
     },
   });
 

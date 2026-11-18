@@ -155,7 +155,7 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   assert.ok(capturedFormData instanceof FormData);
   assert.equal(capturedFormData.get("type"), "tts");
   assert.equal(capturedFormData.get("train_mode"), "fast");
-  assert.equal(capturedFormData.get("visibility"), "private");
+  assert.equal(capturedFormData.get("visibility"), "unlist");
   assert.ok(capturedFormData.get("voices") instanceof Blob);
   assert.equal(cloneResult.voiceId, "fish_voice_es_chat_abc");
   assert.equal(cloneResult.durationMs, 11_000);
