@@ -307,6 +307,7 @@ export async function runChatVoiceCloning(
   const cloneFn = deps.createFishVoiceCloneImpl ?? createFishVoiceClone;
 
   if (!deps.createFishVoiceCloneImpl && !getFishAudioApiKey()) {
+    console.warn("FISH_AUDIO_API_KEY is not set; skipping Fish Audio voice clone creation");
     return {
       ok: true,
       cloned: false,
