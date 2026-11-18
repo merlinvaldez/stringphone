@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -241,23 +242,99 @@ export function concatenatePcmWavBuffers(wavBuffers: Buffer[]): Buffer {
   );
 }
 
+function normalizeParsedWavToCanonicalPcm(
+  parsed: ParsedPcmWav,
+  targetSampleRate = 44100,
+): Buffer | null {
+  if (
+    parsed.audioFormat === 1 &&
+    parsed.channels === 1 &&
+    parsed.sampleRate === targetSampleRate &&
+    parsed.bitsPerSample === 16
+  ) {
+    return createCanonicalPcmWavBuffer(
+      parsed.pcmData,
+      targetSampleRate,
+      1,
+      16,
+    );
+  }
+
+  if (
+    (parsed.audioFormat !== 1 && parsed.audioFormat !== 3) ||
+    (parsed.bitsPerSample !== 16 && parsed.bitsPerSample !== 32) ||
+    parsed.channels < 1 ||
+    parsed.sampleRate <= 0
+  ) {
+    return null;
+  }
+
+  const bytesPerSample = parsed.bitsPerSample / 8;
+  const frameSize = bytesPerSample * parsed.channels;
+  const frameCount = Math.floor(parsed.pcmData.length / frameSize);
+  if (frameCount <= 0) {
+    return null;
+  }
+
+  // Downmix to mono float [-1, 1]
+  const monoFloat = new Float32Array(frameCount);
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+    let sum = 0;
+    const frameOffset = frameIndex * frameSize;
+    for (let ch = 0; ch < parsed.channels; ch += 1) {
+      const sampleOffset = frameOffset + ch * bytesPerSample;
+      let val = 0;
+      if (parsed.audioFormat === 3 && parsed.bitsPerSample === 32) {
+        val = parsed.pcmData.readFloatLE(sampleOffset);
+      } else if (parsed.audioFormat === 1 && parsed.bitsPerSample === 16) {
+        val = parsed.pcmData.readInt16LE(sampleOffset) / 32768;
+      } else if (parsed.audioFormat === 1 && parsed.bitsPerSample === 32) {
+        val = parsed.pcmData.readInt32LE(sampleOffset) / 2147483648;
+      }
+      sum += val;
+    }
+    monoFloat[frameIndex] = sum / parsed.channels;
+  }
+
+  // Resample to targetSampleRate using linear interpolation
+  const outputFrames =
+    parsed.sampleRate === targetSampleRate
+      ? frameCount
+      : Math.max(1, Math.round((frameCount * targetSampleRate) / parsed.sampleRate));
+  const outPcm = Buffer.alloc(outputFrames * 2);
+
+  for (let i = 0; i < outputFrames; i += 1) {
+    const srcPos =
+      parsed.sampleRate === targetSampleRate
+        ? i
+        : (i * parsed.sampleRate) / targetSampleRate;
+    const idx0 = Math.min(frameCount - 1, Math.floor(srcPos));
+    const idx1 = Math.min(frameCount - 1, idx0 + 1);
+    const frac = srcPos - idx0;
+    const sample = monoFloat[idx0] * (1 - frac) + monoFloat[idx1] * frac;
+    const clamped = Math.max(-1, Math.min(1, sample));
+    const int16 = clamped < 0 ? Math.round(clamped * 32768) : Math.round(clamped * 32767);
+    outPcm.writeInt16LE(int16, i * 2);
+  }
+
+  return createCanonicalPcmWavBuffer(outPcm, targetSampleRate, 1, 16);
+}
+
 function runFfmpeg(
   inputPath: string,
   outputPath: string,
   maxDurationSeconds?: number,
 ) {
   return new Promise<void>((resolve, reject) => {
-    const executablePath =
+    const candidatePath =
       typeof ffmpegPath === "string"
         ? ffmpegPath
         : typeof (ffmpegPath as { default?: unknown } | null)?.default === "string"
           ? ((ffmpegPath as unknown as { default: string }).default)
           : null;
 
-    if (!executablePath) {
-      reject(new Error("ffmpeg binary is not available."));
-      return;
-    }
+    const executablePath =
+      candidatePath && existsSync(candidatePath) ? candidatePath : "ffmpeg";
 
     const args = ["-y", "-i", inputPath, "-vn"];
 
@@ -299,21 +376,13 @@ export async function prepareVoiceReference(
 ): Promise<PreparedVoiceReference> {
   const outputFilename = `${path.parse(input.originalFilename || "stringphone-ref").name || "stringphone-ref"}.wav`;
 
-  // Fast-path if already a canonical 44.1kHz mono 16-bit PCM WAV
+  // Pure-TypeScript fast-path for any valid PCM WAV buffer (mono or stereo, 16-bit or 32-bit float, any sample rate)
   const directWav = parsePcmWav(input.audioBuffer);
-  if (
-    directWav &&
-    directWav.audioFormat === 1 &&
-    directWav.channels === 1 &&
-    directWav.sampleRate === 44100 &&
-    directWav.bitsPerSample === 16
-  ) {
-    let canonical = createCanonicalPcmWavBuffer(
-      directWav.pcmData,
-      directWav.sampleRate,
-      directWav.channels,
-      directWav.bitsPerSample,
-    );
+  const normalizedWav = directWav
+    ? normalizeParsedWavToCanonicalPcm(directWav, 44100)
+    : null;
+  if (normalizedWav) {
+    let canonical = normalizedWav;
     if (
       typeof options.maxDurationSeconds === "number" &&
       options.maxDurationSeconds > 0

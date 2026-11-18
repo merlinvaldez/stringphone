@@ -5,6 +5,7 @@ import {
   MAX_VOICE_CLONE_DURATION_MS,
   createCanonicalPcmWavBuffer,
   getWavDurationMs,
+  parsePcmWav,
   concatenatePcmWavBuffers,
   prepareVoiceReference,
   selectAndMergeVoiceSamplesForCloning,
@@ -437,6 +438,20 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
     }),
   );
   assert.equal(badOutputResp.status, 400);
+
+  // 7. Pure-TS multi-rate / stereo PCM WAV normalization in prepareVoiceReference (no ffmpeg required for any PCM WAV)
+  const stereo24kPcm = Buffer.alloc(24000 * 2 * 2 * 6); // 6000ms stereo 24kHz 16-bit
+  const stereo24kWav = createCanonicalPcmWavBuffer(stereo24kPcm, 24000, 2, 16);
+  const prepared24k = await prepareVoiceReference({
+    audioBuffer: stereo24kWav,
+    originalFilename: "browser-segment.wav",
+    mimeType: "audio/wav",
+  });
+  const parsedPrepared24k = parsePcmWav(prepared24k.buffer);
+  assert.equal(parsedPrepared24k.sampleRate, 44100);
+  assert.equal(parsedPrepared24k.channels, 1);
+  assert.equal(parsedPrepared24k.bitsPerSample, 16);
+  assert.equal(prepared24k.durationMs, 6_000);
 }
 
 console.log("PASS Task 1 & Task 2: 10s audio qualification, WAV merging, Fish Audio clone creation, Vercel AI Gateway speech synthesis, and /speech/clone + /speech/output endpoints");
