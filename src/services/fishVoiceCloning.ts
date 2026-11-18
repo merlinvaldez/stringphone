@@ -138,7 +138,7 @@ function encodeFishZeroShotTtsMsgpack(input: {
     encodeMsgpackString("latency"),
     encodeMsgpackString("normal"),
     encodeMsgpackString("temperature"),
-    encodeMsgpackFloat64(0.65),
+    encodeMsgpackFloat64(0.4),
     encodeMsgpackString("top_p"),
     encodeMsgpackFloat64(0.7),
     encodeMsgpackString("repetition_penalty"),
@@ -410,7 +410,7 @@ export async function generateFishClonedSpeech(
     normalizeLoudness: true,
     normalize: true,
     latency: "normal",
-    temperature: 0.65,
+    temperature: 0.4,
     topP: 0.7,
     repetitionPenalty: 1.2,
   };
