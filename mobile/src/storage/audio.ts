@@ -5,6 +5,7 @@ export type AudioOwner = { kind: 'message' | 'phrasebook'; id: string; role: 'so
 export interface AudioFiles {
   save(name: string, input: { uri: string } | { bytes: Uint8Array }): Promise<number>;
   stat(name: string): Promise<{ uri: string; size: number } | null>;
+  readBytes?(name: string): Promise<Uint8Array | null>;
   remove(name: string): Promise<void>;
   list(): Promise<string[]>;
 }
@@ -75,6 +76,22 @@ export function createAudioStorage(database: SQLiteDatabase, files: AudioFiles, 
       const availability = file && file.size === row.byte_size ? 'available' : 'missing';
       await database.runAsync('UPDATE audio_assets SET availability=? WHERE id=?', availability, row.id);
       return { ...row, availability, uri: availability === 'available' ? file!.uri : null };
+    },
+    async readBytes(owner: AudioOwner) {
+      const { table, column } = ownerTable(owner);
+      const row = await database.getFirstAsync<AudioRow>(`SELECT a.* FROM audio_assets a JOIN ${table} r ON r.audio_id=a.id WHERE r.${column}=? AND r.role=?`, owner.id, owner.role);
+      if (!row || row.availability !== 'available' || !files.readBytes) return null;
+      const bytes = await files.readBytes(row.file_name);
+      if (!bytes || !bytes.byteLength) return null;
+      return {
+        id: row.id,
+        fileName: row.file_name,
+        format: row.format,
+        mimeType: row.mime_type,
+        durationMs: row.duration_ms,
+        byteSize: row.byte_size,
+        bytes,
+      };
     },
     async reconcile() {
       const report = { removedFiles: 0, removedAssets: 0, missingAssets: 0, failures: [] as { fileName: string; error: string }[] };

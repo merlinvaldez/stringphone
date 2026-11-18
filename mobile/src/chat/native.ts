@@ -1,9 +1,9 @@
 import { openNativeHistoryDatabase } from '../adapters/storage';
 import { createNativeAudioFiles } from '../adapters/files';
-import { translateTextMessage, translateVoiceMessage, requestOutputSpeech } from '../adapters/api';
+import { translateTextMessage, translateVoiceMessage, requestOutputSpeech, requestVoiceClone } from '../adapters/api';
 import { createVoiceMessageProcessor } from '../storage/voiceProcessing';
 import { createAudioStorage } from '../storage/audio';
-import { createHistoryRepository } from '../storage/history';
+import { createHistoryRepository, MIN_VOICE_CLONE_DURATION_MS } from '../storage/history';
 import { createSavedMessageFlow } from '../storage/processing';
 import { createTextChatController } from './controller';
 import { createDeletionService } from '../storage/deletion';
@@ -21,6 +21,104 @@ let phrasebookSession: ReturnType<typeof createPhrasebookRepository> | undefined
 let deletionSession: ReturnType<typeof createDeletionService> | undefined;
 let currentTtsVoice: 'marin' | 'onyx' = 'marin';
 const ttsVoiceListeners = new Set<(voice: 'marin' | 'onyx') => void>();
+const inFlightCloneRequests = new Map<string, Promise<string | null>>();
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const slice = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+export async function ensureConversationVoiceClone(
+  conversationId: string,
+  languageCode: string,
+): Promise<string | null> {
+  await getNativeTextChat();
+  const normalizedLang = (languageCode || '').trim().toLowerCase();
+  if (!conversationId || !normalizedLang || !historySession || !audioSession) {
+    return null;
+  }
+
+  const existing = await historySession.getConversationVoiceClone(conversationId, normalizedLang);
+  if (existing?.voiceId) {
+    return existing.voiceId;
+  }
+
+  const eligible = await historySession.collectEligibleVoiceCloneSamples(
+    conversationId,
+    normalizedLang,
+    MIN_VOICE_CLONE_DURATION_MS,
+  );
+  if (!eligible.eligible || eligible.samples.length === 0) {
+    return null;
+  }
+
+  const inFlightKey = `${conversationId}::${normalizedLang}`;
+  const inFlight = inFlightCloneRequests.get(inFlightKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const task = (async () => {
+    try {
+      const samplePayloads: Array<{
+        base64: string;
+        mimeType: string;
+        filename: string;
+        durationMs: number;
+        transcript?: string;
+      }> = [];
+
+      for (const sample of eligible.samples) {
+        const audioData = await audioSession!.readBytes({
+          kind: 'message',
+          id: sample.messageId,
+          role: 'source',
+        });
+        if (!audioData || !audioData.bytes.byteLength) continue;
+        samplePayloads.push({
+          base64: uint8ArrayToBase64(audioData.bytes),
+          mimeType: audioData.mimeType || sample.mimeType || 'audio/wav',
+          filename: audioData.fileName || sample.fileName || `${sample.audioId}.${sample.format || 'wav'}`,
+          durationMs: sample.durationMs,
+          ...(sample.transcript ? { transcript: sample.transcript } : {}),
+        });
+      }
+
+      if (samplePayloads.length === 0) {
+        return null;
+      }
+
+      const result = await requestVoiceClone({
+        language: normalizedLang,
+        samples: samplePayloads,
+      });
+
+      if (result.cloned && result.clonedVoiceId) {
+        await historySession!.setConversationVoiceClone(conversationId, {
+          languageCode: normalizedLang,
+          voiceId: result.clonedVoiceId,
+          totalDurationMs: result.totalDurationMs || eligible.totalDurationMs,
+          mode: result.mode === 'single' ? 'single' : 'merged',
+        });
+        return result.clonedVoiceId;
+      }
+
+      return null;
+    } catch {
+      return null;
+    } finally {
+      inFlightCloneRequests.delete(inFlightKey);
+    }
+  })();
+
+  inFlightCloneRequests.set(inFlightKey, task);
+  return task;
+}
 
 export function getActiveTtsVoice(): 'marin' | 'onyx' {
   return currentTtsVoice;
@@ -53,18 +151,26 @@ export async function resolveNativeTranslatedAudio(id: string) {
 
 export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin' | 'onyx') {
   await getNativeTextChat();
+  const message = await historySession!.getMessage(messageId);
+  if (!message) throw new Error('Message not found.');
+  if (message.input_kind === 'voice') {
+    const recorded = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
+    if (recorded && recorded.availability === 'available' && recorded.uri) {
+      return recorded;
+    }
+  }
+  const clonedVoiceId = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
   const existing = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
   }
-  const message = await historySession!.getMessage(messageId);
-  if (!message) throw new Error('Message not found.');
   const text = message.original_text;
   if (!text || !text.trim()) throw new Error('No original text available for speech generation.');
   const speech = await requestOutputSpeech({
     text,
     language: message.source_language,
     speechVoice: speechVoice ?? currentTtsVoice,
+    ...(clonedVoiceId ? { clonedVoiceId } : {}),
   });
   await audioSession!.save(
     { kind: 'message', id: messageId, role: 'source' },
@@ -77,12 +183,13 @@ export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin
 
 export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'marin' | 'onyx') {
   await getNativeTextChat();
+  const message = await historySession!.getMessage(messageId);
+  if (!message) throw new Error('Message not found.');
+  const clonedVoiceId = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
   const existing = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'translated' });
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
   }
-  const message = await historySession!.getMessage(messageId);
-  if (!message) throw new Error('Message not found.');
   const text = message.translated_text;
   if (!text || !text.trim()) throw new Error('No translation available for speech generation.');
   const targetLanguage = message.target_language;
@@ -90,6 +197,7 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
     text,
     language: targetLanguage,
     speechVoice: speechVoice ?? currentTtsVoice,
+    ...(clonedVoiceId ? { clonedVoiceId } : {}),
   });
   await audioSession!.save(
     { kind: 'message', id: messageId, role: 'translated' },

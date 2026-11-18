@@ -20,7 +20,29 @@ export type MessageRow = {
 export type ConversationRow = { id: string; title: string; origin_mode: Mode; my_language: string; their_language: string; created_at: number; updated_at: number };
 export type HistoryCursor = { updatedAt: number; id: string };
 export type MessageCursor = { createdAt: number; id: string };
+export const MIN_VOICE_CLONE_DURATION_MS = 10_000;
+export const MAX_VOICE_CLONE_DURATION_MS = 60_000;
+export type ConversationVoiceClone = {
+  voiceId: string;
+  languageCode: string;
+  totalDurationMs: number;
+  mode: 'single' | 'merged';
+  createdAt: number;
+};
+export type EligibleVoiceCloneSample = {
+  messageId: string;
+  audioId: string;
+  fileName: string;
+  format: string;
+  mimeType: string;
+  durationMs: number;
+  byteSize: number;
+  transcript: string;
+};
 type SearchRow = { kind: 'conversation' | 'message' | 'phrase'; record_id: string; text: string };
+function voiceClonePrefKey(conversationId: string) {
+  return `chat.voiceClones.${conversationId}`;
+}
 function boundedLimit(limit: number) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Limit must be between 1 and 200.');
   return limit;
@@ -265,6 +287,201 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         changed = true;
       });
       return changed;
+    },
+    async getConversationVoiceClones(conversationId: string): Promise<Record<string, ConversationVoiceClone>> {
+      if (!conversationId.trim()) return {};
+      const conv = await database.getFirstAsync<{ id: string }>('SELECT id FROM conversations WHERE id=?', conversationId);
+      if (!conv) return {};
+      const pref = await database.getFirstAsync<{ value_json: string }>('SELECT value_json FROM preferences WHERE key=?', voiceClonePrefKey(conversationId));
+      if (!pref?.value_json) return {};
+      try {
+        const parsed = JSON.parse(pref.value_json);
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, ConversationVoiceClone>) : {};
+      } catch {
+        return {};
+      }
+    },
+    async getConversationVoiceClone(conversationId: string, languageCode: string): Promise<ConversationVoiceClone | null> {
+      const lang = (languageCode || '').trim().toLowerCase();
+      if (!conversationId.trim() || !lang) return null;
+      const clones = await this.getConversationVoiceClones(conversationId);
+      return clones[lang] ?? null;
+    },
+    async setConversationVoiceClone(
+      conversationId: string,
+      input: { languageCode: string; voiceId: string; totalDurationMs: number; mode?: 'single' | 'merged' },
+    ): Promise<ConversationVoiceClone> {
+      required(conversationId);
+      required(input.languageCode);
+      required(input.voiceId);
+      const lang = input.languageCode.trim().toLowerCase();
+      const totalDurationMs = Math.round(Number(input.totalDurationMs) || 0);
+      if (totalDurationMs < MIN_VOICE_CLONE_DURATION_MS) {
+        throw new Error('Voice clone requires at least 10 seconds (10000 ms) of audio.');
+      }
+      const mode: 'single' | 'merged' = input.mode === 'single' ? 'single' : 'merged';
+      const time = now();
+      const record: ConversationVoiceClone = {
+        voiceId: input.voiceId.trim(),
+        languageCode: lang,
+        totalDurationMs,
+        mode,
+        createdAt: time,
+      };
+      await database.withExclusiveTransactionAsync(async transaction => {
+        if (!await transaction.getFirstAsync('SELECT id FROM conversations WHERE id=?', conversationId)) {
+          throw new Error('Conversation does not exist.');
+        }
+        const key = voiceClonePrefKey(conversationId);
+        const existingPref = await transaction.getFirstAsync<{ value_json: string }>('SELECT value_json FROM preferences WHERE key=?', key);
+        let map: Record<string, ConversationVoiceClone> = {};
+        if (existingPref?.value_json) {
+          try {
+            const parsed = JSON.parse(existingPref.value_json);
+            if (parsed && typeof parsed === 'object') map = parsed as Record<string, ConversationVoiceClone>;
+          } catch {
+            map = {};
+          }
+        }
+        map[lang] = record;
+        await transaction.runAsync(
+          'INSERT INTO preferences(key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at',
+          key,
+          JSON.stringify(map),
+          time,
+        );
+        // Evict cached non-cloned TTS links for messages spoken in `lang` in this conversation
+        // while preserving raw voice recordings (role='source' on input_kind='voice').
+        await transaction.runAsync(
+          "DELETE FROM message_audio WHERE role='translated' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=?)",
+          conversationId,
+          lang,
+        );
+        await transaction.runAsync(
+          "DELETE FROM message_audio WHERE role='source' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=? AND input_kind='text')",
+          conversationId,
+          lang,
+        );
+      });
+      return record;
+    },
+    async collectEligibleVoiceCloneSamples(
+      conversationId: string,
+      languageCode: string,
+      minDurationMs = MIN_VOICE_CLONE_DURATION_MS,
+    ): Promise<{
+      eligible: boolean;
+      mode: 'single' | 'merged' | 'insufficient';
+      totalDurationMs: number;
+      samples: EligibleVoiceCloneSample[];
+    }> {
+      const lang = (languageCode || '').trim().toLowerCase();
+      if (!conversationId.trim() || !lang) {
+        return { eligible: false, mode: 'insufficient', totalDurationMs: 0, samples: [] };
+      }
+      const rows = await database.getAllAsync<{
+        message_id: string;
+        original_text: string;
+        created_at: number;
+        audio_id: string;
+        file_name: string;
+        format: string;
+        mime_type: string;
+        duration_ms: number | null;
+        byte_size: number;
+      }>(
+        `SELECT m.id AS message_id, m.original_text, m.created_at, a.id AS audio_id, a.file_name, a.format, a.mime_type, a.duration_ms, a.byte_size
+         FROM messages m
+         JOIN message_audio ma ON ma.message_id = m.id AND ma.role = 'source'
+         JOIN audio_assets a ON a.id = ma.audio_id
+         WHERE m.conversation_id = ?
+           AND lower(m.source_language) = ?
+           AND m.input_kind = 'voice'
+           AND a.availability = 'available'
+           AND a.duration_ms IS NOT NULL
+           AND a.duration_ms > 0
+         ORDER BY m.created_at ASC, m.id ASC`,
+        conversationId,
+        lang,
+      );
+
+      const distinctSamples: EligibleVoiceCloneSample[] = [];
+      const seenKeys = new Map<string, EligibleVoiceCloneSample>();
+
+      for (const row of rows) {
+        const durationMs = Math.round(Number(row.duration_ms) || 0);
+        if (durationMs <= 0) continue;
+
+        let dedupKey = `audio:${row.audio_id}`;
+        if (row.message_id.startsWith('live_')) {
+          const capturePrefix = row.message_id.replace(/_(item_[a-zA-Z0-9]+|msg_[a-zA-Z0-9]+|[^_]+)$/, '');
+          dedupKey = `live_capture:${capturePrefix}:${durationMs}:${row.byte_size}`;
+        }
+
+        const existing = seenKeys.get(dedupKey);
+        if (existing) {
+          if (row.original_text.trim()) {
+            existing.transcript = `${existing.transcript} ${row.original_text.trim()}`.trim();
+          }
+          continue;
+        }
+
+        const sample: EligibleVoiceCloneSample = {
+          messageId: row.message_id,
+          audioId: row.audio_id,
+          fileName: row.file_name,
+          format: row.format,
+          mimeType: row.mime_type,
+          durationMs,
+          byteSize: row.byte_size,
+          transcript: row.original_text.trim(),
+        };
+        seenKeys.set(dedupKey, sample);
+        distinctSamples.push(sample);
+      }
+
+      if (distinctSamples.length === 0) {
+        return { eligible: false, mode: 'insufficient', totalDurationMs: 0, samples: [] };
+      }
+
+      // 1. Check if any single sample alone meets the 10-second threshold (prefer newest)
+      for (let i = distinctSamples.length - 1; i >= 0; i -= 1) {
+        if (distinctSamples[i].durationMs >= minDurationMs) {
+          return {
+            eligible: true,
+            mode: 'single',
+            totalDurationMs: distinctSamples[i].durationMs,
+            samples: [distinctSamples[i]],
+          };
+        }
+      }
+
+      // 2. Otherwise accumulate multiple samples in chronological order up to 60s
+      const mergedSamples: EligibleVoiceCloneSample[] = [];
+      let totalDurationMs = 0;
+      for (const sample of distinctSamples) {
+        if (totalDurationMs >= minDurationMs && totalDurationMs + sample.durationMs > MAX_VOICE_CLONE_DURATION_MS) {
+          break;
+        }
+        mergedSamples.push(sample);
+        totalDurationMs += sample.durationMs;
+      }
+
+      if (totalDurationMs >= minDurationMs) {
+        return {
+          eligible: true,
+          mode: 'merged',
+          totalDurationMs,
+          samples: mergedSamples,
+        };
+      }
+
+      return {
+        eligible: false,
+        mode: 'insufficient',
+        totalDurationMs,
+        samples: [],
+      };
     },
   };
 }

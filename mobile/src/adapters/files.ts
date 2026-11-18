@@ -44,6 +44,19 @@ export function createNativeAudioFiles(): AudioFiles {
       const file = fileFor(name);
       return file.exists ? { uri: file.uri, size: file.size } : null;
     },
+    async readBytes(name) {
+      const file = fileFor(name);
+      if (!file.exists) return null;
+      const bytesFn = (file as unknown as { bytes?: () => Promise<Uint8Array> | Uint8Array }).bytes;
+      if (typeof bytesFn === 'function') {
+        return await bytesFn.call(file);
+      }
+      const arrayBufferFn = (file as unknown as { arrayBuffer?: () => Promise<ArrayBuffer> }).arrayBuffer;
+      if (typeof arrayBufferFn === 'function') {
+        return new Uint8Array(await arrayBufferFn.call(file));
+      }
+      return null;
+    },
     async remove(name) {
       const file = fileFor(name);
       if (file.exists) file.delete();

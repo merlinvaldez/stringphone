@@ -53,6 +53,9 @@ export function createDeletionService(database: SQLiteDatabase, audio: Pick<Retu
           // If the record changed while the prompt was open, require a fresh review.
           const result = await transaction.runAsync(`DELETE FROM ${table} WHERE id=? AND updated_at=?`,target.id,row.updated_at);
           removed = result.changes === 1;
+          if (removed && target.kind === 'conversation') {
+            await transaction.runAsync('DELETE FROM preferences WHERE key=?', `chat.voiceClones.${target.id}`);
+          }
         });
         if (!removed) return empty('changed');
         return { status:'deleted',...await maintenance() };
