@@ -42,6 +42,7 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
+import { runChatVoiceCloning } from "./lib/runChatVoiceCloning.js";
 import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscriptionClientSecret.js";
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
@@ -86,7 +87,7 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 app.use(clerkMiddleware());
 
 function getErrorMessage(
@@ -1189,6 +1190,9 @@ app.post("/speech/output", async (req, res) => {
       text: req.body?.text,
       language: req.body?.language,
       speechVoice: req.body?.speechVoice,
+      clonedVoiceId: req.body?.clonedVoiceId,
+      conversationId: req.body?.conversationId,
+      sourceLanguage: req.body?.sourceLanguage,
     });
 
     if (!result.ok) {
@@ -1206,6 +1210,43 @@ app.post("/speech/output", async (req, res) => {
     return res.status(502).json({ error: "Output speech generation failed" });
   }
 });
+
+app.post(
+  "/speech/clone",
+  upload.array("samples", 8),
+  async (req, res) => {
+    try {
+      const uploadedFiles = Array.isArray(req.files)
+        ? (req.files as Express.Multer.File[])
+        : [];
+      const samples =
+        uploadedFiles.length > 0
+          ? uploadedFiles.map((file) => ({
+              buffer: file.buffer,
+              filename: file.originalname,
+              mimeType: file.mimetype,
+            }))
+          : req.body?.samples;
+
+      const result = await runChatVoiceCloning({
+        conversationId: req.body?.conversationId,
+        language: req.body?.language,
+        samples,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch {
+      console.error("Chat voice clone processing failed");
+      return res
+        .status(502)
+        .json({ error: "Chat voice clone processing failed" });
+    }
+  },
+);
 
 app.listen(port, () => {
   console.log(`StringPhone backend is listening on Port: ${port}`);

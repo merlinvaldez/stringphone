@@ -15,6 +15,14 @@ import {
   generateFishClonedSpeech,
 } from "../src/services/fishVoiceCloning.ts";
 import { generateSpeech } from "../src/services/generateSpeech.ts";
+import {
+  clearCachedServerChatVoiceClones,
+  getCachedServerChatVoiceClone,
+  runChatVoiceCloning,
+} from "../src/lib/runChatVoiceCloning.ts";
+import { runOutputTextToSpeech } from "../src/lib/runOutputTextToSpeech.ts";
+import speechCloneHandler from "../api/speech/clone.ts";
+import speechOutputHandler from "../api/speech/output.ts";
 
 function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   const sampleRate = 44100;
@@ -261,4 +269,174 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   assert.equal(fallbackOut.length, mockWavOut.buffer.length);
 }
 
-console.log("PASS Task 1: 10s audio qualification, WAV merging, Fish Audio clone creation, and Vercel AI Gateway speech synthesis");
+// 5. Task 2: runChatVoiceCloning, api/speech/clone.ts, and runOutputTextToSpeech
+{
+  clearCachedServerChatVoiceClones();
+
+  // Validation errors
+  const badLang = await runChatVoiceCloning({
+    language: "invalid-lang",
+    samples: [{ buffer: makeWavSample(10_000).buffer, filename: "a.wav" }],
+  });
+  assert.equal(badLang.ok, false);
+  assert.equal(badLang.status, 400);
+
+  const emptySamples = await runChatVoiceCloning({
+    language: "en",
+    samples: [],
+  });
+  assert.equal(emptySamples.ok, false);
+  assert.equal(emptySamples.status, 400);
+
+  // Under 10s -> cloned: false, reason: 'insufficient_duration'
+  let cloneApiCalls = 0;
+  const under10s = await runChatVoiceCloning(
+    {
+      conversationId: "chat_1",
+      language: "en",
+      samples: [
+        { buffer: makeWavSample(4_200).buffer, filename: "part1.wav" },
+        { buffer: makeWavSample(5_100).buffer, filename: "part2.wav" },
+      ],
+    },
+    {
+      createFishVoiceCloneImpl: async () => {
+        cloneApiCalls++;
+        return { voiceId: "should_not_be_called", durationMs: 9_300 };
+      },
+    },
+  );
+  assert.equal(under10s.ok, true);
+  assert.equal(under10s.cloned, false);
+  assert.equal(under10s.reason, "insufficient_duration");
+  assert.equal(under10s.totalDurationMs, 9_300);
+  assert.equal(under10s.clonedVoiceId, null);
+  assert.equal(cloneApiCalls, 0);
+  assert.equal(getCachedServerChatVoiceClone("chat_1", "en"), null);
+
+  // Merging multiple samples to >= 10s -> cloned: true, mode: 'merged'
+  const merged10s = await runChatVoiceCloning(
+    {
+      conversationId: "chat_1",
+      language: "en",
+      samples: [
+        { buffer: makeWavSample(5_200).buffer, filename: "part1.wav", transcript: "Hello" },
+        { buffer: makeWavSample(5_300).buffer, filename: "part2.wav", transcript: "World" },
+      ],
+    },
+    {
+      createFishVoiceCloneImpl: async (input) => {
+        cloneApiCalls++;
+        assert.equal(input.languageCode, "en");
+        assert.equal(input.mergedReference.durationMs, 10_500);
+        return { voiceId: "fish_en_chat_1", durationMs: 10_500 };
+      },
+    },
+  );
+  assert.equal(merged10s.ok, true);
+  assert.equal(merged10s.cloned, true);
+  assert.equal(merged10s.mode, "merged");
+  assert.equal(merged10s.totalDurationMs, 10_500);
+  assert.equal(merged10s.usedSampleCount, 2);
+  assert.equal(merged10s.clonedVoiceId, "fish_en_chat_1");
+  assert.equal(cloneApiCalls, 1);
+  assert.equal(getCachedServerChatVoiceClone("chat_1", "en")?.voiceId, "fish_en_chat_1");
+  assert.equal(getCachedServerChatVoiceClone("chat_1", "es"), null);
+  assert.equal(getCachedServerChatVoiceClone("chat_2", "en"), null);
+
+  // Subsequent call for same (chat_1, en) returns cached clone without re-cloning
+  const cachedCloneRes = await runChatVoiceCloning(
+    {
+      conversationId: "chat_1",
+      language: "en",
+      samples: [{ buffer: makeWavSample(11_000).buffer, filename: "single.wav" }],
+    },
+    {
+      createFishVoiceCloneImpl: async () => {
+        cloneApiCalls++;
+        return { voiceId: "new_id", durationMs: 11_000 };
+      },
+    },
+  );
+  assert.equal(cachedCloneRes.ok, true);
+  assert.equal(cachedCloneRes.cloned, true);
+  assert.equal(cachedCloneRes.clonedVoiceId, "fish_en_chat_1");
+  assert.equal(cloneApiCalls, 1);
+
+  // runOutputTextToSpeech validation & forwarding
+  const badCloneId = await runOutputTextToSpeech({
+    text: "Hola",
+    language: "es",
+    clonedVoiceId: "invalid voice id with spaces!",
+  });
+  assert.equal(badCloneId.ok, false);
+  assert.equal(badCloneId.status, 400);
+  assert.equal(badCloneId.body.error, "clonedVoiceId is not supported");
+
+  let receivedSpeechInput = null;
+  const mockOutWav = makeWavSample(1_000).buffer;
+  const ttsWithClone = await runOutputTextToSpeech(
+    {
+      text: "Hola abuela",
+      language: "es",
+      speechVoice: "marin",
+      clonedVoiceId: "fish_en_chat_1",
+    },
+    {
+      generateSpeechImpl: async (input) => {
+        receivedSpeechInput = input;
+        return mockOutWav;
+      },
+    },
+  );
+  assert.equal(ttsWithClone.ok, true);
+  assert.equal(receivedSpeechInput.clonedVoiceId, "fish_en_chat_1");
+
+  // Vercel handler api/speech/clone.ts checks (OPTIONS, GET 405, POST JSON)
+  const optionsResp = await speechCloneHandler.fetch(
+    new Request("https://audit.invalid/api/speech/clone", { method: "OPTIONS" }),
+  );
+  assert.equal(optionsResp.status, 204);
+
+  const getResp = await speechCloneHandler.fetch(
+    new Request("https://audit.invalid/api/speech/clone", { method: "GET" }),
+  );
+  assert.equal(getResp.status, 405);
+
+  const postUnder10Resp = await speechCloneHandler.fetch(
+    new Request("https://audit.invalid/api/speech/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        language: "fr",
+        samples: [
+          {
+            base64: makeWavSample(3_000).buffer.toString("base64"),
+            mimeType: "audio/wav",
+            filename: "short.wav",
+          },
+        ],
+      }),
+    }),
+  );
+  assert.equal(postUnder10Resp.status, 200);
+  const postUnder10Json = await postUnder10Resp.json();
+  assert.equal(postUnder10Json.ok, true);
+  assert.equal(postUnder10Json.cloned, false);
+  assert.equal(postUnder10Json.reason, "insufficient_duration");
+
+  const badOutputResp = await speechOutputHandler.fetch(
+    new Request("https://audit.invalid/api/speech/output", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "Hola",
+        language: "es",
+        clonedVoiceId: "bad id!",
+      }),
+    }),
+  );
+  assert.equal(badOutputResp.status, 400);
+}
+
+console.log("PASS Task 1 & Task 2: 10s audio qualification, WAV merging, Fish Audio clone creation, Vercel AI Gateway speech synthesis, and /speech/clone + /speech/output endpoints");
