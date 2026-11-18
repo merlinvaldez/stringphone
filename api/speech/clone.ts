@@ -44,14 +44,19 @@ export default {
         language = formData.get("language");
 
         const uploadedEntries = formData.getAll("samples");
+        const uploadedTranscripts = formData.getAll("transcripts");
         const parsedSamples: RawVoiceCloneSample[] = [];
-        for (const item of uploadedEntries) {
+        for (let i = 0; i < uploadedEntries.length; i += 1) {
+          const item = uploadedEntries[i];
           if (item && typeof item !== "string") {
             const file = item as File;
+            const transcriptItem = uploadedTranscripts[i];
             parsedSamples.push({
               buffer: Buffer.from(await file.arrayBuffer()),
               filename: file.name || "sample.wav",
               mimeType: file.type || undefined,
+              transcript:
+                typeof transcriptItem === "string" ? transcriptItem : undefined,
             });
           }
         }

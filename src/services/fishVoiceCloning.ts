@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { generateSpeech as aiGenerateSpeech } from "ai";
 import { createGateway } from "@ai-sdk/gateway";
 import { createFishAudio } from "@ai-sdk/fish-audio";
@@ -13,6 +17,118 @@ import {
 export const FISH_AUDIO_API_BASE_URL = "https://api.fish.audio";
 export const FISH_AUDIO_DEFAULT_GATEWAY_MODEL = "fish-audio/s2.1-pro";
 export const FISH_AUDIO_DEFAULT_DIRECT_MODEL = "s2.1-pro";
+export const FISH_AUDIO_FREE_DIRECT_MODEL = "s2.1-pro-free";
+
+type InlineVoiceReference = {
+  buffer: Buffer;
+  transcript: string;
+  durationMs: number;
+};
+
+const inlineVoiceReferenceMemoryStore = new Map<string, InlineVoiceReference>();
+const INLINE_REF_DIR = path.join(os.tmpdir(), "stringphone-fish-refs");
+
+function saveInlineVoiceReference(voiceId: string, ref: InlineVoiceReference) {
+  inlineVoiceReferenceMemoryStore.set(voiceId, ref);
+  try {
+    mkdirSync(INLINE_REF_DIR, { recursive: true });
+    const filePath = path.join(INLINE_REF_DIR, `${voiceId}.json`);
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        base64: ref.buffer.toString("base64"),
+        transcript: ref.transcript,
+        durationMs: ref.durationMs,
+      }),
+      "utf8",
+    );
+  } catch {
+    // Memory cache remains active even if tmpdir write fails
+  }
+}
+
+function loadInlineVoiceReference(voiceId: string): InlineVoiceReference | null {
+  const fromMem = inlineVoiceReferenceMemoryStore.get(voiceId);
+  if (fromMem) {
+    return fromMem;
+  }
+  if (!/^fish_ref_[a-zA-Z0-9_-]{8,96}$/.test(voiceId)) {
+    return null;
+  }
+  try {
+    const filePath = path.join(INLINE_REF_DIR, `${voiceId}.json`);
+    const raw = JSON.parse(readFileSync(filePath, "utf8"));
+    if (typeof raw?.base64 === "string" && raw.base64) {
+      const ref: InlineVoiceReference = {
+        buffer: Buffer.from(raw.base64, "base64"),
+        transcript: typeof raw.transcript === "string" ? raw.transcript : "",
+        durationMs: Number(raw.durationMs) || MIN_VOICE_CLONE_DURATION_MS,
+      };
+      inlineVoiceReferenceMemoryStore.set(voiceId, ref);
+      return ref;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function encodeMsgpackString(str: string): Buffer {
+  const bytes = Buffer.from(str, "utf8");
+  if (bytes.length < 32) {
+    return Buffer.concat([Buffer.from([0xa0 | bytes.length]), bytes]);
+  }
+  if (bytes.length < 256) {
+    return Buffer.concat([Buffer.from([0xd9, bytes.length]), bytes]);
+  }
+  if (bytes.length < 65536) {
+    const header = Buffer.alloc(3);
+    header[0] = 0xda;
+    header.writeUInt16BE(bytes.length, 1);
+    return Buffer.concat([header, bytes]);
+  }
+  const header = Buffer.alloc(5);
+  header[0] = 0xdb;
+  header.writeUInt32BE(bytes.length, 1);
+  return Buffer.concat([header, bytes]);
+}
+
+function encodeMsgpackBinary(bytes: Buffer): Buffer {
+  if (bytes.length < 256) {
+    return Buffer.concat([Buffer.from([0xc4, bytes.length]), bytes]);
+  }
+  if (bytes.length < 65536) {
+    const header = Buffer.alloc(3);
+    header[0] = 0xc5;
+    header.writeUInt16BE(bytes.length, 1);
+    return Buffer.concat([header, bytes]);
+  }
+  const header = Buffer.alloc(5);
+  header[0] = 0xc6;
+  header.writeUInt32BE(bytes.length, 1);
+  return Buffer.concat([header, bytes]);
+}
+
+function encodeFishZeroShotTtsMsgpack(input: {
+  text: string;
+  referenceAudio: Buffer;
+  referenceText: string;
+}): Buffer {
+  // Map of 3 entries: { text, format: "wav", references: [{ audio, text }] }
+  return Buffer.concat([
+    Buffer.from([0x83]),
+    encodeMsgpackString("text"),
+    encodeMsgpackString(input.text),
+    encodeMsgpackString("format"),
+    encodeMsgpackString("wav"),
+    encodeMsgpackString("references"),
+    Buffer.from([0x91, 0x82]), // 1-element array of 2-entry map
+    encodeMsgpackString("audio"),
+    encodeMsgpackBinary(input.referenceAudio),
+    encodeMsgpackString("text"),
+    encodeMsgpackString(input.referenceText || ""),
+  ]);
+}
 
 export type CreateFishVoiceCloneInput = {
   mergedReference: PreparedVoiceReference;
@@ -142,6 +258,26 @@ export async function createFishVoiceClone(
         : typeof body?.detail === "string"
           ? body.detail
           : `Fish Audio voice clone creation failed (${response.status}).`;
+
+    // Free Fish Audio API keys have a 0/0 `/model` creation quota (HTTP 403/402),
+    // but support zero-shot inline reference cloning via `application/msgpack` on `/v1/tts`.
+    if (
+      response.status === 403 ||
+      response.status === 402 ||
+      /model creation limit|insufficient.*credit/i.test(detail)
+    ) {
+      const inlineVoiceId = `fish_ref_${randomUUID().replace(/-/g, "")}`;
+      saveInlineVoiceReference(inlineVoiceId, {
+        buffer: input.mergedReference.buffer,
+        transcript: joinedTranscript,
+        durationMs: input.mergedReference.durationMs,
+      });
+      return {
+        voiceId: inlineVoiceId,
+        durationMs: input.mergedReference.durationMs,
+      };
+    }
+
     throw new Error(detail);
   }
 
@@ -191,6 +327,43 @@ export async function generateFishClonedSpeech(
   }
 
   const fishApiKey = getFishAudioApiKey(deps.apiKey);
+  const inlineReference = loadInlineVoiceReference(clonedVoiceId);
+  if (inlineReference && fishApiKey) {
+    const fetchImpl = deps.fetchImpl ?? fetch;
+    const msgpackPayload = encodeFishZeroShotTtsMsgpack({
+      text: input.text,
+      referenceAudio: inlineReference.buffer,
+      referenceText: inlineReference.transcript,
+    });
+
+    for (const modelHeader of [
+      FISH_AUDIO_FREE_DIRECT_MODEL,
+      FISH_AUDIO_DEFAULT_DIRECT_MODEL,
+    ]) {
+      const response = await fetchImpl(`${FISH_AUDIO_API_BASE_URL}/v1/tts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fishApiKey}`,
+          "Content-Type": "application/msgpack",
+          model: modelHeader,
+        },
+        body: new Uint8Array(msgpackPayload),
+      });
+
+      if (response.ok) {
+        const rawBytes = Buffer.from(await response.arrayBuffer());
+        return ensureCanonicalWavOutput(rawBytes);
+      }
+
+      if (response.status !== 402 && response.status !== 403) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(
+          `Fish Audio inline reference TTS failed (${response.status}): ${errText}`,
+        );
+      }
+    }
+  }
+
   const gatewayApiKey =
     deps.gatewayApiKey?.trim() ||
     process.env.AI_GATEWAY_API_KEY?.trim() ||

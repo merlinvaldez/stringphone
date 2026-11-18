@@ -1219,12 +1219,21 @@ app.post(
       const uploadedFiles = Array.isArray(req.files)
         ? (req.files as Express.Multer.File[])
         : [];
+      const rawTranscripts = Array.isArray(req.body?.transcripts)
+        ? req.body.transcripts
+        : typeof req.body?.transcripts === "string"
+          ? [req.body.transcripts]
+          : [];
       const samples =
         uploadedFiles.length > 0
-          ? uploadedFiles.map((file) => ({
+          ? uploadedFiles.map((file, index) => ({
               buffer: file.buffer,
               filename: file.originalname,
               mimeType: file.mimetype,
+              transcript:
+                typeof rawTranscripts[index] === "string"
+                  ? rawTranscripts[index]
+                  : undefined,
             }))
           : req.body?.samples;
 

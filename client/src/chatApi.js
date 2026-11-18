@@ -470,6 +470,7 @@ export async function requestChatVoiceClone({
         ? "m4a"
         : "webm";
     formData.append("samples", uploadBlob, `stringphone-sample-${i + 1}.${ext}`);
+    formData.append("transcripts", typeof sample.transcript === "string" ? sample.transcript : "");
   }
 
   const request = typeof authFetch === "function" ? authFetch : fetch;
