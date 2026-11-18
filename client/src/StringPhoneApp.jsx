@@ -3415,9 +3415,13 @@ export default function StringPhoneApp() {
  
     try {
       const activeVoice = speechVoice || ttsVoice;
-      const activeChatId = isSignedIn
-        ? currentConversationId
-        : activeLocalConversationId;
+      const activeChatId = sharedRoomSession
+        ? null
+        : isSignedIn
+          ? currentConversationId
+          : activeLocalConversationId ||
+            localStore?.getPreferences?.()?.activeConversationId ||
+            null;
       const resolvedSourceLanguageCode =
         typeof sourceLanguageCode === "string" && sourceLanguageCode.trim()
           ? sourceLanguageCode.trim().toLowerCase()
@@ -4697,15 +4701,19 @@ export default function StringPhoneApp() {
             retryPayload,
           };
 
+          let resolvedMessageId = draft.messageId;
           if (draft.messageId) {
             updateMessage(draft.messageId, finalMessage);
           } else {
-            appendMessage(finalMessage);
+            resolvedMessageId = appendMessage(finalMessage);
           }
           draft.audioUrlTransferred = Boolean(draft.audioUrl);
 
           if (!isSignedIn && localStore) {
-            let localConvId = activeLocalConversationId;
+            let localConvId =
+              activeLocalConversationId ||
+              localStore.getPreferences?.()?.activeConversationId ||
+              null;
             if (!localConvId) {
               try {
                 const newConv = await localStore.createConversation({
@@ -4739,7 +4747,7 @@ export default function StringPhoneApp() {
             }
             if (localConvId) {
               await localStore.saveMessage({
-                id: draft.messageId || finalMessage.id || utteranceId,
+                id: resolvedMessageId || finalMessage.id || utteranceId,
                 conversationId: localConvId,
                 originMode: finalMessage.originMode,
                 speaker: finalMessage.sender,
@@ -4774,7 +4782,7 @@ export default function StringPhoneApp() {
                 { durationMs: measuredDurationMs },
               );
               await localStore.saveMessage({
-                id: draft.messageId || finalMessage.id || utteranceId,
+                id: resolvedMessageId || finalMessage.id || utteranceId,
                 conversationId,
                 originMode: finalMessage.originMode,
                 speaker: finalMessage.sender,

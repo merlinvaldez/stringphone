@@ -11,6 +11,7 @@ import {
 } from '../adapters/audio';
 import { nativeLiveApi, type LiveTranslationResult } from '../adapters/live';
 import type { ChatState, createTextChatController } from '../chat/controller';
+import { ensureConversationVoiceClone } from '../chat/native';
 import {
   NativeLiveConnection,
   prefetchBothTranscriptionSecrets,
@@ -405,6 +406,7 @@ export function useLiveTurnFlow({
               Math.min(MAX_CAPTURE_MS, Math.round(durationMs)),
               () => AppState.currentState === 'active',
             );
+            void ensureConversationVoiceClone(currentContext.conversationId, currentContext.sourceLanguage);
             onCompletedTurnRef.current?.('', currentContext.speaker);
           }
         } catch (err) {
@@ -463,6 +465,9 @@ export function useLiveTurnFlow({
         if (recordedAudio && currentChat) {
           for (const msgId of savedMessageIdsRef.current) {
             await currentChat.attachSourceAudio(msgId, recordedAudio).catch(() => undefined);
+          }
+          if (savedMessageIdsRef.current.length > 0) {
+            void ensureConversationVoiceClone(currentContext.conversationId, currentContext.sourceLanguage);
           }
         }
 

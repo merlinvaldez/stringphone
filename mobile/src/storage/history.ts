@@ -414,7 +414,7 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
 
         let dedupKey = `audio:${row.audio_id}`;
         if (row.message_id.startsWith('live_')) {
-          const capturePrefix = row.message_id.replace(/_(item_[a-zA-Z0-9]+|msg_[a-zA-Z0-9]+|[^_]+)$/, '');
+          const capturePrefix = row.message_id.replace(/_(item_[a-zA-Z0-9_-]+|msg_[a-zA-Z0-9_-]+|[^_]+)$/, '');
           dedupKey = `live_capture:${capturePrefix}:${durationMs}:${row.byte_size}`;
         }
 

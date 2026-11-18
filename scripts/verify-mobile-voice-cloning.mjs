@@ -244,6 +244,43 @@ try {
   assert.equal(await history.getConversationVoiceClone("conv_a", "es"), null);
   assert.equal(await history.getConversationVoiceClone("conv_b", "en"), null);
 
+  // Also verify live deduplication when itemId contains extra underscores/hyphens (e.g. item_abc_1, item_def_2)
+  await history.saveReadyLiveMessage({
+    id: "live_m1abc_9xyz_item_abc_1",
+    requestId: "live_req_m1abc_9xyz_item_abc_1",
+    conversationId: "conv_b",
+    speaker: "me",
+    originMode: "conversation",
+    sourceLanguage: "en",
+    targetLanguage: "es",
+    originalText: "First sentence.",
+    translatedText: "Primera frase.",
+  });
+  await audio.save(
+    { kind: "message", id: "live_m1abc_9xyz_item_abc_1", role: "source" },
+    { bytes: new Uint8Array([9, 8, 7, 6]) },
+    { format: "m4a", mimeType: "audio/mp4", durationMs: 6_500 },
+  );
+  await history.saveReadyLiveMessage({
+    id: "live_m1abc_9xyz_item_def_2",
+    requestId: "live_req_m1abc_9xyz_item_def_2",
+    conversationId: "conv_b",
+    speaker: "me",
+    originMode: "conversation",
+    sourceLanguage: "en",
+    targetLanguage: "es",
+    originalText: "Second sentence.",
+    translatedText: "Segunda frase.",
+  });
+  await audio.save(
+    { kind: "message", id: "live_m1abc_9xyz_item_def_2", role: "source" },
+    { bytes: new Uint8Array([9, 8, 7, 6]) },
+    { format: "m4a", mimeType: "audio/mp4", durationMs: 6_500 },
+  );
+  const checkConvBDedup = await history.collectEligibleVoiceCloneSamples("conv_b", "en");
+  assert.equal(checkConvBDedup.eligible, false);
+  assert.equal(checkConvBDedup.totalDurationMs, 6_500);
+
   // 5. Transport & Speech API contract for `/speech/clone` and `/speech/output` with `clonedVoiceId`
   const httpCalls = [];
   const mockWavResponse = createMockWavBytes(2400);

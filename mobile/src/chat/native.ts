@@ -141,11 +141,19 @@ export async function setNativeTtsVoice(voice: 'marin' | 'onyx') {
 
 export async function resolveNativeSourceAudio(id: string) {
   await getNativeTextChat();
+  const message = await historySession!.getMessage(id);
+  if (message?.input_kind === 'text') {
+    await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  }
   return audioSession!.resolve({ kind: 'message', id, role: 'source' });
 }
 
 export async function resolveNativeTranslatedAudio(id: string) {
   await getNativeTextChat();
+  const message = await historySession!.getMessage(id);
+  if (message) {
+    await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  }
   return audioSession!.resolve({ kind: 'message', id, role: 'translated' });
 }
 
