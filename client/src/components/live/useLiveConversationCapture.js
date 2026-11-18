@@ -154,6 +154,7 @@ export function useLiveConversationCapture({
   const eventsChannelRef = useRef(null);
   const closeTimeoutRef = useRef(0);
   const segmentRecorderRef = useRef(null);
+  const segmentRecorderStartedAtRef = useRef(0);
   const segmentRecorderChunksRef = useRef([]);
   const segmentRecorderFinalizingRef = useRef(false);
   const pendingSegmentAudioRef = useRef([]);
@@ -221,6 +222,7 @@ export function useLiveConversationCapture({
       const chunks = [];
 
       segmentRecorderRef.current = recorder;
+      segmentRecorderStartedAtRef.current = performance.now();
       segmentRecorderChunksRef.current = chunks;
       recorder.addEventListener("dataavailable", (event) => {
         if (event.data?.size > 0) {
@@ -230,18 +232,21 @@ export function useLiveConversationCapture({
       recorder.start();
     } catch {
       segmentRecorderRef.current = null;
+      segmentRecorderStartedAtRef.current = 0;
       segmentRecorderChunksRef.current = [];
     }
   };
 
   const stopSegmentAudioRecording = ({ restart = false } = {}) => {
     const recorder = segmentRecorderRef.current;
+    const startedAt = segmentRecorderStartedAtRef.current;
 
     if (!recorder) {
       return Promise.resolve(null);
     }
 
     segmentRecorderRef.current = null;
+    segmentRecorderStartedAtRef.current = 0;
     segmentRecorderFinalizingRef.current = true;
     const chunks = segmentRecorderChunksRef.current;
 
@@ -256,11 +261,18 @@ export function useLiveConversationCapture({
         settled = true;
         segmentRecorderFinalizingRef.current = false;
         segmentRecorderChunksRef.current = [];
+        const elapsedDurationMs =
+          startedAt > 0
+            ? Math.max(0, Math.round(performance.now() - startedAt))
+            : 0;
         const audioBlob = chunks.length
           ? new Blob(chunks, {
               type: recorder.mimeType || "audio/webm",
             })
           : null;
+        if (audioBlob && elapsedDurationMs > 0) {
+          audioBlob.durationMs = elapsedDurationMs;
+        }
         resolve(audioBlob);
 
         if (restart && isListeningRef.current) {

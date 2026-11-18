@@ -216,7 +216,15 @@ export function MessageBubble({
                       <TextToSpeechButton
                         text={message.translatedText}
                         languageCode={message.targetLanguageCode}
-                        onPlay={onPlayTranslatedSpeech}
+                        onPlay={(input) =>
+                          onPlayTranslatedSpeech({
+                            ...input,
+                            ownerKind: "message",
+                            ownerId: message.id,
+                            role: "translated",
+                            sourceLanguageCode: message.sourceLanguageCode,
+                          })
+                        }
                         uiStrings={translatedSpeechUiStrings}
                         className="shrink-0"
                       />
@@ -247,7 +255,15 @@ export function MessageBubble({
                     <TextToSpeechButton
                       text={message.originalText}
                       languageCode={message.sourceLanguageCode}
-                      onPlay={onPlayTranslatedSpeech}
+                      onPlay={(input) =>
+                        onPlayTranslatedSpeech({
+                          ...input,
+                          ownerKind: "message",
+                          ownerId: message.id,
+                          role: "source",
+                          sourceLanguageCode: message.sourceLanguageCode,
+                        })
+                      }
                       uiStrings={originalTextSpeechUiStrings}
                       className="shrink-0"
                     />
@@ -278,7 +294,15 @@ export function MessageBubble({
                     <TextToSpeechButton
                       text={message.translatedText}
                       languageCode={message.targetLanguageCode}
-                      onPlay={onPlayTranslatedSpeech}
+                      onPlay={(input) =>
+                        onPlayTranslatedSpeech({
+                          ...input,
+                          ownerKind: "message",
+                          ownerId: message.id,
+                          role: "translated",
+                          sourceLanguageCode: message.sourceLanguageCode,
+                        })
+                      }
                       uiStrings={translatedSpeechUiStrings}
                       className="shrink-0"
                     />

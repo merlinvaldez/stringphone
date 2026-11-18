@@ -333,6 +333,7 @@ export async function fetchOutputSpeech({
   text,
   language,
   speechVoice = null,
+  clonedVoiceId = null,
   authFetch,
   signal,
 }) {
@@ -347,6 +348,7 @@ export async function fetchOutputSpeech({
       text,
       language,
       ...(speechVoice ? { speechVoice } : {}),
+      ...(clonedVoiceId ? { clonedVoiceId } : {}),
     }),
   });
 
@@ -359,6 +361,47 @@ export async function fetchOutputSpeech({
   return new Blob([await response.arrayBuffer()], {
     type: response.headers.get("Content-Type") ?? "audio/wav",
   });
+}
+
+export async function requestChatVoiceClone({
+  conversationId = null,
+  language,
+  samples = [],
+  authFetch,
+  signal,
+}) {
+  const formData = new FormData();
+  formData.append("language", typeof language === "string" ? language : language?.code || "");
+  if (conversationId) {
+    formData.append("conversationId", String(conversationId));
+  }
+
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = samples[i];
+    if (!sample?.blob) continue;
+    const mimeType = sample.mimeType || sample.blob.type || "audio/webm";
+    const ext = mimeType.includes("mp4") || mimeType.includes("m4a")
+      ? "m4a"
+      : mimeType.includes("wav")
+        ? "wav"
+        : "webm";
+    formData.append("samples", sample.blob, `stringphone-sample-${i + 1}.${ext}`);
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/speech/clone`, {
+    method: "POST",
+    signal,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Voice cloning failed."),
+    );
+  }
+
+  return response.json();
 }
 
 export async function createLanguageLesson(

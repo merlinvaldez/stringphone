@@ -41,6 +41,7 @@ import {
   createLanguageLesson,
   saveCollectionEntry,
   fetchOutputSpeech,
+  requestChatVoiceClone,
   fetchLessons,
   fetchMessages,
   processLiveConversationSegment,
@@ -1538,7 +1539,13 @@ const TranscriptCard = React.forwardRef(
               languageCode={message.targetLanguageCode}
               onPlay={(input) => {
                 onActivate?.();
-                return onPlayTranslatedSpeech(input);
+                return onPlayTranslatedSpeech({
+                  ...input,
+                  ownerKind: "message",
+                  ownerId: message.id,
+                  role: "translated",
+                  sourceLanguageCode: message.sourceLanguageCode,
+                });
               }}
               uiStrings={translatedSpeechUiStrings}
               className="shrink-0"
@@ -3207,6 +3214,107 @@ export default function StringPhoneApp() {
     }
   };
 
+  const inFlightVoiceCloneRequestsRef = useRef(new Map());
+
+  const measureAudioBlobDurationMs = async (blob, fallbackDurationMs = 0) => {
+    if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
+      return 0;
+    }
+
+    const reported =
+      Number.isFinite(blob.durationMs) && blob.durationMs > 0
+        ? Math.round(blob.durationMs)
+        : Number.isFinite(fallbackDurationMs) && fallbackDurationMs > 0
+          ? Math.round(fallbackDurationMs)
+          : 0;
+
+    if (typeof window !== "undefined") {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (typeof AudioContextCtor === "function" && typeof blob.arrayBuffer === "function") {
+        let ctx = null;
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          ctx = new AudioContextCtor();
+          const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+          const decodedMs = Math.round((decoded?.duration || 0) * 1000);
+          if (decodedMs > 0) {
+            blob.durationMs = decodedMs;
+            return decodedMs;
+          }
+        } catch {
+          // Fall back to reported duration
+        } finally {
+          void ctx?.close?.().catch?.(() => undefined);
+        }
+      }
+    }
+
+    if (reported > 0) {
+      blob.durationMs = reported;
+    }
+    return reported;
+  };
+
+  const ensureChatLanguageVoiceClone = async (chatId, languageCode) => {
+    const trimmedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    const lang = typeof languageCode === "string" ? languageCode.trim().toLowerCase() : "";
+    if (!trimmedChatId || !lang || !localStore) {
+      return null;
+    }
+
+    try {
+      const existing = await localStore.getChatVoiceClone(trimmedChatId, lang);
+      if (existing?.voiceId) {
+        return existing.voiceId;
+      }
+    } catch {
+      // Proceed to eligibility check
+    }
+
+    const inFlightKey = `${trimmedChatId}:${lang}`;
+    const inFlight = inFlightVoiceCloneRequestsRef.current.get(inFlightKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const task = (async () => {
+      try {
+        const eligibleResult = await localStore.collectEligibleCloneAudioSamples(
+          trimmedChatId,
+          lang,
+          10_000,
+        );
+        if (!eligibleResult?.eligible || !eligibleResult.samples?.length) {
+          return null;
+        }
+
+        const response = await requestChatVoiceClone({
+          conversationId: trimmedChatId,
+          language: lang,
+          samples: eligibleResult.samples,
+          authFetch: isSignedIn ? authFetch : undefined,
+        });
+
+        if (response?.cloned && typeof response.clonedVoiceId === "string" && response.clonedVoiceId.trim()) {
+          const saved = await localStore.setChatVoiceClone(trimmedChatId, lang, {
+            voiceId: response.clonedVoiceId.trim(),
+            totalDurationMs: response.totalDurationMs || eligibleResult.totalDurationMs,
+            mode: response.mode || eligibleResult.mode,
+          });
+          return saved.voiceId;
+        }
+      } catch (err) {
+        console.warn("Chat voice clone check did not produce a clone", err);
+      }
+      return null;
+    })().finally(() => {
+      inFlightVoiceCloneRequestsRef.current.delete(inFlightKey);
+    });
+
+    inFlightVoiceCloneRequestsRef.current.set(inFlightKey, task);
+    return task;
+  };
+
   const handleThreadAudioPlay = (audioElement) => {
     pauseActiveAudio(audioElement);
     domAudioRef.current = audioElement;
@@ -3284,6 +3392,7 @@ export default function StringPhoneApp() {
     ownerKind = "message",
     ownerId = null,
     role = "translated",
+    sourceLanguageCode = "",
   }) => {
     const trimmedText = typeof text === "string" ? text.trim() : "";
     const normalizedLanguageCode =
@@ -3306,9 +3415,38 @@ export default function StringPhoneApp() {
  
     try {
       const activeVoice = speechVoice || ttsVoice;
+      const activeChatId = isSignedIn
+        ? currentConversationId
+        : activeLocalConversationId;
+      const resolvedSourceLanguageCode =
+        typeof sourceLanguageCode === "string" && sourceLanguageCode.trim()
+          ? sourceLanguageCode.trim().toLowerCase()
+          : ownerKind === "message" && ownerId
+            ? (
+                messagesRef.current.find((m) => m.id === ownerId)
+                  ?.sourceLanguageCode || ""
+              )
+                .trim()
+                .toLowerCase()
+            : "";
+
+      let clonedVoiceId = null;
+      if (
+        ownerKind === "message" &&
+        activeChatId &&
+        resolvedSourceLanguageCode
+      ) {
+        clonedVoiceId = await ensureChatLanguageVoiceClone(
+          activeChatId,
+          resolvedSourceLanguageCode,
+        );
+      }
+
       const cacheKey =
         !isSignedIn && localStore && ownerId
-          ? `${ownerKind}:${ownerId}:${role}:${activeVoice}`
+          ? clonedVoiceId
+            ? `${ownerKind}:${ownerId}:${role}:clone:${clonedVoiceId}`
+            : `${ownerKind}:${ownerId}:${role}:${activeVoice}`
           : null;
 
       let audioBlob = null;
@@ -3325,6 +3463,7 @@ export default function StringPhoneApp() {
           text: trimmedText,
           language: normalizedLanguageCode,
           speechVoice: activeVoice,
+          clonedVoiceId,
           authFetch: isSignedIn ? authFetch : undefined,
           signal: abortController.signal,
         });
@@ -4008,10 +4147,18 @@ export default function StringPhoneApp() {
       });
 
       if (!isSignedIn && localStore && localConvId) {
+        const measuredDurationMs = await measureAudioBlobDurationMs(
+          recording?.blob || audioBlob,
+          recording?.durationMs || recording?.blob?.durationMs || 0,
+        );
         let finalSourceAudioId = initialSourceAudioId;
         if (audioBlob) {
           try {
-            finalSourceAudioId = await localStore.saveAudioAsset(audioBlob);
+            finalSourceAudioId = await localStore.saveAudioAsset(
+              recording?.blob || audioBlob,
+              undefined,
+              { durationMs: measuredDurationMs },
+            );
           } catch (e) {
             console.error("Failed to save voice audio blob asset", e);
           }
@@ -4026,7 +4173,39 @@ export default function StringPhoneApp() {
           translatedText: data.translatedText,
           translatedPronunciation: data.translatedPronunciation ?? "",
           sourceAudioId: finalSourceAudioId || undefined,
+          sourceAudioDurationMs: measuredDurationMs || undefined,
         });
+        void ensureChatLanguageVoiceClone(localConvId, sourceSnapshot.code);
+      }
+
+      if (isSignedIn && localStore && conversationId && (recording?.blob || audioBlob)) {
+        try {
+          const measuredDurationMs = await measureAudioBlobDurationMs(
+            recording?.blob || audioBlob,
+            recording?.durationMs || recording?.blob?.durationMs || 0,
+          );
+          const signedInSourceAudioId = await localStore.saveAudioAsset(
+            recording?.blob || audioBlob,
+            undefined,
+            { durationMs: measuredDurationMs },
+          );
+          await localStore.saveMessage({
+            id: messageId,
+            conversationId,
+            kind: "voice",
+            status: "ready",
+            originalText: data.transcript,
+            transcript: data.transcript,
+            translatedText: data.translatedText,
+            sourceLanguageCode: sourceSnapshot.code,
+            targetLanguageCode: targetSnapshot.code,
+            sourceAudioId: signedInSourceAudioId,
+            sourceAudioDurationMs: measuredDurationMs || undefined,
+          });
+          void ensureChatLanguageVoiceClone(conversationId, sourceSnapshot.code);
+        } catch {
+          // Ignore local mirror errors for signed-in conversations
+        }
       }
 
       if (conversationId) {
@@ -4542,9 +4721,18 @@ export default function StringPhoneApp() {
               }
             }
             let sourceAudioId = null;
+            let measuredDurationMs = 0;
             if (audioBlob) {
               try {
-                sourceAudioId = await localStore.saveAudioAsset(audioBlob);
+                measuredDurationMs = await measureAudioBlobDurationMs(
+                  audioBlob,
+                  audioBlob.durationMs || 0,
+                );
+                sourceAudioId = await localStore.saveAudioAsset(
+                  audioBlob,
+                  undefined,
+                  { durationMs: measuredDurationMs },
+                );
               } catch (e) {
                 console.error("Failed to save audio asset", e);
               }
@@ -4565,7 +4753,47 @@ export default function StringPhoneApp() {
                 sourceLanguageCode: finalMessage.sourceLanguageCode,
                 targetLanguageCode: finalMessage.targetLanguageCode,
                 sourceAudioId: sourceAudioId || undefined,
+                sourceAudioDurationMs: measuredDurationMs || undefined,
               });
+              if (sourceAudioId) {
+                void ensureChatLanguageVoiceClone(
+                  localConvId,
+                  finalMessage.sourceLanguageCode,
+                );
+              }
+            }
+          } else if (isSignedIn && localStore && conversationId && audioBlob) {
+            try {
+              const measuredDurationMs = await measureAudioBlobDurationMs(
+                audioBlob,
+                audioBlob.durationMs || 0,
+              );
+              const signedInSourceAudioId = await localStore.saveAudioAsset(
+                audioBlob,
+                undefined,
+                { durationMs: measuredDurationMs },
+              );
+              await localStore.saveMessage({
+                id: draft.messageId || finalMessage.id || utteranceId,
+                conversationId,
+                originMode: finalMessage.originMode,
+                speaker: finalMessage.sender,
+                kind: finalMessage.kind,
+                status: finalMessage.status,
+                originalText: finalMessage.originalText,
+                translatedText: finalMessage.translatedText,
+                transcript: finalMessage.transcript,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceAudioId: signedInSourceAudioId,
+                sourceAudioDurationMs: measuredDurationMs || undefined,
+              });
+              void ensureChatLanguageVoiceClone(
+                conversationId,
+                finalMessage.sourceLanguageCode,
+              );
+            } catch {
+              // Ignore local mirror errors for signed-in conversations
             }
           }
 

@@ -12,11 +12,15 @@ export const LOCAL_DB_NAME = 'stringphone-local-v1';
 /** Default IndexedDB schema version. */
 export const LOCAL_DB_VERSION = 1;
 
+/** Minimum audio duration (10 seconds) required to create a Fish Audio instant voice clone. */
+export const MIN_VOICE_CLONE_DURATION_MS = 10_000;
+
 /** Storage keys for preferences. */
 export const PREF_KEYS = Object.freeze({
   ACTIVE_CONVERSATION: 'stringphone-local-active-conversation-v1',
   CHAT_LANGUAGES: 'stringphone-chat-languages-v1',
   TTS_VOICE: 'stringphone-tts-voice-v1',
+  CHAT_VOICE_CLONES: 'stringphone-chat-voice-clones-v1',
 });
 
 /** Default preference values. */
@@ -692,6 +696,20 @@ export function createLocalStore(options = {}) {
       await setActiveConversationId(null);
     }
 
+    // Remove any external voice clone preferences entry for this conversation
+    try {
+      const rawClones = prefsStorage.getItem(PREF_KEYS.CHAT_VOICE_CLONES);
+      if (rawClones) {
+        const parsedClones = JSON.parse(rawClones);
+        if (parsedClones && typeof parsedClones === 'object' && id in parsedClones) {
+          delete parsedClones[id];
+          prefsStorage.setItem(PREF_KEYS.CHAT_VOICE_CLONES, JSON.stringify(parsedClones));
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+
     const orphanedAudioCount = await cleanupUnreferencedAudio(driver, candidateAudioIds);
     return { deleted: true, orphanedAudioCount };
   }
@@ -747,6 +765,10 @@ export function createLocalStore(options = {}) {
       sourceLanguageCode: messageRecord.sourceLanguageCode || existing?.sourceLanguageCode || '',
       targetLanguageCode: messageRecord.targetLanguageCode || existing?.targetLanguageCode || '',
       sourceAudioId: messageRecord.sourceAudioId !== undefined ? messageRecord.sourceAudioId : (existing?.sourceAudioId || null),
+      sourceAudioDurationMs:
+        messageRecord.sourceAudioDurationMs !== undefined
+          ? messageRecord.sourceAudioDurationMs
+          : (existing?.sourceAudioDurationMs || null),
       translatedAudioId: messageRecord.translatedAudioId !== undefined ? messageRecord.translatedAudioId : (existing?.translatedAudioId || null),
       errorMessage: messageRecord.errorMessage !== undefined ? messageRecord.errorMessage : (existing?.errorMessage || null),
       createdAt,
@@ -786,19 +808,279 @@ export function createLocalStore(options = {}) {
    * Saves binary audio blob into audioAssets store.
    * @param {Blob} blob
    * @param {string} [id]
+   * @param {{ durationMs?: number | null, captureGroupId?: string | null }} [metadata={}]
    * @returns {Promise<string>}
    */
-  async function saveAudioAsset(blob, id) {
+  async function saveAudioAsset(blob, id, metadata = {}) {
     const assetId = id || newId();
     const mimeType = blob?.type || 'audio/webm';
+    const rawDuration =
+      Number.isFinite(metadata?.durationMs) && metadata.durationMs > 0
+        ? metadata.durationMs
+        : Number.isFinite(blob?.durationMs) && blob.durationMs > 0
+          ? blob.durationMs
+          : null;
+    const durationMs = rawDuration !== null ? Math.round(rawDuration) : null;
     const asset = {
       id: assetId,
       blob,
       mimeType,
+      durationMs,
+      captureGroupId: metadata?.captureGroupId || null,
       createdAt: now(),
     };
     await driver.put('audioAssets', asset);
     return assetId;
+  }
+
+  /**
+   * Returns all saved voice clones for a conversation, keyed by languageCode.
+   * Scoped strictly to that conversationId only.
+   * @param {string} conversationId
+   * @returns {Promise<Record<string, { voiceId: string, languageCode: string, totalDurationMs: number, mode: 'single' | 'merged', createdAt: number }>>}
+   */
+  async function getChatVoiceClones(conversationId) {
+    if (!conversationId || typeof conversationId !== 'string') {
+      return {};
+    }
+    const trimmedId = conversationId.trim();
+    if (!trimmedId) {
+      return {};
+    }
+
+    const conv = await driver.get('conversations', trimmedId);
+    if (conv) {
+      return conv.voiceClones && typeof conv.voiceClones === 'object'
+        ? { ...conv.voiceClones }
+        : {};
+    }
+
+    try {
+      const raw = prefsStorage.getItem(PREF_KEYS.CHAT_VOICE_CLONES);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && parsed[trimmedId] && typeof parsed[trimmedId] === 'object') {
+          return { ...parsed[trimmedId] };
+        }
+      }
+    } catch {
+      // Fallback to empty
+    }
+
+    return {};
+  }
+
+  /**
+   * Returns the saved voice clone for a specific spoken language in a conversation, or null if none exists.
+   * @param {string} conversationId
+   * @param {string} languageCode
+   * @returns {Promise<{ voiceId: string, languageCode: string, totalDurationMs: number, mode: 'single' | 'merged', createdAt: number } | null>}
+   */
+  async function getChatVoiceClone(conversationId, languageCode) {
+    if (!conversationId || !languageCode) {
+      return null;
+    }
+    const lang = (getSupportedTtsLanguage(languageCode)?.code ?? String(languageCode).trim().toLowerCase());
+    if (!lang) {
+      return null;
+    }
+    const clones = await getChatVoiceClones(conversationId);
+    return clones[lang] ?? null;
+  }
+
+  /**
+   * Saves a voice clone for a spoken language on that conversation only, and evicts
+   * any cached default-voice TTS for messages in that conversation spoken in that language.
+   * @param {string} conversationId
+   * @param {string} languageCode
+   * @param {{ voiceId: string, totalDurationMs: number, mode?: 'single' | 'merged' }} cloneInput
+   */
+  async function setChatVoiceClone(conversationId, languageCode, cloneInput) {
+    const trimmedConvId = typeof conversationId === 'string' ? conversationId.trim() : '';
+    if (!trimmedConvId) {
+      throw new Error('conversationId is required to save a chat voice clone.');
+    }
+    const lang = (getSupportedTtsLanguage(languageCode)?.code ?? String(languageCode || '').trim().toLowerCase());
+    if (!lang) {
+      throw new Error('languageCode is required to save a chat voice clone.');
+    }
+    const voiceId = typeof cloneInput?.voiceId === 'string' ? cloneInput.voiceId.trim() : '';
+    if (!voiceId) {
+      throw new Error('voiceId is required to save a chat voice clone.');
+    }
+    const totalDurationMs = Number(cloneInput?.totalDurationMs ?? 0);
+    if (!Number.isFinite(totalDurationMs) || totalDurationMs < MIN_VOICE_CLONE_DURATION_MS) {
+      throw new Error(`Instant voice cloning requires at least 10 seconds (${MIN_VOICE_CLONE_DURATION_MS}ms) of audio.`);
+    }
+
+    const record = {
+      voiceId,
+      languageCode: lang,
+      totalDurationMs: Math.round(totalDurationMs),
+      mode: cloneInput?.mode === 'merged' ? 'merged' : 'single',
+      createdAt: now(),
+    };
+
+    const conv = await driver.get('conversations', trimmedConvId);
+    if (conv) {
+      const updatedConv = {
+        ...conv,
+        voiceClones: {
+          ...(conv.voiceClones && typeof conv.voiceClones === 'object' ? conv.voiceClones : {}),
+          [lang]: record,
+        },
+      };
+      await driver.put('conversations', updatedConv);
+    } else {
+      try {
+        const raw = prefsStorage.getItem(PREF_KEYS.CHAT_VOICE_CLONES);
+        const parsed = raw ? JSON.parse(raw) : {};
+        const nextMap = parsed && typeof parsed === 'object' ? parsed : {};
+        nextMap[trimmedConvId] = {
+          ...(nextMap[trimmedConvId] && typeof nextMap[trimmedConvId] === 'object' ? nextMap[trimmedConvId] : {}),
+          [lang]: record,
+        };
+        prefsStorage.setItem(PREF_KEYS.CHAT_VOICE_CLONES, JSON.stringify(nextMap));
+      } catch {
+        // Ignore storage write errors
+      }
+    }
+
+    // Evict cached non-cloned TTS for messages in this conversation spoken in `lang`
+    const convMessages = await listMessages(trimmedConvId);
+    const matchingMsgIds = new Set(
+      convMessages
+        .filter((m) => (m.sourceLanguageCode || '').toLowerCase() === lang)
+        .map((m) => m.id),
+    );
+    if (matchingMsgIds.size > 0) {
+      const allTts = await driver.getAll('ttsCache');
+      for (const tts of allTts) {
+        const parts = tts.cacheKey?.split(':');
+        if (
+          parts &&
+          parts[0] === 'message' &&
+          matchingMsgIds.has(parts[1]) &&
+          !tts.cacheKey.endsWith(`:clone:${voiceId}`)
+        ) {
+          await driver.delete('ttsCache', tts.cacheKey);
+        }
+      }
+    }
+
+    return record;
+  }
+
+  /**
+   * Collects qualifying source audio samples in a conversation for a spoken language
+   * to check the 10-second rule (either a single >= 10s sample or multiple samples merging to >= 10s).
+   * @param {string} conversationId
+   * @param {string} languageCode
+   * @param {number} [minDurationMs=MIN_VOICE_CLONE_DURATION_MS]
+   */
+  async function collectEligibleCloneAudioSamples(
+    conversationId,
+    languageCode,
+    minDurationMs = MIN_VOICE_CLONE_DURATION_MS,
+  ) {
+    const trimmedConvId = typeof conversationId === 'string' ? conversationId.trim() : '';
+    const lang = (getSupportedTtsLanguage(languageCode)?.code ?? String(languageCode || '').trim().toLowerCase());
+    if (!trimmedConvId || !lang) {
+      return {
+        eligible: false,
+        mode: 'insufficient',
+        totalDurationMs: 0,
+        samples: [],
+      };
+    }
+
+    const convMessages = await listMessages(trimmedConvId);
+    const languageMessages = convMessages.filter(
+      (m) => (m.sourceLanguageCode || '').toLowerCase() === lang && m.sourceAudioId,
+    );
+
+    const seenAudioIds = new Set();
+    const seenCaptureGroups = new Set();
+    const availableSamples = [];
+
+    for (const msg of languageMessages) {
+      if (seenAudioIds.has(msg.sourceAudioId)) {
+        continue;
+      }
+      const asset = await driver.get('audioAssets', msg.sourceAudioId);
+      if (!asset || !asset.blob) {
+        continue;
+      }
+      if (asset.captureGroupId && seenCaptureGroups.has(asset.captureGroupId)) {
+        continue;
+      }
+      const durationMs =
+        Number.isFinite(asset.durationMs) && asset.durationMs > 0
+          ? Math.round(asset.durationMs)
+          : Number.isFinite(msg.sourceAudioDurationMs) && msg.sourceAudioDurationMs > 0
+            ? Math.round(msg.sourceAudioDurationMs)
+            : Number.isFinite(asset.blob?.durationMs) && asset.blob.durationMs > 0
+              ? Math.round(asset.blob.durationMs)
+              : 0;
+
+      if (durationMs <= 0) {
+        continue;
+      }
+
+      seenAudioIds.add(msg.sourceAudioId);
+      if (asset.captureGroupId) {
+        seenCaptureGroups.add(asset.captureGroupId);
+      }
+
+      availableSamples.push({
+        messageId: msg.id,
+        audioId: asset.id,
+        blob: asset.blob,
+        mimeType: asset.mimeType || asset.blob.type || 'audio/webm',
+        durationMs,
+        transcript: (msg.transcript || msg.originalText || '').trim(),
+      });
+    }
+
+    // Check 1: Single audio sample >= 10 seconds (pick most recent qualifying sample)
+    for (let i = availableSamples.length - 1; i >= 0; i -= 1) {
+      const candidate = availableSamples[i];
+      if (candidate.durationMs >= minDurationMs) {
+        return {
+          eligible: true,
+          mode: 'single',
+          totalDurationMs: candidate.durationMs,
+          samples: [candidate],
+        };
+      }
+    }
+
+    // Check 2: Merge multiple audio samples to make 10+ seconds
+    const mergedSamples = [];
+    let totalDurationMs = 0;
+    for (const sample of availableSamples) {
+      mergedSamples.push(sample);
+      totalDurationMs += sample.durationMs;
+      if (totalDurationMs >= 60_000) {
+        break;
+      }
+    }
+
+    if (totalDurationMs >= minDurationMs) {
+      return {
+        eligible: true,
+        mode: 'merged',
+        totalDurationMs,
+        samples: mergedSamples,
+      };
+    }
+
+    return {
+      eligible: false,
+      mode: 'insufficient',
+      totalDurationMs,
+      samples: [],
+    };
   }
 
   /**
@@ -1188,6 +1470,10 @@ export function createLocalStore(options = {}) {
     saveMessage,
     saveAudioAsset,
     getAudioAsset,
+    getChatVoiceClone,
+    getChatVoiceClones,
+    setChatVoiceClone,
+    collectEligibleCloneAudioSamples,
     getCachedTtsAudio,
     putCachedTtsAudio,
     listSavedSourceMessageIds,
