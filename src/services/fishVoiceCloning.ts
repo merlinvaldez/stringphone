@@ -109,18 +109,40 @@ function encodeMsgpackBinary(bytes: Buffer): Buffer {
   return Buffer.concat([header, bytes]);
 }
 
+function encodeMsgpackBool(value: boolean): Buffer {
+  return Buffer.from([value ? 0xc3 : 0xc2]);
+}
+
+function encodeMsgpackFloat64(value: number): Buffer {
+  const buf = Buffer.alloc(9);
+  buf[0] = 0xcb;
+  buf.writeDoubleBE(value, 1);
+  return buf;
+}
+
 function encodeFishZeroShotTtsMsgpack(input: {
   text: string;
   referenceAudio: Buffer;
   referenceText: string;
 }): Buffer {
-  // Map of 3 entries: { text, format: "wav", references: [{ audio, text }] }
+  // Map of 8 entries:
+  // { text, format: "wav", normalize: true, latency: "normal", temperature: 0.65, top_p: 0.7, repetition_penalty: 1.2, references: [{ audio, text }] }
   return Buffer.concat([
-    Buffer.from([0x83]),
+    Buffer.from([0x88]),
     encodeMsgpackString("text"),
     encodeMsgpackString(input.text),
     encodeMsgpackString("format"),
     encodeMsgpackString("wav"),
+    encodeMsgpackString("normalize"),
+    encodeMsgpackBool(true),
+    encodeMsgpackString("latency"),
+    encodeMsgpackString("normal"),
+    encodeMsgpackString("temperature"),
+    encodeMsgpackFloat64(0.65),
+    encodeMsgpackString("top_p"),
+    encodeMsgpackFloat64(0.7),
+    encodeMsgpackString("repetition_penalty"),
+    encodeMsgpackFloat64(1.2),
     encodeMsgpackString("references"),
     Buffer.from([0x91, 0x82]), // 1-element array of 2-entry map
     encodeMsgpackString("audio"),
@@ -386,7 +408,11 @@ export async function generateFishClonedSpeech(
   const fishAudioOptions: Record<string, unknown> = {
     referenceId: clonedVoiceId,
     normalizeLoudness: true,
-    latency: "balanced",
+    normalize: true,
+    latency: "normal",
+    temperature: 0.65,
+    topP: 0.7,
+    repetitionPenalty: 1.2,
   };
 
   if (useGateway || deps.generateSpeechImpl) {
