@@ -12,16 +12,21 @@ if (!config.resolver.assetExts.includes('wasm')) config.resolver.assetExts.push(
 // Keep its SSR-only registration call out of Android/iOS bundles, where it pulls
 // node:async_hooks into Metro even though that branch cannot run on native.
 const expoFontNativeServerStub = path.join(__dirname, 'src/shims/expo-font-server.native.ts');
-const expoFontResolver = config.resolver.resolveRequest;
-const resolveExpoFontNativeServer = (context, moduleName, platform) => {
+const defaultResolver = config.resolver.resolveRequest;
+const resolveMobileModule = (context, moduleName, platform) => {
   const origin = context.originModulePath.replaceAll('\\', '/').toLowerCase();
   if (platform !== 'web' && moduleName === './server' && origin.endsWith('/node_modules/expo-font/build/font.js')) {
     return { type: 'sourceFile', filePath: expoFontNativeServerStub };
   }
-  return expoFontResolver
-    ? expoFontResolver(context, moduleName, platform)
-    : context.resolveRequest(context, moduleName, platform);
+  // Node ESM needs the emitted .js extension. Metro bundles the TypeScript source.
+  const resolvedName = moduleName === './languages.js' &&
+    context.originModulePath === path.join(sharedRoot, 'validation.ts')
+    ? './languages.ts'
+    : moduleName;
+  return defaultResolver
+    ? defaultResolver(context, resolvedName, platform)
+    : context.resolveRequest(context, resolvedName, platform);
 };
 // Inspect final resolved paths too, so aliases/re-exports cannot hide server code.
-config.resolver.resolveRequest = createBoundaryResolver(resolveExpoFontNativeServer);
+config.resolver.resolveRequest = createBoundaryResolver(resolveMobileModule);
 module.exports = config;
