@@ -8,6 +8,11 @@ export const TTS_VOICE_OPTIONS = [
   { id: 'onyx', label: 'Male' },
 ];
 
+export const TTS_VOICE_MODE_OPTIONS = [
+  { id: 'ai_tts', label: 'AI TTS voice' },
+  { id: 'voice_clone', label: 'Voice clone' },
+];
+
 /**
  * Computes the next state transition when the user taps/clicks "Return home".
  * Switches appMode to 'chat' and closes the sidebar, but keeps active conversation
@@ -43,6 +48,20 @@ export function getTtsVoiceOptions(activeVoice = 'marin') {
   return TTS_VOICE_OPTIONS.map((option) => ({
     ...option,
     selected: option.id === activeVoice,
+  }));
+}
+
+/**
+ * Returns available speech voice mode options ('ai_tts' | 'voice_clone') with selection marked.
+ *
+ * @param {'ai_tts' | 'voice_clone' | string} activeMode
+ * @returns {Array<{ id: string, label: string, selected: boolean }>}
+ */
+export function getTtsVoiceModeOptions(activeMode = 'voice_clone') {
+  const normalized = activeMode === 'ai_tts' ? 'ai_tts' : 'voice_clone';
+  return TTS_VOICE_MODE_OPTIONS.map((option) => ({
+    ...option,
+    selected: option.id === normalized,
   }));
 }
 

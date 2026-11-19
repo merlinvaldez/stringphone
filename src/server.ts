@@ -42,6 +42,10 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
+import {
+  clearCachedServerChatVoiceClonesForConversation,
+  runChatVoiceCloning,
+} from "./lib/runChatVoiceCloning.js";
 import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscriptionClientSecret.js";
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
@@ -86,7 +90,7 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 app.use(clerkMiddleware());
 
 function getErrorMessage(
@@ -1189,6 +1193,11 @@ app.post("/speech/output", async (req, res) => {
       text: req.body?.text,
       language: req.body?.language,
       speechVoice: req.body?.speechVoice,
+      clonedVoiceId: req.body?.clonedVoiceId,
+      clonedVoiceReferenceAudio: req.body?.clonedVoiceReferenceAudio,
+      conversationId: req.body?.conversationId,
+      sourceLanguage: req.body?.sourceLanguage,
+      pronunciationText: req.body?.pronunciationText,
     });
 
     if (!result.ok) {
@@ -1204,6 +1213,83 @@ app.post("/speech/output", async (req, res) => {
   } catch (error) {
     console.error("Output speech generation failed");
     return res.status(502).json({ error: "Output speech generation failed" });
+  }
+});
+
+app.post(
+  "/speech/clone",
+  upload.array("samples", 8),
+  async (req, res) => {
+    try {
+      const uploadedFiles = Array.isArray(req.files)
+        ? (req.files as Express.Multer.File[])
+        : [];
+      const rawTranscripts = Array.isArray(req.body?.transcripts)
+        ? req.body.transcripts
+        : typeof req.body?.transcripts === "string"
+          ? [req.body.transcripts]
+          : [];
+      const samples =
+        uploadedFiles.length > 0
+          ? uploadedFiles.map((file, index) => ({
+              buffer: file.buffer,
+              filename: file.originalname,
+              mimeType: file.mimetype,
+              transcript:
+                typeof rawTranscripts[index] === "string"
+                  ? rawTranscripts[index]
+                  : undefined,
+            }))
+          : req.body?.samples;
+
+      const result = await runChatVoiceCloning({
+        conversationId: req.body?.conversationId,
+        language: req.body?.language,
+        samples,
+        forceRefresh: req.body?.forceRefresh,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch {
+      console.error("Chat voice clone processing failed");
+      return res
+        .status(502)
+        .json({ error: "Chat voice clone processing failed" });
+    }
+  },
+);
+
+app.delete("/speech/clone", async (req, res) => {
+  try {
+    const rawConversationId =
+      typeof req.body?.conversationId === "string" &&
+      req.body.conversationId.trim()
+        ? req.body.conversationId.trim()
+        : typeof req.query?.conversationId === "string" &&
+            req.query.conversationId.trim()
+          ? req.query.conversationId.trim()
+          : "";
+
+    if (!rawConversationId) {
+      return res.status(400).json({ error: "conversationId is required" });
+    }
+
+    const clearedCount =
+      clearCachedServerChatVoiceClonesForConversation(rawConversationId);
+    return res.status(200).json({
+      ok: true,
+      conversationId: rawConversationId,
+      clearedCount,
+    });
+  } catch {
+    console.error("Chat voice clone clearing failed");
+    return res
+      .status(502)
+      .json({ error: "Chat voice clone clearing failed" });
   }
 });
 

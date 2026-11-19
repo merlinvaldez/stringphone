@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import {
   computeReturnHomeState,
   getTtsVoiceOptions,
+  getTtsVoiceModeOptions,
   getAuthMenuConfig,
   getSharedRoomHeaderState,
   computeLeaveSharedRoomState,
@@ -46,7 +47,7 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   assert.equal(nextState.lessonBuilderConfig, null, 'lessonBuilderConfig must reset');
 }
 
-// 1.2 getTtsVoiceOptions: returns Female and Male with correct selection
+// 1.2 getTtsVoiceOptions & getTtsVoiceModeOptions
 {
   const optionsDefault = getTtsVoiceOptions('marin');
   assert.equal(optionsDefault.length, 2);
@@ -56,6 +57,14 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   const optionsMale = getTtsVoiceOptions('onyx');
   assert.equal(optionsMale[0].selected, false);
   assert.equal(optionsMale[1].selected, true);
+
+  const modeClone = getTtsVoiceModeOptions('voice_clone');
+  assert.deepEqual(modeClone[0], { id: 'ai_tts', label: 'AI TTS voice', selected: false });
+  assert.deepEqual(modeClone[1], { id: 'voice_clone', label: 'Voice clone', selected: true });
+
+  const modeAi = getTtsVoiceModeOptions('ai_tts');
+  assert.deepEqual(modeAi[0], { id: 'ai_tts', label: 'AI TTS voice', selected: true });
+  assert.deepEqual(modeAi[1], { id: 'voice_clone', label: 'Voice clone', selected: false });
 }
 
 // 1.3 getAuthMenuConfig: unconditional AI TTS voice and proper footer action
@@ -153,11 +162,21 @@ const chatScreenSrc = readFileSync(
     'Settings trigger button must be a 40px circular button (h-10 w-10 rounded-full)',
   );
 
-  // AI TTS voice heading & options
+  // AI TTS voice / Voice clone mode options & Female / Male / Clear cloned voices
   assert.match(
     stringPhoneAppSrc,
     /AI TTS voice/,
     'FloatingAuthControls must display "AI TTS voice"',
+  );
+  assert.match(
+    stringPhoneAppSrc,
+    /Voice clone/,
+    'FloatingAuthControls must display "Voice clone"',
+  );
+  assert.match(
+    stringPhoneAppSrc,
+    /Clear cloned voices/,
+    'FloatingAuthControls must include "Clear cloned voices" button',
   );
   assert.match(
     stringPhoneAppSrc,

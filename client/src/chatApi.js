@@ -333,10 +333,17 @@ export async function fetchOutputSpeech({
   text,
   language,
   speechVoice = null,
+  clonedVoiceId = null,
+  clonedVoiceReferenceAudio = null,
+  pronunciationText = "",
   authFetch,
   signal,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
+  const trimmedReferenceAudio =
+    typeof clonedVoiceReferenceAudio === "string"
+      ? clonedVoiceReferenceAudio.trim()
+      : "";
   const response = await request(`${API_BASE_URL}/speech/output`, {
     method: "POST",
     headers: {
@@ -347,6 +354,10 @@ export async function fetchOutputSpeech({
       text,
       language,
       ...(speechVoice ? { speechVoice } : {}),
+      ...(clonedVoiceId ? { clonedVoiceId } : {}),
+      ...(trimmedReferenceAudio
+        ? { clonedVoiceReferenceAudio: trimmedReferenceAudio }
+        : {}),
     }),
   });
 
@@ -359,6 +370,177 @@ export async function fetchOutputSpeech({
   return new Blob([await response.arrayBuffer()], {
     type: response.headers.get("Content-Type") ?? "audio/wav",
   });
+}
+
+async function convertAudioBlobToWavIfPossible(blob) {
+  if (
+    !blob ||
+    typeof window === "undefined" ||
+    typeof blob.arrayBuffer !== "function"
+  ) {
+    return blob;
+  }
+
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (typeof AudioContextCtor !== "function") {
+    return blob;
+  }
+
+  let ctx = null;
+  try {
+    const rawBuffer = await blob.arrayBuffer();
+    if (!rawBuffer || rawBuffer.byteLength === 0) {
+      return blob;
+    }
+    ctx = new AudioContextCtor();
+    const audioBuffer = await ctx.decodeAudioData(rawBuffer.slice(0));
+    const numChannels = audioBuffer.numberOfChannels || 1;
+    const sampleRate = audioBuffer.sampleRate || 44100;
+    const length = audioBuffer.length || 0;
+    if (length <= 0) {
+      return blob;
+    }
+
+    const targetSampleRate = Math.min(sampleRate, 24000);
+    const outputLength =
+      targetSampleRate === sampleRate
+        ? length
+        : Math.max(1, Math.round((length * targetSampleRate) / sampleRate));
+    const monoPcm = new Int16Array(outputLength);
+    const channelData = [];
+    for (let ch = 0; ch < numChannels; ch += 1) {
+      channelData.push(audioBuffer.getChannelData(ch));
+    }
+
+    for (let i = 0; i < outputLength; i += 1) {
+      const srcIdx =
+        targetSampleRate === sampleRate
+          ? i
+          : Math.min(length - 1, Math.floor((i * sampleRate) / targetSampleRate));
+      let sum = 0;
+      for (let ch = 0; ch < numChannels; ch += 1) {
+        sum += channelData[ch][srcIdx] || 0;
+      }
+      const avg = Math.max(-1, Math.min(1, sum / numChannels));
+      monoPcm[i] = avg < 0 ? Math.round(avg * 32768) : Math.round(avg * 32767);
+    }
+
+    const pcmByteLength = monoPcm.byteLength;
+    const wavArrayBuffer = new ArrayBuffer(44 + pcmByteLength);
+    const view = new DataView(wavArrayBuffer);
+    const writeAscii = (offset, str) => {
+      for (let idx = 0; idx < str.length; idx += 1) {
+        view.setUint8(offset + idx, str.charCodeAt(idx));
+      }
+    };
+
+    writeAscii(0, "RIFF");
+    view.setUint32(4, 36 + pcmByteLength, true);
+    writeAscii(8, "WAVE");
+    writeAscii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, targetSampleRate, true);
+    view.setUint32(28, targetSampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, "data");
+    view.setUint32(40, pcmByteLength, true);
+
+    new Uint8Array(wavArrayBuffer, 44).set(
+      new Uint8Array(monoPcm.buffer, monoPcm.byteOffset, monoPcm.byteLength),
+    );
+
+    const wavBlob = new Blob([wavArrayBuffer], { type: "audio/wav" });
+    if (Number.isFinite(blob.durationMs) && blob.durationMs > 0) {
+      wavBlob.durationMs = blob.durationMs;
+    }
+    return wavBlob;
+  } catch {
+    return blob;
+  } finally {
+    void ctx?.close?.().catch?.(() => undefined);
+  }
+}
+
+export async function requestChatVoiceClone({
+  conversationId = null,
+  language,
+  samples = [],
+  forceRefresh = false,
+  authFetch,
+  signal,
+}) {
+  const formData = new FormData();
+  formData.append("language", typeof language === "string" ? language : language?.code || "");
+  if (conversationId) {
+    formData.append("conversationId", String(conversationId));
+  }
+  if (forceRefresh) {
+    formData.append("forceRefresh", "true");
+  }
+
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = samples[i];
+    if (!sample?.blob) continue;
+    const uploadBlob = await convertAudioBlobToWavIfPossible(sample.blob);
+    const mimeType = uploadBlob.type || sample.mimeType || sample.blob.type || "audio/webm";
+    const ext = mimeType.includes("wav")
+      ? "wav"
+      : mimeType.includes("mp4") || mimeType.includes("m4a")
+        ? "m4a"
+        : "webm";
+    formData.append("samples", uploadBlob, `stringphone-sample-${i + 1}.${ext}`);
+    formData.append("transcripts", typeof sample.transcript === "string" ? sample.transcript : "");
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/speech/clone`, {
+    method: "POST",
+    signal,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Voice cloning failed."),
+    );
+  }
+
+  return response.json();
+}
+
+export async function clearServerChatVoiceClones({
+  conversationId,
+  authFetch,
+  signal,
+}) {
+  const trimmedId =
+    typeof conversationId === "string" ? conversationId.trim() : "";
+  if (!trimmedId) {
+    return { ok: true, clearedCount: 0 };
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/speech/clone`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    signal,
+    body: JSON.stringify({
+      conversationId: trimmedId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to clear cloned voices."),
+    );
+  }
+
+  return response.json();
 }
 
 export async function createLanguageLesson(

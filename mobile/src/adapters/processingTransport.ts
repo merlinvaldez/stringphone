@@ -2,12 +2,12 @@
 // Use Expo FileSystem's native multipart uploader for saved recordings.
 const PROCESSING_FIELDS = {
   '/chat/messages/text': ['text', 'sourceLanguage', 'targetLanguage'],
-  '/speech/output': ['text', 'language', 'speechVoice'],
+  '/speech/output': ['text', 'language', 'speechVoice', 'clonedVoiceId', 'clonedVoiceReferenceAudio', 'pronunciationText'],
 } as const;
 export type ProcessingEndpoint = keyof typeof PROCESSING_FIELDS;
 type Payloads = {
   '/chat/messages/text': { text: string; sourceLanguage: string; targetLanguage: string };
-  '/speech/output': { text: string; language: string; speechVoice?: 'marin' | 'onyx' };
+  '/speech/output': { text: string; language: string; speechVoice?: 'marin' | 'onyx'; clonedVoiceId?: string; clonedVoiceReferenceAudio?: string; pronunciationText?: string };
 };
 
 export class ProcessingApiError extends Error {
@@ -92,6 +92,51 @@ export function createProcessingTransport(
         throw new ProcessingApiError(response.status, message);
       }
       // Preserve JSON and binary WAV responses for endpoint-specific callers.
+      return response;
+    },
+    async postVoiceClone(
+      input: {
+        language: string;
+        samples: Array<{
+          base64: string;
+          mimeType: string;
+          filename?: string;
+          durationMs?: number;
+          transcript?: string;
+        }>;
+      },
+      signal?: AbortSignal,
+    ): Promise<Response> {
+      if (typeof input.language !== 'string' || !input.language.trim()) {
+        throw new Error('language must be a non-empty string.');
+      }
+      if (!Array.isArray(input.samples) || input.samples.length === 0) {
+        throw new Error('samples must be a non-empty array.');
+      }
+      const sanitizedSamples = input.samples.map(sample => ({
+        base64: sample.base64,
+        mimeType: sample.mimeType,
+        ...(sample.filename ? { filename: sample.filename } : {}),
+        ...(typeof sample.durationMs === 'number' ? { durationMs: sample.durationMs } : {}),
+        ...(sample.transcript ? { transcript: sample.transcript } : {}),
+      }));
+      const response = await fetchRequest(endpointUrl('/speech/clone'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          language: input.language.trim(),
+          samples: sanitizedSamples,
+        }),
+        signal,
+      });
+      if (!response.ok) {
+        let message = `Request failed (${response.status}).`;
+        try {
+          const error = await response.json();
+          if (typeof error?.error === 'string' && error.error.trim()) message = error.error;
+        } catch { /* Safe proxy fallback. */ }
+        throw new ProcessingApiError(response.status, message);
+      }
       return response;
     },
   };

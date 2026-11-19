@@ -492,6 +492,21 @@ const stringPhoneAppSrc = readFileSync(
     /isSaved/,
     'MessageBubble.jsx must accept an external isSaved prop for phrasebook sync',
   );
+  assert.match(
+    messageBubbleSrc,
+    /message\.sender\s*\|\|\s*message\.speaker/,
+    'MessageBubble.jsx must fall back to message.speaker when resolving sender',
+  );
+  assert.match(
+    messageBubbleSrc,
+    /showOriginalPronunciation\s*=\s*[\r\n\s]*!isLanguageOne/,
+    'MessageBubble.jsx must base showOriginalPronunciation on !isLanguageOne',
+  );
+  assert.match(
+    messageBubbleSrc,
+    /showTranslatedPronunciation\s*=\s*[\r\n\s]*isLanguageOne/,
+    'MessageBubble.jsx must base showTranslatedPronunciation on isLanguageOne',
+  );
 
   console.log('✓ 3.2 MessageBubble.jsx structural checks passed');
 }

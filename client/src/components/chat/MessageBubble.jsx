@@ -27,9 +27,8 @@ export function MessageBubble({
   isSaved = false,
   isSaving = false,
 }) {
-  const isSelf = message.sender === "self";
-  const showOriginalPronunciation = !isSelf || message.sourceLanguageCode === "zh";
-  const showTranslatedPronunciation = isSelf || message.targetLanguageCode === "zh";
+  const resolvedSender = message.sender || message.speaker || "self";
+  const isSelf = resolvedSender === "self";
   const isVoice =
     message.kind === "voice" ||
     (message.originMode === "live" && Boolean(message.audioUrl));
@@ -37,6 +36,10 @@ export function MessageBubble({
   const isLanguageOne = baseLanguageCode
     ? message.sourceLanguageCode === baseLanguageCode
     : isSelf;
+  const showOriginalPronunciation =
+    !isLanguageOne || message.sourceLanguageCode === "zh";
+  const showTranslatedPronunciation =
+    isLanguageOne || message.targetLanguageCode === "zh";
   const bubbleClasses = isLanguageOne
     ? "ml-auto border-emerald-500/25 bg-emerald-500/10"
     : "mr-auto border-sky-500/25 bg-sky-500/10";
@@ -216,7 +219,15 @@ export function MessageBubble({
                       <TextToSpeechButton
                         text={message.translatedText}
                         languageCode={message.targetLanguageCode}
-                        onPlay={onPlayTranslatedSpeech}
+                        onPlay={(input) =>
+                          onPlayTranslatedSpeech({
+                            ...input,
+                            ownerKind: "message",
+                            ownerId: message.id,
+                            role: "translated",
+                            sourceLanguageCode: message.sourceLanguageCode,
+                          })
+                        }
                         uiStrings={translatedSpeechUiStrings}
                         className="shrink-0"
                       />
@@ -247,7 +258,15 @@ export function MessageBubble({
                     <TextToSpeechButton
                       text={message.originalText}
                       languageCode={message.sourceLanguageCode}
-                      onPlay={onPlayTranslatedSpeech}
+                      onPlay={(input) =>
+                        onPlayTranslatedSpeech({
+                          ...input,
+                          ownerKind: "message",
+                          ownerId: message.id,
+                          role: "source",
+                          sourceLanguageCode: message.sourceLanguageCode,
+                        })
+                      }
                       uiStrings={originalTextSpeechUiStrings}
                       className="shrink-0"
                     />
@@ -278,7 +297,15 @@ export function MessageBubble({
                     <TextToSpeechButton
                       text={message.translatedText}
                       languageCode={message.targetLanguageCode}
-                      onPlay={onPlayTranslatedSpeech}
+                      onPlay={(input) =>
+                        onPlayTranslatedSpeech({
+                          ...input,
+                          ownerKind: "message",
+                          ownerId: message.id,
+                          role: "translated",
+                          sourceLanguageCode: message.sourceLanguageCode,
+                        })
+                      }
                       uiStrings={translatedSpeechUiStrings}
                       className="shrink-0"
                     />

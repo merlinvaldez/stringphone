@@ -36,6 +36,11 @@ export default {
         text: body?.text,
         language: body?.language,
         speechVoice: body?.speechVoice,
+        clonedVoiceId: body?.clonedVoiceId,
+        clonedVoiceReferenceAudio: body?.clonedVoiceReferenceAudio,
+        conversationId: body?.conversationId,
+        sourceLanguage: body?.sourceLanguage,
+        pronunciationText: body?.pronunciationText,
       });
 
       if (result.ok === false) {
@@ -50,7 +55,7 @@ export default {
             'inline; filename="stringphone-output-speech.wav"',
         },
       });
-    } catch (error) {
+    } catch {
       console.error("Output speech generation failed");
       return jsonResponse({ error: "Output speech generation failed" }, 502);
     }

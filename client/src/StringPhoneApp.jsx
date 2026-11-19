@@ -18,6 +18,7 @@ import {
   Phone,
   Play,
   Radio,
+  RotateCcw,
   Search,
   Send,
   Settings,
@@ -37,10 +38,12 @@ import {
 import { useAppAuth } from "./AuthContext.jsx";
 import { ChatHistorySidebar } from "./components/chat/ChatHistorySidebar.jsx";
 import {
+  clearServerChatVoiceClones,
   createConversation,
   createLanguageLesson,
   saveCollectionEntry,
   fetchOutputSpeech,
+  requestChatVoiceClone,
   fetchLessons,
   fetchMessages,
   processLiveConversationSegment,
@@ -90,6 +93,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 const CHAT_LANGUAGE_STORAGE_KEY = "stringphone-chat-languages-v1";
 const TTS_VOICE_STORAGE_KEY = "stringphone-tts-voice-v1";
+const TTS_VOICE_MODE_STORAGE_KEY = "stringphone-tts-voice-mode-v1";
 const SHARED_ROOM_SESSION_STORAGE_KEY = "stringphone-shared-room-session-v1";
 const SHARED_ROOM_JOIN_QUERY_PARAM = "join";
 const DEFAULT_CONVERSATION_TITLE = "New chat";
@@ -108,6 +112,8 @@ const DEFAULT_LIVE_CAPTURE_STATE = {
 };
 const DEFAULT_TTS_VOICE = "marin";
 const MALE_TTS_VOICE = "onyx";
+const TTS_VOICE_MODE_AI = "ai_tts";
+const TTS_VOICE_MODE_CLONE = "voice_clone";
 
 
 
@@ -251,11 +257,19 @@ function FloatingAuthControls({
   activeCollectionLanguageCode,
   ttsVoice = DEFAULT_TTS_VOICE,
   onTtsVoiceChange,
+  ttsVoiceMode = TTS_VOICE_MODE_CLONE,
+  onTtsVoiceModeChange,
+  canClearVoiceClones = false,
+  clonedVoiceCount = 0,
+  onRefreshClonedVoiceCount,
+  onClearVoiceClones,
 }) {
   const { account, isLoaded, isSignedIn, signOut } = useAppAuth();
   const { user } = useUser();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isClearingClones, setIsClearingClones] = useState(false);
+  const [justClearedClones, setJustClearedClones] = useState(false);
   const navigate = useNavigate();
   const menuRef = useRef(null);
   const accountLabel =
@@ -270,6 +284,9 @@ function FloatingAuthControls({
     if (!isMenuOpen) {
       return undefined;
     }
+
+    setJustClearedClones(false);
+    void onRefreshClonedVoiceCount?.();
 
     const handlePointerDown = (event) => {
       if (
@@ -368,31 +385,91 @@ function FloatingAuthControls({
           )}
 
           {isMenuOpen ? (
-            <div className="absolute right-0 mt-2 min-w-[13rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
-              <div className="mb-2 px-2 pb-1">
-                <p className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  AI TTS voice
+            <div className="absolute right-0 mt-2 min-w-[15rem] rounded-[1rem] border border-white/12 bg-zinc-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.32)] ring-1 ring-inset ring-white/6 backdrop-blur-xl">
+              <div className="mb-2 px-1 pb-1">
+                <p className="mb-2 px-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  Speech voice
                 </p>
                 <div className="grid grid-cols-2 gap-1 rounded-[0.7rem] bg-white/[0.04] p-1">
                   {[
-                    { id: DEFAULT_TTS_VOICE, label: "Female" },
-                    { id: MALE_TTS_VOICE, label: "Male" },
-                  ].map((voiceOption) => (
+                    { id: TTS_VOICE_MODE_AI, label: "AI TTS voice" },
+                    { id: TTS_VOICE_MODE_CLONE, label: "Voice clone" },
+                  ].map((modeOption) => (
                     <button
-                      key={voiceOption.id}
+                      key={modeOption.id}
                       type="button"
-                      onClick={() => onTtsVoiceChange?.(voiceOption.id)}
-                      aria-pressed={ttsVoice === voiceOption.id}
+                      onClick={() => {
+                        setJustClearedClones(false);
+                        onTtsVoiceModeChange?.(modeOption.id);
+                      }}
+                      aria-pressed={ttsVoiceMode === modeOption.id}
                       className={`rounded-[0.55rem] px-2 py-1.5 text-[0.7rem] font-semibold transition ${
-                        ttsVoice === voiceOption.id
+                        ttsVoiceMode === modeOption.id
                           ? "bg-white/10 text-white"
                           : "text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
                       }`}
                     >
-                      {voiceOption.label}
+                      {modeOption.label}
                     </button>
                   ))}
                 </div>
+
+                {ttsVoiceMode === TTS_VOICE_MODE_AI ? (
+                  <div className="mt-2 grid grid-cols-2 gap-1 rounded-[0.7rem] bg-white/[0.04] p-1">
+                    {[
+                      { id: DEFAULT_TTS_VOICE, label: "Female" },
+                      { id: MALE_TTS_VOICE, label: "Male" },
+                    ].map((voiceOption) => (
+                      <button
+                        key={voiceOption.id}
+                        type="button"
+                        onClick={() => onTtsVoiceChange?.(voiceOption.id)}
+                        aria-pressed={ttsVoice === voiceOption.id}
+                        className={`rounded-[0.55rem] px-2 py-1.5 text-[0.7rem] font-semibold transition ${
+                          ttsVoice === voiceOption.id
+                            ? "bg-white/10 text-white"
+                            : "text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+                        }`}
+                      >
+                        {voiceOption.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2 rounded-[0.7rem] bg-white/[0.03] p-2">
+                    <p className="text-[0.68rem] leading-relaxed text-zinc-400">
+                      {justClearedClones
+                        ? "Cloned voices cleared. Record 10s to clone again."
+                        : !canClearVoiceClones
+                          ? "Open a chat to manage cloned voices."
+                          : clonedVoiceCount > 0
+                            ? `${clonedVoiceCount} cloned ${clonedVoiceCount === 1 ? "voice" : "voices"} in this chat.`
+                            : "No cloned voices in this chat yet."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (isClearingClones || !canClearVoiceClones || clonedVoiceCount === 0) {
+                          return;
+                        }
+                        try {
+                          setIsClearingClones(true);
+                          await onClearVoiceClones?.();
+                          setJustClearedClones(true);
+                        } finally {
+                          setIsClearingClones(false);
+                        }
+                      }}
+                      disabled={isClearingClones || !canClearVoiceClones || clonedVoiceCount === 0}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-[0.6rem] border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-[0.7rem] font-semibold text-zinc-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <RotateCcw size={12} className="text-zinc-300" />
+                      <span>
+                        {isClearingClones ? "Clearing..." : "Clear cloned voices"}
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="border-t border-white/10 pt-1">
                 {isSignedIn ? (
@@ -619,6 +696,30 @@ function persistTtsVoice(voice) {
   }
 
   window.localStorage.setItem(TTS_VOICE_STORAGE_KEY, normalizeTtsVoice(voice));
+}
+
+function normalizeTtsVoiceMode(value) {
+  return value === TTS_VOICE_MODE_AI ? TTS_VOICE_MODE_AI : TTS_VOICE_MODE_CLONE;
+}
+
+function readStoredTtsVoiceMode() {
+  if (typeof window === "undefined") {
+    return TTS_VOICE_MODE_CLONE;
+  }
+
+  try {
+    return normalizeTtsVoiceMode(window.localStorage.getItem(TTS_VOICE_MODE_STORAGE_KEY));
+  } catch {
+    return TTS_VOICE_MODE_CLONE;
+  }
+}
+
+function persistTtsVoiceMode(mode) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(TTS_VOICE_MODE_STORAGE_KEY, normalizeTtsVoiceMode(mode));
 }
 
 function persistChatLanguages(myLanguageCode, theirLanguageCode) {
@@ -1538,7 +1639,13 @@ const TranscriptCard = React.forwardRef(
               languageCode={message.targetLanguageCode}
               onPlay={(input) => {
                 onActivate?.();
-                return onPlayTranslatedSpeech(input);
+                return onPlayTranslatedSpeech({
+                  ...input,
+                  ownerKind: "message",
+                  ownerId: message.id,
+                  role: "translated",
+                  sourceLanguageCode: message.sourceLanguageCode,
+                });
               }}
               uiStrings={translatedSpeechUiStrings}
               className="shrink-0"
@@ -2605,6 +2712,11 @@ export default function StringPhoneApp() {
     getLanguageOption(storedChatLanguages?.theirLanguageCode ?? LANGUAGES[1].code),
   );
   const [ttsVoice, setTtsVoice] = useState(readStoredTtsVoice);
+  const [ttsVoiceMode, setTtsVoiceMode] = useState(readStoredTtsVoiceMode);
+  const ttsVoiceModeRef = useRef(ttsVoiceMode);
+  useEffect(() => {
+    ttsVoiceModeRef.current = ttsVoiceMode;
+  }, [ttsVoiceMode]);
   const [messages, setMessages] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [liveCaptureState, setLiveCaptureState] = useState(() => ({
@@ -2678,6 +2790,7 @@ export default function StringPhoneApp() {
     }
   }, []);
   const [activeLocalConversationId, setActiveLocalConversationId] = useState(null);
+  const [activeChatVoiceCloneCount, setActiveChatVoiceCloneCount] = useState(0);
   const [savedSourceMessageIds, setSavedSourceMessageIds] = useState(() => new Set());
   const [savingMessageId, setSavingMessageId] = useState(null);
   const blobUrlTrackerRef = useRef(null);
@@ -2716,8 +2829,11 @@ export default function StringPhoneApp() {
               audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
             }
           }
+          const resolvedSpeaker = msg.sender || msg.speaker || "self";
           return {
             ...msg,
+            sender: resolvedSpeaker,
+            speaker: msg.speaker || resolvedSpeaker,
             audioUrl: audioUrl || "",
           };
         }),
@@ -2756,6 +2872,11 @@ export default function StringPhoneApp() {
             if (prefs.myLanguageCode) setMyLang(getLanguageOption(prefs.myLanguageCode));
             if (prefs.theirLanguageCode) setTheirLang(getLanguageOption(prefs.theirLanguageCode));
             if (prefs.ttsVoice) setTtsVoice(prefs.ttsVoice);
+            if (prefs.ttsVoiceMode) {
+              const normalizedMode = normalizeTtsVoiceMode(prefs.ttsVoiceMode);
+              setTtsVoiceMode(normalizedMode);
+              ttsVoiceModeRef.current = normalizedMode;
+            }
 
             const savedIds = await localStore.listSavedSourceMessageIds();
             if (active) setSavedSourceMessageIds(savedIds);
@@ -3207,6 +3328,244 @@ export default function StringPhoneApp() {
     }
   };
 
+  const inFlightVoiceCloneRequestsRef = useRef(new Map());
+  const prefetchedTtsPromisesRef = useRef(new Map());
+  const voiceCloneResetGenerationRef = useRef(0);
+
+  const activeVoiceCloneChatId = sharedRoomSession
+    ? null
+    : isSignedIn
+      ? currentConversationId
+      : activeLocalConversationId ||
+        localStore?.getPreferences?.()?.activeConversationId ||
+        null;
+
+  const refreshActiveChatVoiceCloneCount = async (chatId = activeVoiceCloneChatId) => {
+    const trimmedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    if (!trimmedChatId || !localStore) {
+      setActiveChatVoiceCloneCount(0);
+      return 0;
+    }
+
+    try {
+      const clones = await localStore.getChatVoiceClones(trimmedChatId);
+      const count = clones && typeof clones === "object" ? Object.keys(clones).length : 0;
+      setActiveChatVoiceCloneCount(count);
+      return count;
+    } catch {
+      setActiveChatVoiceCloneCount(0);
+      return 0;
+    }
+  };
+
+  useEffect(() => {
+    void refreshActiveChatVoiceCloneCount(activeVoiceCloneChatId);
+  }, [activeVoiceCloneChatId, localStore]);
+
+  const measureAudioBlobDurationMs = async (blob, fallbackDurationMs = 0) => {
+    if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
+      return 0;
+    }
+
+    const reported =
+      Number.isFinite(blob.durationMs) && blob.durationMs > 0
+        ? Math.round(blob.durationMs)
+        : Number.isFinite(fallbackDurationMs) && fallbackDurationMs > 0
+          ? Math.round(fallbackDurationMs)
+          : 0;
+
+    if (typeof window !== "undefined") {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (typeof AudioContextCtor === "function" && typeof blob.arrayBuffer === "function") {
+        let ctx = null;
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          ctx = new AudioContextCtor();
+          const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+          const decodedMs = Math.round((decoded?.duration || 0) * 1000);
+          if (decodedMs > 0) {
+            blob.durationMs = decodedMs;
+            return decodedMs;
+          }
+        } catch {
+          // Fall back to reported duration
+        } finally {
+          void ctx?.close?.().catch?.(() => undefined);
+        }
+      }
+    }
+
+    if (reported > 0) {
+      blob.durationMs = reported;
+    }
+    return reported;
+  };
+
+  const ensureChatLanguageVoiceClone = async (chatId, languageCode) => {
+    if (ttsVoiceModeRef.current !== TTS_VOICE_MODE_CLONE) {
+      return null;
+    }
+
+    const trimmedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    const lang = typeof languageCode === "string" ? languageCode.trim().toLowerCase() : "";
+    if (!trimmedChatId || !lang || !localStore) {
+      return null;
+    }
+
+    let existing = null;
+    try {
+      existing = await localStore.getChatVoiceClone(trimmedChatId, lang);
+      if (
+        existing?.voiceId &&
+        existing.voiceId.startsWith("voxtral_ref_") &&
+        existing.referenceAudioBase64
+      ) {
+        return {
+          voiceId: existing.voiceId,
+          referenceAudioBase64: existing.referenceAudioBase64,
+        };
+      }
+    } catch {
+      // Proceed to eligibility check
+    }
+
+    const inFlightKey = `${trimmedChatId}:${lang}`;
+    const inFlight = inFlightVoiceCloneRequestsRef.current.get(inFlightKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const resetGenerationAtStart = voiceCloneResetGenerationRef.current;
+    const task = (async () => {
+      try {
+        const eligibleResult = await localStore.collectEligibleCloneAudioSamples(
+          trimmedChatId,
+          lang,
+          10_000,
+        );
+        if (!eligibleResult?.eligible || !eligibleResult.samples?.length) {
+          return existing?.voiceId
+            ? {
+                voiceId: existing.voiceId,
+                referenceAudioBase64: existing.referenceAudioBase64 || null,
+              }
+            : null;
+        }
+
+        const response = await requestChatVoiceClone({
+          conversationId: trimmedChatId,
+          language: lang,
+          samples: eligibleResult.samples,
+          forceRefresh: Boolean(eligibleResult.resetAt),
+          authFetch: isSignedIn ? authFetch : undefined,
+        });
+
+        if (
+          ttsVoiceModeRef.current !== TTS_VOICE_MODE_CLONE ||
+          voiceCloneResetGenerationRef.current !== resetGenerationAtStart
+        ) {
+          return null;
+        }
+
+        if (response?.cloned && typeof response.clonedVoiceId === "string" && response.clonedVoiceId.trim()) {
+          const referenceAudioBase64 =
+            typeof response.referenceAudioBase64 === "string" && response.referenceAudioBase64.trim()
+              ? response.referenceAudioBase64.trim()
+              : null;
+          const saved = await localStore.setChatVoiceClone(trimmedChatId, lang, {
+            voiceId: response.clonedVoiceId.trim(),
+            totalDurationMs: response.totalDurationMs || eligibleResult.totalDurationMs,
+            mode: response.mode || eligibleResult.mode,
+            ...(referenceAudioBase64 ? { referenceAudioBase64 } : {}),
+          });
+          if (trimmedChatId === activeVoiceCloneChatId) {
+            void refreshActiveChatVoiceCloneCount(trimmedChatId);
+          }
+          return {
+            voiceId: saved.voiceId,
+            referenceAudioBase64,
+          };
+        }
+      } catch (err) {
+        console.warn("Chat voice clone check did not produce a clone", err);
+      }
+      return existing?.voiceId
+        ? {
+            voiceId: existing.voiceId,
+            referenceAudioBase64: existing.referenceAudioBase64 || null,
+          }
+        : null;
+    })().finally(() => {
+      inFlightVoiceCloneRequestsRef.current.delete(inFlightKey);
+    });
+
+    inFlightVoiceCloneRequestsRef.current.set(inFlightKey, task);
+    return task;
+  };
+
+  const prefetchMessageTranslatedSpeech = async ({
+    messageId,
+    chatId,
+    translatedText,
+    translatedPronunciation = "",
+    targetLanguageCode,
+    sourceLanguageCode,
+  }) => {
+    const trimmedText = typeof translatedText === "string" ? translatedText.trim() : "";
+    const targetLang = typeof targetLanguageCode === "string" ? targetLanguageCode.trim().toLowerCase() : "";
+    const sourceLang = typeof sourceLanguageCode === "string" ? sourceLanguageCode.trim().toLowerCase() : "";
+    if (!messageId || !trimmedText || !targetLang || !localStore || sharedRoomSession) {
+      return null;
+    }
+
+    try {
+      const activeVoice = ttsVoice;
+      const clonedVoice =
+        chatId && sourceLang
+          ? await ensureChatLanguageVoiceClone(chatId, sourceLang)
+          : null;
+      const clonedVoiceId = clonedVoice?.voiceId || null;
+      const clonedVoiceReferenceAudio = clonedVoice?.referenceAudioBase64 || null;
+      const cacheKey = clonedVoiceId
+        ? `message:${messageId}:translated:voxtral:${clonedVoiceId}`
+        : `message:${messageId}:translated:${activeVoice}`;
+
+      const existingCached = await localStore.getCachedTtsAudio(cacheKey).catch(() => null);
+      if (existingCached) {
+        return existingCached;
+      }
+
+      const existingInFlight = prefetchedTtsPromisesRef.current.get(cacheKey);
+      if (existingInFlight) {
+        return existingInFlight;
+      }
+
+      const fetchTask = fetchOutputSpeech({
+        text: trimmedText,
+        language: targetLang,
+        speechVoice: activeVoice,
+        clonedVoiceId,
+        clonedVoiceReferenceAudio,
+        authFetch: isSignedIn ? authFetch : undefined,
+      })
+        .then(async (blob) => {
+          if (blob) {
+            await localStore.putCachedTtsAudio(cacheKey, blob).catch(() => undefined);
+          }
+          return blob;
+        })
+        .catch(() => null)
+        .finally(() => {
+          prefetchedTtsPromisesRef.current.delete(cacheKey);
+        });
+
+      prefetchedTtsPromisesRef.current.set(cacheKey, fetchTask);
+      return fetchTask;
+    } catch {
+      return null;
+    }
+  };
+
   const handleThreadAudioPlay = (audioElement) => {
     pauseActiveAudio(audioElement);
     domAudioRef.current = audioElement;
@@ -3284,6 +3643,8 @@ export default function StringPhoneApp() {
     ownerKind = "message",
     ownerId = null,
     role = "translated",
+    sourceLanguageCode = "",
+    pronunciationText = "",
   }) => {
     const trimmedText = typeof text === "string" ? text.trim() : "";
     const normalizedLanguageCode =
@@ -3306,9 +3667,41 @@ export default function StringPhoneApp() {
  
     try {
       const activeVoice = speechVoice || ttsVoice;
+      const activeChatId = sharedRoomSession
+        ? null
+        : isSignedIn
+          ? currentConversationId
+          : activeLocalConversationId ||
+            localStore?.getPreferences?.()?.activeConversationId ||
+            null;
+      const ownerMessage =
+        ownerKind === "message" && ownerId
+          ? messagesRef.current.find((m) => m.id === ownerId) || null
+          : null;
+      const resolvedSourceLanguageCode =
+        typeof sourceLanguageCode === "string" && sourceLanguageCode.trim()
+          ? sourceLanguageCode.trim().toLowerCase()
+          : (ownerMessage?.sourceLanguageCode || "").trim().toLowerCase();
+
+      let clonedVoice = null;
+      if (
+        ownerKind === "message" &&
+        activeChatId &&
+        resolvedSourceLanguageCode
+      ) {
+        clonedVoice = await ensureChatLanguageVoiceClone(
+          activeChatId,
+          resolvedSourceLanguageCode,
+        );
+      }
+      const clonedVoiceId = clonedVoice?.voiceId || null;
+      const clonedVoiceReferenceAudio = clonedVoice?.referenceAudioBase64 || null;
+
       const cacheKey =
-        !isSignedIn && localStore && ownerId
-          ? `${ownerKind}:${ownerId}:${role}:${activeVoice}`
+        localStore && ownerId
+          ? clonedVoiceId
+            ? `${ownerKind}:${ownerId}:${role}:voxtral:${clonedVoiceId}`
+            : `${ownerKind}:${ownerId}:${role}:${activeVoice}`
           : null;
 
       let audioBlob = null;
@@ -3318,6 +3711,12 @@ export default function StringPhoneApp() {
         } catch (e) {
           console.error("Failed to read TTS cache", e);
         }
+        if (!audioBlob) {
+          const inFlightPrefetch = prefetchedTtsPromisesRef.current.get(cacheKey);
+          if (inFlightPrefetch) {
+            audioBlob = await inFlightPrefetch.catch(() => null);
+          }
+        }
       }
 
       if (!audioBlob) {
@@ -3325,6 +3724,8 @@ export default function StringPhoneApp() {
           text: trimmedText,
           language: normalizedLanguageCode,
           speechVoice: activeVoice,
+          clonedVoiceId,
+          clonedVoiceReferenceAudio,
           authFetch: isSignedIn ? authFetch : undefined,
           signal: abortController.signal,
         });
@@ -3394,6 +3795,52 @@ export default function StringPhoneApp() {
     const normalizedVoice = normalizeTtsVoice(nextVoice);
     setTtsVoice(normalizedVoice);
     persistTtsVoice(normalizedVoice);
+    void localStore?.setTtsVoice?.(normalizedVoice);
+  };
+
+  const handleTtsVoiceModeChange = (nextMode) => {
+    const normalizedMode = normalizeTtsVoiceMode(nextMode);
+    setTtsVoiceMode(normalizedMode);
+    ttsVoiceModeRef.current = normalizedMode;
+    persistTtsVoiceMode(normalizedMode);
+    void localStore?.setTtsVoiceMode?.(normalizedMode);
+    pauseActiveAudio();
+  };
+
+  const handleClearConversationVoiceClones = async () => {
+    const trimmedChatId =
+      typeof activeVoiceCloneChatId === "string" ? activeVoiceCloneChatId.trim() : "";
+    if (!trimmedChatId || !localStore) {
+      return { clearedCount: 0 };
+    }
+
+    voiceCloneResetGenerationRef.current += 1;
+    pauseActiveAudio();
+
+    for (const key of inFlightVoiceCloneRequestsRef.current.keys()) {
+      if (key.startsWith(`${trimmedChatId}:`)) {
+        inFlightVoiceCloneRequestsRef.current.delete(key);
+      }
+    }
+    const activeMsgIds = new Set(messagesRef.current.map((m) => m.id));
+    for (const key of prefetchedTtsPromisesRef.current.keys()) {
+      const parts = key.split(":");
+      if (
+        parts[0] === "message" &&
+        activeMsgIds.has(parts[1]) &&
+        (key.includes(":voxtral:") || key.includes(":clone:"))
+      ) {
+        prefetchedTtsPromisesRef.current.delete(key);
+      }
+    }
+
+    const result = await localStore.clearChatVoiceClones(trimmedChatId);
+    setActiveChatVoiceCloneCount(0);
+    void clearServerChatVoiceClones({
+      conversationId: trimmedChatId,
+      authFetch: isSignedIn ? authFetch : undefined,
+    }).catch(() => undefined);
+    return result;
   };
 
   const stopAllPlayback = () => {
@@ -3818,6 +4265,15 @@ export default function StringPhoneApp() {
         });
       }
 
+      void prefetchMessageTranslatedSpeech({
+        messageId,
+        chatId: isSignedIn ? conversationId : localConvId,
+        translatedText: data.translatedText,
+        translatedPronunciation: data.translatedPronunciation ?? "",
+        targetLanguageCode: targetSnapshot.code,
+        sourceLanguageCode: sourceSnapshot.code,
+      });
+
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
@@ -4008,10 +4464,18 @@ export default function StringPhoneApp() {
       });
 
       if (!isSignedIn && localStore && localConvId) {
+        const measuredDurationMs = await measureAudioBlobDurationMs(
+          recording?.blob || audioBlob,
+          recording?.durationMs || recording?.blob?.durationMs || 0,
+        );
         let finalSourceAudioId = initialSourceAudioId;
         if (audioBlob) {
           try {
-            finalSourceAudioId = await localStore.saveAudioAsset(audioBlob);
+            finalSourceAudioId = await localStore.saveAudioAsset(
+              recording?.blob || audioBlob,
+              undefined,
+              { durationMs: measuredDurationMs },
+            );
           } catch (e) {
             console.error("Failed to save voice audio blob asset", e);
           }
@@ -4026,7 +4490,57 @@ export default function StringPhoneApp() {
           translatedText: data.translatedText,
           translatedPronunciation: data.translatedPronunciation ?? "",
           sourceAudioId: finalSourceAudioId || undefined,
+          sourceAudioDurationMs: measuredDurationMs || undefined,
         });
+        await ensureChatLanguageVoiceClone(localConvId, sourceSnapshot.code);
+        void prefetchMessageTranslatedSpeech({
+          messageId,
+          chatId: localConvId,
+          translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
+          targetLanguageCode: targetSnapshot.code,
+          sourceLanguageCode: sourceSnapshot.code,
+        });
+      }
+
+      if (isSignedIn && localStore && conversationId && (recording?.blob || audioBlob)) {
+        try {
+          const measuredDurationMs = await measureAudioBlobDurationMs(
+            recording?.blob || audioBlob,
+            recording?.durationMs || recording?.blob?.durationMs || 0,
+          );
+          const signedInSourceAudioId = await localStore.saveAudioAsset(
+            recording?.blob || audioBlob,
+            undefined,
+            { durationMs: measuredDurationMs },
+          );
+          await localStore.saveMessage({
+            id: messageId,
+            conversationId,
+            kind: "voice",
+            status: "ready",
+            originalText: data.transcript,
+            originalPronunciation: data.originalPronunciation ?? "",
+            transcript: data.transcript,
+            translatedText: data.translatedText,
+            translatedPronunciation: data.translatedPronunciation ?? "",
+            sourceLanguageCode: sourceSnapshot.code,
+            targetLanguageCode: targetSnapshot.code,
+            sourceAudioId: signedInSourceAudioId,
+            sourceAudioDurationMs: measuredDurationMs || undefined,
+          });
+          await ensureChatLanguageVoiceClone(conversationId, sourceSnapshot.code);
+          void prefetchMessageTranslatedSpeech({
+            messageId,
+            chatId: conversationId,
+            translatedText: data.translatedText,
+            translatedPronunciation: data.translatedPronunciation ?? "",
+            targetLanguageCode: targetSnapshot.code,
+            sourceLanguageCode: sourceSnapshot.code,
+          });
+        } catch {
+          // Ignore local mirror errors for signed-in conversations
+        }
       }
 
       if (conversationId) {
@@ -4518,15 +5032,19 @@ export default function StringPhoneApp() {
             retryPayload,
           };
 
+          let resolvedMessageId = draft.messageId;
           if (draft.messageId) {
             updateMessage(draft.messageId, finalMessage);
           } else {
-            appendMessage(finalMessage);
+            resolvedMessageId = appendMessage(finalMessage);
           }
           draft.audioUrlTransferred = Boolean(draft.audioUrl);
 
           if (!isSignedIn && localStore) {
-            let localConvId = activeLocalConversationId;
+            let localConvId =
+              activeLocalConversationId ||
+              localStore.getPreferences?.()?.activeConversationId ||
+              null;
             if (!localConvId) {
               try {
                 const newConv = await localStore.createConversation({
@@ -4542,16 +5060,25 @@ export default function StringPhoneApp() {
               }
             }
             let sourceAudioId = null;
+            let measuredDurationMs = 0;
             if (audioBlob) {
               try {
-                sourceAudioId = await localStore.saveAudioAsset(audioBlob);
+                measuredDurationMs = await measureAudioBlobDurationMs(
+                  audioBlob,
+                  audioBlob.durationMs || 0,
+                );
+                sourceAudioId = await localStore.saveAudioAsset(
+                  audioBlob,
+                  undefined,
+                  { durationMs: measuredDurationMs },
+                );
               } catch (e) {
                 console.error("Failed to save audio asset", e);
               }
             }
             if (localConvId) {
               await localStore.saveMessage({
-                id: draft.messageId || finalMessage.id || utteranceId,
+                id: resolvedMessageId || finalMessage.id || utteranceId,
                 conversationId: localConvId,
                 originMode: finalMessage.originMode,
                 speaker: finalMessage.sender,
@@ -4565,7 +5092,65 @@ export default function StringPhoneApp() {
                 sourceLanguageCode: finalMessage.sourceLanguageCode,
                 targetLanguageCode: finalMessage.targetLanguageCode,
                 sourceAudioId: sourceAudioId || undefined,
+                sourceAudioDurationMs: measuredDurationMs || undefined,
               });
+              if (sourceAudioId) {
+                await ensureChatLanguageVoiceClone(
+                  localConvId,
+                  finalMessage.sourceLanguageCode,
+                );
+              }
+              void prefetchMessageTranslatedSpeech({
+                messageId: resolvedMessageId || finalMessage.id || utteranceId,
+                chatId: localConvId,
+                translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+              });
+            }
+          } else if (isSignedIn && localStore && conversationId && audioBlob) {
+            try {
+              const measuredDurationMs = await measureAudioBlobDurationMs(
+                audioBlob,
+                audioBlob.durationMs || 0,
+              );
+              const signedInSourceAudioId = await localStore.saveAudioAsset(
+                audioBlob,
+                undefined,
+                { durationMs: measuredDurationMs },
+              );
+              await localStore.saveMessage({
+                id: resolvedMessageId || finalMessage.id || utteranceId,
+                conversationId,
+                originMode: finalMessage.originMode,
+                speaker: finalMessage.sender,
+                kind: finalMessage.kind,
+                status: finalMessage.status,
+                originalText: finalMessage.originalText,
+                originalPronunciation: finalMessage.originalPronunciation,
+                translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
+                transcript: finalMessage.transcript,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceAudioId: signedInSourceAudioId,
+                sourceAudioDurationMs: measuredDurationMs || undefined,
+              });
+              await ensureChatLanguageVoiceClone(
+                conversationId,
+                finalMessage.sourceLanguageCode,
+              );
+              void prefetchMessageTranslatedSpeech({
+                messageId: resolvedMessageId || finalMessage.id || utteranceId,
+                chatId: conversationId,
+                translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+              });
+            } catch {
+              // Ignore local mirror errors for signed-in conversations
             }
           }
 
@@ -4926,7 +5511,13 @@ export default function StringPhoneApp() {
                   audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
                 }
               }
-              return { ...msg, audioUrl: audioUrl || "" };
+              const resolvedSpeaker = msg.sender || msg.speaker || "self";
+              return {
+                ...msg,
+                sender: resolvedSpeaker,
+                speaker: msg.speaker || resolvedSpeaker,
+                audioUrl: audioUrl || "",
+              };
             }),
           );
           replaceMessages(loadedMessages);
@@ -5624,6 +6215,12 @@ export default function StringPhoneApp() {
         activeCollectionLanguageCode={activeCollectionLanguageCode}
         ttsVoice={ttsVoice}
         onTtsVoiceChange={handleTtsVoiceChange}
+        ttsVoiceMode={ttsVoiceMode}
+        onTtsVoiceModeChange={handleTtsVoiceModeChange}
+        canClearVoiceClones={Boolean(activeVoiceCloneChatId)}
+        clonedVoiceCount={activeChatVoiceCloneCount}
+        onRefreshClonedVoiceCount={() => refreshActiveChatVoiceCloneCount(activeVoiceCloneChatId)}
+        onClearVoiceClones={handleClearConversationVoiceClones}
       />
       <ModeSwitcher
         appMode={appMode}

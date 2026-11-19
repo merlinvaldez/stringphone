@@ -167,6 +167,9 @@ export interface OutputSpeechRequest {
   text: string;
   language: string;
   speechVoice?: 'marin' | 'onyx';
+  clonedVoiceId?: string;
+  clonedVoiceReferenceAudio?: string;
+  pronunciationText?: string;
   signal?: AbortSignal;
 }
 
@@ -177,8 +180,57 @@ export interface OutputSpeechResult {
   durationMs: number;
 }
 
+export interface VoiceCloneSampleRequest {
+  base64: string;
+  mimeType: string;
+  filename?: string;
+  durationMs?: number;
+  transcript?: string;
+}
+
+export interface VoiceCloneRequest {
+  language: string;
+  samples: VoiceCloneSampleRequest[];
+  signal?: AbortSignal;
+}
+
+export interface VoiceCloneResult {
+  ok: boolean;
+  cloned: boolean;
+  clonedVoiceId: string | null;
+  referenceAudioBase64: string | null;
+  mode: 'single' | 'merged' | 'insufficient';
+  totalDurationMs: number;
+}
+
 export function createSpeechApi(transport: ReturnType<typeof createProcessingTransport>) {
   return {
+    async requestVoiceClone(request: VoiceCloneRequest): Promise<VoiceCloneResult> {
+      const supported = getSupportedTtsLanguage(request.language);
+      if (!supported) {
+        throw new Error(`Language '${request.language}' is not supported for voice cloning.`);
+      }
+      const response = await transport.postVoiceClone(
+        {
+          language: supported.code,
+          samples: request.samples,
+        },
+        request.signal,
+      );
+      const data = await response.json();
+      const referenceAudioBase64 =
+        typeof data?.referenceAudioBase64 === 'string' && data.referenceAudioBase64.trim()
+          ? data.referenceAudioBase64.trim()
+          : null;
+      return {
+        ok: Boolean(data?.ok),
+        cloned: Boolean(data?.cloned && typeof data?.clonedVoiceId === 'string' && data.clonedVoiceId.trim()),
+        clonedVoiceId: typeof data?.clonedVoiceId === 'string' && data.clonedVoiceId.trim() ? data.clonedVoiceId.trim() : null,
+        referenceAudioBase64,
+        mode: data?.mode === 'single' ? 'single' : data?.mode === 'merged' ? 'merged' : 'insufficient',
+        totalDurationMs: Number(data?.totalDurationMs) || 0,
+      };
+    },
     async requestOutputSpeech(request: OutputSpeechRequest): Promise<OutputSpeechResult> {
       const normalized = normalizeSpeechText(request.text);
       if (!normalized) {
@@ -212,6 +264,10 @@ export function createSpeechApi(transport: ReturnType<typeof createProcessingTra
             text: chunk,
             language: supported.code,
             ...(request.speechVoice ? { speechVoice: request.speechVoice } : {}),
+            ...(request.clonedVoiceId && request.clonedVoiceId.trim() ? { clonedVoiceId: request.clonedVoiceId.trim() } : {}),
+            ...(request.clonedVoiceReferenceAudio && request.clonedVoiceReferenceAudio.trim()
+              ? { clonedVoiceReferenceAudio: request.clonedVoiceReferenceAudio.trim() }
+              : {}),
           },
           request.signal,
         );

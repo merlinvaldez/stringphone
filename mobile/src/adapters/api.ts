@@ -8,7 +8,7 @@ import { createSpeechApi } from './speech';
 export const nativeProcessingApi = createProcessingTransport(getApiUrl);
 export const { translateTextMessage } = createTextChatApi(nativeProcessingApi);
 export const { translateVoiceMessage } = createVoiceChatApi(nativeProcessingApi);
-export const { requestOutputSpeech } = createSpeechApi(nativeProcessingApi);
+export const { requestOutputSpeech, requestVoiceClone } = createSpeechApi(nativeProcessingApi);
 export { TextTranslationResponseError } from './textChat';
 export { ProcessingApiError } from './processingTransport';
 export { createSpeechApi, splitSpeechTextIntoChunks, concatenateWavBuffers, parseWav } from './speech';

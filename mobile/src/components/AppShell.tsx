@@ -4,7 +4,17 @@ import { StatusBar } from 'expo-status-bar';
 import { router, Slot, usePathname } from 'expo-router';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getActiveTtsVoice, setNativeTtsVoice, subscribeTtsVoice } from '../chat/native';
+import {
+  clearActiveConversationVoiceClones,
+  getActiveConversationVoiceCloneStatus,
+  getActiveTtsVoice,
+  getActiveTtsVoiceMode,
+  setNativeTtsVoice,
+  setNativeTtsVoiceMode,
+  subscribeTtsVoice,
+  subscribeTtsVoiceMode,
+} from '../chat/native';
+import type { TtsVoiceMode } from '../storage/history';
 import { palette } from '../theme';
 
 const MODES = [
@@ -19,13 +29,42 @@ const VOICE_OPTIONS = [
   { id: 'onyx' as const, label: 'Male' },
 ];
 
+const VOICE_MODE_OPTIONS: ReadonlyArray<{ id: TtsVoiceMode; label: string }> = [
+  { id: 'ai_tts', label: 'AI TTS voice' },
+  { id: 'voice_clone', label: 'Voice clone' },
+];
+
 export function AppShell() {
   const pathname = usePathname();
   const activeRoute = pathname === '/' ? '/' : `/${pathname.split('/')[1]}`;
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
   const [ttsVoice, setTtsVoice] = useState<'marin' | 'onyx'>(getActiveTtsVoice);
+  const [ttsVoiceMode, setTtsVoiceMode] = useState<TtsVoiceMode>(getActiveTtsVoiceMode);
+  const [cloneStatus, setCloneStatus] = useState<{ conversationId: string | null; count: number }>({
+    conversationId: null,
+    count: 0,
+  });
+  const [clearingClones, setClearingClones] = useState(false);
+  const [justClearedClones, setJustClearedClones] = useState(false);
 
   useEffect(() => subscribeTtsVoice(setTtsVoice), []);
+  useEffect(() => subscribeTtsVoiceMode(setTtsVoiceMode), []);
+
+  useEffect(() => {
+    if (!voiceMenuOpen) return;
+    setJustClearedClones(false);
+    let active = true;
+    void getActiveConversationVoiceCloneStatus()
+      .then(status => {
+        if (active) setCloneStatus(status);
+      })
+      .catch(() => {
+        if (active) setCloneStatus({ conversationId: null, count: 0 });
+      });
+    return () => {
+      active = false;
+    };
+  }, [voiceMenuOpen]);
 
   return (
     <>
@@ -87,19 +126,19 @@ export function AppShell() {
       >
         <Pressable style={styles.menuBackdrop} onPress={() => setVoiceMenuOpen(false)}>
           <Pressable style={styles.menuPopover} onPress={event => event.stopPropagation()}>
-            <Text style={styles.menuHeading}>AI TTS voice</Text>
+            <Text style={styles.menuHeading}>Speech voice</Text>
             <View style={styles.voiceGrid}>
-              {VOICE_OPTIONS.map(option => {
-                const selected = ttsVoice === option.id;
+              {VOICE_MODE_OPTIONS.map(option => {
+                const selected = ttsVoiceMode === option.id;
                 return (
                   <Pressable
                     key={option.id}
                     accessibilityRole="button"
-                    accessibilityLabel={`${option.label} AI TTS voice`}
+                    accessibilityLabel={option.label}
                     accessibilityState={{ selected }}
                     onPress={() => {
-                      void setNativeTtsVoice(option.id);
-                      setVoiceMenuOpen(false);
+                      setJustClearedClones(false);
+                      void setNativeTtsVoiceMode(option.id);
                     }}
                     style={[styles.voiceOption, selected && styles.voiceOptionSelected]}
                   >
@@ -110,6 +149,68 @@ export function AppShell() {
                 );
               })}
             </View>
+            {ttsVoiceMode === 'ai_tts' ? (
+              <View style={[styles.voiceGrid, styles.subGrid]}>
+                {VOICE_OPTIONS.map(option => {
+                  const selected = ttsVoice === option.id;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${option.label} AI TTS voice`}
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        void setNativeTtsVoice(option.id);
+                        setVoiceMenuOpen(false);
+                      }}
+                      style={[styles.voiceOption, selected && styles.voiceOptionSelected]}
+                    >
+                      <Text style={[styles.voiceOptionText, selected && styles.voiceOptionTextSelected]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.clonePanel}>
+                <Text style={styles.cloneStatusText}>
+                  {justClearedClones
+                    ? 'Cloned voices cleared. Record 10s to clone again.'
+                    : !cloneStatus.conversationId
+                      ? 'Open a chat to manage cloned voices.'
+                      : cloneStatus.count > 0
+                        ? `${cloneStatus.count} cloned ${cloneStatus.count === 1 ? 'voice' : 'voices'} in this chat.`
+                        : 'No cloned voices in this chat yet.'}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear cloned voices"
+                  accessibilityState={{ disabled: clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0 }}
+                  disabled={clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0}
+                  onPress={async () => {
+                    if (clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0) return;
+                    setClearingClones(true);
+                    try {
+                      await clearActiveConversationVoiceClones();
+                      setCloneStatus(prev => ({ ...prev, count: 0 }));
+                      setJustClearedClones(true);
+                    } finally {
+                      setClearingClones(false);
+                    }
+                  }}
+                  style={[
+                    styles.clearCloneButton,
+                    (clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0) && styles.clearCloneButtonDisabled,
+                  ]}
+                >
+                  <Feather name="rotate-ccw" size={12} color={palette.text} />
+                  <Text style={styles.clearCloneButtonText}>
+                    {clearingClones ? 'Clearing...' : 'Clear cloned voices'}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -189,7 +290,7 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   menuPopover: {
-    minWidth: 208,
+    minWidth: 236,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -217,6 +318,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)',
     padding: 4,
   },
+  subGrid: {
+    marginTop: 8,
+  },
   voiceOption: {
     flex: 1,
     alignItems: 'center',
@@ -235,5 +339,37 @@ const styles = StyleSheet.create({
   },
   voiceOptionTextSelected: {
     color: '#FFFFFF',
+  },
+  clonePanel: {
+    marginTop: 8,
+    gap: 8,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 8,
+  },
+  cloneStatusText: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  clearCloneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  clearCloneButtonDisabled: {
+    opacity: 0.45,
+  },
+  clearCloneButtonText: {
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
