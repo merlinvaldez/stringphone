@@ -124,7 +124,7 @@ export async function refreshConversationTitle(
       input.targetLanguageCode,
     );
   } catch (error) {
-    console.error("Failed to generate conversation title", error);
+    console.error("Failed to generate conversation title");
   }
 
   const title = topic || extractFallbackTopic(messages);

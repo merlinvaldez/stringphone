@@ -21,6 +21,8 @@ export function ChatScreen({
   onAudioPlay,
   onPlayTranslatedSpeech,
   onSaveToCollection,
+  savedSourceMessageIds = null,
+  savingMessageId = null,
   sharedRoomSession,
   sharedRoom,
   sharedRoomStatus,
@@ -32,12 +34,14 @@ export function ChatScreen({
   onToggleSharedRoom,
   onCopySharedRoomInvite,
   onOpenSidebar,
+  onLeaveSharedRoom,
   liveCaptureState,
   setLiveCaptureState,
   authFetch,
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  onBeforeCapture,
 }) {
   const mountedRef = useRef(true);
   const [composerText, setComposerText] = useState("");
@@ -86,6 +90,7 @@ export function ChatScreen({
     onLiveTranscript: (payload) =>
       onLiveTranscript?.(addCaptureContext(payload)),
     onLiveCaptureClosed,
+    onBeforeCapture,
   });
   const liveStatus = liveCaptureState?.status ?? "idle";
   const liveIsActive =
@@ -102,9 +107,13 @@ export function ChatScreen({
 
     if (
       liveStatus === "idle" &&
-      (status === "recording" || status === "processing")
+      (status === "recording" || status === "processing" || status === "starting")
     ) {
       setStatus("idle");
+    }
+
+    if (liveStatus === "listening" && status === "starting") {
+      setStatus("recording");
     }
   }, [liveCaptureState?.lastError, liveStatus, status]);
   useEffect(
@@ -143,7 +152,7 @@ export function ChatScreen({
 
     try {
       setError("");
-      setStatus("recording");
+      setStatus("starting");
       await flow.startRecording({
         sender: "self",
         sourceLanguage,
@@ -157,7 +166,7 @@ export function ChatScreen({
   };
 
   async function handleStopRecording() {
-    if (status !== "recording") return;
+    if (status !== "recording" && status !== "starting") return;
 
     if (mountedRef.current) {
       setStatus("processing");
@@ -205,6 +214,7 @@ export function ChatScreen({
         onToggleSharedRoom={onToggleSharedRoom}
         onCopySharedRoomInvite={onCopySharedRoomInvite}
         onOpenSidebar={onOpenSidebar}
+        onLeaveSharedRoom={onLeaveSharedRoom}
       />
 
       {sharedRoomError ? (
@@ -222,6 +232,8 @@ export function ChatScreen({
           onSaveToCollection={onSaveToCollection}
           uiStrings={screenUiStrings}
           baseLanguageCode={myLang.code}
+          savedSourceMessageIds={savedSourceMessageIds}
+          savingMessageId={savingMessageId}
         />
       </div>
 

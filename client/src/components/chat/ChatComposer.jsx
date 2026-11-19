@@ -20,7 +20,11 @@ export function ChatComposer({
   const hasText = text.trim().length > 0;
   const canSendText = hasText && recordingStatus === "idle" && !disabled;
   const actionKind =
-    recordingStatus === "recording" ? "stop" : hasText ? "send" : "mic";
+    recordingStatus === "recording" || recordingStatus === "starting"
+      ? "stop"
+      : hasText
+        ? "send"
+        : "mic";
 
   const actionProps =
     actionKind === "stop"
@@ -28,8 +32,15 @@ export function ChatComposer({
           onClick: onStopRecording,
           title: uiStrings.stopVoiceNote,
           className:
-            "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]",
-          icon: <Square size={18} fill="currentColor" />,
+            recordingStatus === "starting"
+              ? "bg-sky-600 text-white shadow-[0_0_30px_rgba(56,189,248,0.35)]"
+              : "bg-rose-600 text-white shadow-[0_0_30px_rgba(244,63,94,0.35)]",
+          icon:
+            recordingStatus === "starting" ? (
+              <Loader2 size={18} className="animate-spin text-white" />
+            ) : (
+              <Square size={18} fill="currentColor" />
+            ),
           disabled: false,
         }
       : actionKind === "send"
@@ -58,12 +69,17 @@ export function ChatComposer({
               ? interpolateTemplate(uiStrings.secondsLeft, {
                   seconds: recordingTimer,
                 })
-              : uiStrings.translatingVoiceNote}
+              : recordingStatus === "starting"
+                ? "Connecting microphone..."
+                : uiStrings.translatingVoiceNote}
           </div>
           {recordingStatus === "recording" ? (
             <AudioWave active colorClass="bg-rose-400" />
           ) : (
-            <Loader2 size={18} className="animate-spin text-amber-300" />
+            <Loader2
+              size={18}
+              className={`animate-spin ${recordingStatus === "starting" ? "text-sky-300" : "text-amber-300"}`}
+            />
           )}
         </div>
       ) : null}

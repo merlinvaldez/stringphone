@@ -42,7 +42,7 @@ export default {
 
       return jsonResponse(result);
     } catch (error) {
-      console.error("Live draft translation failed", error);
+      console.error("Live draft translation failed");
       return jsonResponse({ error: "Live draft translation failed." }, 502);
     }
   },

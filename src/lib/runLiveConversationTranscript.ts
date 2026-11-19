@@ -140,7 +140,7 @@ export async function runLiveConversationTranscript(input: {
       originalPronunciation = guidance.originalPronunciation;
       translatedPronunciation = guidance.translatedPronunciation;
     } catch (error) {
-      console.error("Live transcript pronunciation guidance failed", error);
+      console.error("Live transcript pronunciation guidance failed");
     }
   }
 
@@ -177,7 +177,7 @@ export async function runLiveConversationTranscript(input: {
         sourceLanguage: canonicalSourceLanguageCode,
         targetLanguage: canonicalTargetLanguageCode,
       }).catch((error) => {
-        console.error("Failed to persist canonical conversation languages", error);
+        console.error("Failed to persist canonical conversation languages");
       });
 
       savedMessageId = typeof message?.id === "string" ? message.id : "";
@@ -189,7 +189,7 @@ export async function runLiveConversationTranscript(input: {
         targetLanguageCode: canonicalTargetLanguageCode,
       });
     } catch (error) {
-      console.error("Failed to persist live conversation transcript", error);
+      console.error("Failed to persist live conversation transcript");
     }
   }
 

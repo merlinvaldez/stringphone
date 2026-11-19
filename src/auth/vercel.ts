@@ -68,7 +68,7 @@ export async function getOptionalAuthenticatedVercelAppRequest(
       appUser,
     };
   } catch (error) {
-    console.error("Failed to resolve optional authenticated Vercel request", error);
+    console.error("Failed to resolve optional authenticated Vercel request");
     return null;
   }
 }
@@ -99,7 +99,7 @@ export async function requireAuthenticatedVercelAppRequest(
       appUser,
     };
   } catch (error) {
-    console.error("Failed to verify authenticated Vercel request", error);
+    console.error("Failed to verify authenticated Vercel request");
     return {
       errorResponse: jsonResponse(
         { error: "Failed to verify authenticated request" },

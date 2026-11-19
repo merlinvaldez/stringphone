@@ -49,7 +49,7 @@ async function requestClientSecret(input: {
 
     return { ok: true, body };
   } catch (error) {
-    console.error("OpenAI live session client secret request failed", error);
+    console.error("OpenAI live session client secret request failed");
     return { ok: false, status: 502 };
   }
 }

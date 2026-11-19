@@ -42,6 +42,10 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
+import {
+  clearCachedServerChatVoiceClonesForConversation,
+  runChatVoiceCloning,
+} from "./lib/runChatVoiceCloning.js";
 import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscriptionClientSecret.js";
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
@@ -56,6 +60,7 @@ import {
   getLanguageCollectionForUser,
   listLanguageCollectionsForUser,
   saveLanguageCollectionEntryForUser,
+  updateLanguageCollectionEntryForUser,
 } from "./services/languageCollections.js";
 
 const app = express();
@@ -85,7 +90,7 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
 app.use(clerkMiddleware());
 
 function getErrorMessage(
@@ -695,6 +700,37 @@ app.delete(
   },
 );
 
+app.patch(
+  "/collections/entries",
+  requireAuthenticatedAppRequest,
+  async (req, res) => {
+    try {
+      const authenticatedRequest = getAuthenticatedAppRequest(req);
+
+      if (!authenticatedRequest.appUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      return res.status(200).json(
+        await updateLanguageCollectionEntryForUser({
+          userId: authenticatedRequest.appUser.id,
+          body: req.body,
+        }),
+      );
+    } catch (error) {
+      console.error("Failed to update collection entry", error);
+      return res.status(
+        error instanceof CollectionRequestError ? error.status : 500,
+      ).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to update collection entry",
+      });
+    }
+  },
+);
+
 app.get("/lessons", requireAuthenticatedAppRequest, async (req, res) => {
   try {
     const user = (req as any).appUser;
@@ -929,7 +965,7 @@ app.post("/chat/messages/text", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (error) {
-    console.error("Text chat translation failed", error);
+    console.error("Text chat translation failed");
     return res.status(502).json({ error: "Text chat translation failed" });
   }
 });
@@ -974,7 +1010,7 @@ app.post(
         },
       });
     } catch (error) {
-      console.error("Voice chat translation failed", error);
+      console.error("Voice chat translation failed");
       return res.status(502).json({ error: "Voice chat translation failed" });
     }
   },
@@ -1014,7 +1050,7 @@ app.post(
 
       return res.status(200).json(result);
     } catch (error) {
-      console.error("Live conversation segment failed", error);
+      console.error("Live conversation segment failed");
       return res.status(502).json({ error: "Live conversation segment failed" });
     }
   },
@@ -1037,7 +1073,7 @@ app.post("/chat/live-transcription/token", async (req, res) => {
 
     return res.status(200).json(result.body);
   } catch (error) {
-    console.error("Live transcription token creation failed", error);
+    console.error("Live transcription token creation failed");
     return res.status(502).json({ error: "Unable to start live transcription." });
   }
 });
@@ -1074,7 +1110,7 @@ app.post(
 
       return res.status(200).json(result);
     } catch (error) {
-      console.error("Live transcript processing failed", error);
+      console.error("Live transcript processing failed");
       return res.status(502).json({ error: "Live transcription failed." });
     }
   },
@@ -1097,7 +1133,7 @@ app.post("/chat/messages/live-translation", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (error) {
-    console.error("Live draft translation failed", error);
+    console.error("Live draft translation failed");
     return res.status(502).json({ error: "Live draft translation failed." });
   }
 });
@@ -1145,7 +1181,7 @@ app.post(
       );
       return res.status(200).send(result.audioBuffer);
     } catch (error) {
-      console.error("Speech pipeline failed", error);
+      console.error("Speech pipeline failed");
       return res.status(502).json({ error: "Speech pipeline failed" });
     }
   },
@@ -1157,6 +1193,11 @@ app.post("/speech/output", async (req, res) => {
       text: req.body?.text,
       language: req.body?.language,
       speechVoice: req.body?.speechVoice,
+      clonedVoiceId: req.body?.clonedVoiceId,
+      clonedVoiceReferenceAudio: req.body?.clonedVoiceReferenceAudio,
+      conversationId: req.body?.conversationId,
+      sourceLanguage: req.body?.sourceLanguage,
+      pronunciationText: req.body?.pronunciationText,
     });
 
     if (!result.ok) {
@@ -1170,8 +1211,85 @@ app.post("/speech/output", async (req, res) => {
     );
     return res.status(200).send(result.audioBuffer);
   } catch (error) {
-    console.error("Output speech generation failed", error);
+    console.error("Output speech generation failed");
     return res.status(502).json({ error: "Output speech generation failed" });
+  }
+});
+
+app.post(
+  "/speech/clone",
+  upload.array("samples", 8),
+  async (req, res) => {
+    try {
+      const uploadedFiles = Array.isArray(req.files)
+        ? (req.files as Express.Multer.File[])
+        : [];
+      const rawTranscripts = Array.isArray(req.body?.transcripts)
+        ? req.body.transcripts
+        : typeof req.body?.transcripts === "string"
+          ? [req.body.transcripts]
+          : [];
+      const samples =
+        uploadedFiles.length > 0
+          ? uploadedFiles.map((file, index) => ({
+              buffer: file.buffer,
+              filename: file.originalname,
+              mimeType: file.mimetype,
+              transcript:
+                typeof rawTranscripts[index] === "string"
+                  ? rawTranscripts[index]
+                  : undefined,
+            }))
+          : req.body?.samples;
+
+      const result = await runChatVoiceCloning({
+        conversationId: req.body?.conversationId,
+        language: req.body?.language,
+        samples,
+        forceRefresh: req.body?.forceRefresh,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch {
+      console.error("Chat voice clone processing failed");
+      return res
+        .status(502)
+        .json({ error: "Chat voice clone processing failed" });
+    }
+  },
+);
+
+app.delete("/speech/clone", async (req, res) => {
+  try {
+    const rawConversationId =
+      typeof req.body?.conversationId === "string" &&
+      req.body.conversationId.trim()
+        ? req.body.conversationId.trim()
+        : typeof req.query?.conversationId === "string" &&
+            req.query.conversationId.trim()
+          ? req.query.conversationId.trim()
+          : "";
+
+    if (!rawConversationId) {
+      return res.status(400).json({ error: "conversationId is required" });
+    }
+
+    const clearedCount =
+      clearCachedServerChatVoiceClonesForConversation(rawConversationId);
+    return res.status(200).json({
+      ok: true,
+      conversationId: rawConversationId,
+      clearedCount,
+    });
+  } catch {
+    console.error("Chat voice clone clearing failed");
+    return res
+      .status(502)
+      .json({ error: "Chat voice clone clearing failed" });
   }
 });
 

@@ -1,0 +1,189 @@
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import historyModule from '../mobile/src/storage/history.ts';
+import audioModule from '../mobile/src/storage/audio.ts';
+import processingModule from '../mobile/src/storage/processing.ts';
+import controllerModule from '../mobile/src/chat/controller.ts';
+import migrations from '../mobile/src/storage/migrations.ts';
+
+const db = new DatabaseSync(':memory:');
+db.exec('PRAGMA foreign_keys=ON');
+const connection = {
+  async execAsync(sql) { db.exec(sql); },
+  async getFirstAsync(sql, ...args) { return db.prepare(sql).get(...args) ?? null; },
+  async getAllAsync(sql, ...args) { return db.prepare(sql).all(...args); },
+  async runAsync(sql, ...args) { return db.prepare(sql).run(...args); },
+  async withExclusiveTransactionAsync(task) {
+    db.exec('BEGIN IMMEDIATE');
+    try { await task(connection); db.exec('COMMIT'); }
+    catch (error) { db.exec('ROLLBACK'); throw error; }
+  },
+};
+try {
+  await migrations.migrateHistoryDatabase(connection);
+  let id = 0;
+  let release;
+  let remoteError;
+  let calls = 0;
+  let inputs = [];
+  const history = historyModule.createHistoryRepository(connection);
+  const flow = processingModule.createSavedMessageFlow(history, {});
+  const translate = async input => {
+    calls++; inputs.push(input);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM messages WHERE status='pending'").get().n, 1);
+    if (remoteError) throw remoteError;
+    await new Promise(resolve => { release = resolve; });
+    return { originalText: input.text, translatedText: 'Hola', originalPronunciation: '', translatedPronunciation: 'oh-la',
+      sourceLanguage: { code: 'en', label: 'English' }, targetLanguage: { code: 'es', label: 'Spanish' } };
+  };
+  const controller = controllerModule.createTextChatController(history, flow, translate, () => `id_${++id}`);
+  await controller.initialize();
+  const changes = [];
+  controller.subscribe(state => changes.push(state));
+  const sending = controller.send('Hello');
+  assert.equal(controller.getState().busy, true);
+  assert.equal(await controller.send('Duplicate'), false);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(controller.getState().messages[0].status, 'pending');
+  release();
+  assert.equal(await sending, true);
+  assert.equal(controller.getState().messages[0].translated_pronunciation, 'oh-la');
+  assert.equal(controller.getState().busy, false);
+  remoteError = new TypeError('Network request failed');
+  await controller.send('Offline');
+  const failed = controller.getState().messages.find(row => row.status === 'failed');
+  assert.ok(failed);
+  assert.match(controller.getState().error, /Check your connection/);
+  assert.equal(calls, 2);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM messages').get().n, 2);
+  remoteError = null; release = null;
+  const retry = controller.retry(failed.id);
+  await controller.retry(failed.id);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  release(); await retry;
+  const recovered = await history.getMessage(failed.id);
+  assert.equal(recovered.status, 'ready');
+  assert.equal(recovered.request_id, failed.request_id);
+  assert.equal(recovered.processing_attempt, 2);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM messages').get().n, 2);
+  assert.deepEqual(Object.keys(inputs[0]).sort(), ['signal', 'sourceLanguage', 'targetLanguage', 'text']);
+  await controller.retry(recovered.id);
+  assert.equal(calls, 3);
+  await flow.saveTextDraft({ id: 'interrupted', requestId: 'stable', conversationId: 'mobile-text-chat', speaker: 'me', originMode: 'chat', sourceLanguage: 'en', targetLanguage: 'es', originalText: 'Interrupted' });
+  await history.beginAttempt('interrupted');
+  const restarted = controllerModule.createTextChatController(history, processingModule.createSavedMessageFlow(history, {}), translate, () => `id_${++id}`);
+  await restarted.initialize();
+  assert.equal((await history.getMessage('interrupted')).status, 'interrupted');
+  assert.equal(calls, 3, 'Startup must not redispatch');
+  const brokenHistory = { ...history, async saveDraft() { throw new Error('SQLITE_FULL'); } };
+  const broken = controllerModule.createTextChatController(brokenHistory, processingModule.createSavedMessageFlow(brokenHistory, {}), translate, () => `id_${++id}`);
+  await broken.initialize();
+  assert.equal(await broken.send('Keep this draft'), false);
+  assert.match(broken.getState().error, /not confirmed saved locally/);
+  assert.equal(calls, 3);
+  assert.ok(changes.some(state => state.busy && state.messages.some(row => row.status === 'pending')));
+
+  // Language swapping across screens without read-only barriers
+  await restarted.newModeConversation('single');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'single');
+  assert.equal(restarted.getState().myLanguage, 'en');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+  const swappedSingle = await restarted.swapLanguages('single');
+  assert.equal(swappedSingle, true);
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'en');
+
+  // Can swap languages from conversation screen on the same conversation
+  const swappedFromConvo = await restarted.swapLanguages('conversation');
+  assert.equal(swappedFromConvo, true);
+  assert.equal(restarted.getState().myLanguage, 'en');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+
+  // Can continue a single-origin conversation by sending typed text in Chat
+  release = null;
+  const sendingText = restarted.send('Continuing single session in chat');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  release();
+  assert.equal(await sendingText, true);
+
+  // Transition to conversation mode
+  await restarted.newModeConversation('conversation');
+  assert.equal(restarted.getState().conversation?.origin_mode, 'conversation');
+  const swappedConvo = await restarted.swapLanguages('conversation');
+  assert.equal(swappedConvo, true);
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'en');
+
+  // When languages are identical, swapLanguages returns early without changing
+  await restarted.setLanguages('es', 'es', 'conversation');
+  assert.equal(await restarted.swapLanguages('conversation'), true);
+  assert.equal(restarted.getState().myLanguage, 'es');
+  assert.equal(restarted.getState().theirLanguage, 'es');
+
+  // Live message source audio persistence and deferred attachment
+  let audioId = 0;
+  const storedFiles = new Map();
+  const audio = audioModule.createAudioStorage(connection, {
+    async save(name, input) {
+      const bytes = input.bytes ?? new Uint8Array([1, 2, 3]);
+      storedFiles.set(name, bytes);
+      return bytes.length;
+    },
+    async stat(name) {
+      return storedFiles.has(name) ? { uri: `file://${name}`, size: storedFiles.get(name).length } : null;
+    },
+    async list() { return [...storedFiles.keys()]; },
+    async remove(name) { storedFiles.delete(name); },
+  }, () => `audio_${++audioId}`);
+
+  const liveController = controllerModule.createTextChatController(
+    history,
+    processingModule.createSavedMessageFlow(history, audio),
+    translate,
+    () => `id_${++id}`,
+    'mobile-text-chat',
+    undefined,
+    undefined,
+    audio,
+  );
+  await liveController.initialize();
+
+  // 1. Direct save with recording attached
+  await liveController.saveLiveMessage({
+    id: 'live_turn_1',
+    requestId: 'req_live_1',
+    conversationId: 'mobile-text-chat',
+    speaker: 'me',
+    originMode: 'single',
+    sourceLanguage: 'en',
+    targetLanguage: 'es',
+    originalText: 'Hello world',
+    translatedText: 'Hola mundo',
+  }, { uri: 'file://recording1.m4a', durationMs: 1200 });
+
+  const resolved1 = await audio.resolve({ kind: 'message', id: 'live_turn_1', role: 'source' });
+  assert.equal(resolved1?.availability, 'available');
+  assert.equal(resolved1?.uri, 'file://audio_1.m4a');
+
+  // 2. Save without recording (transcription finished before stopCapture), then attachSourceAudio
+  await liveController.saveLiveMessage({
+    id: 'live_turn_2',
+    requestId: 'req_live_2',
+    conversationId: 'mobile-text-chat',
+    speaker: 'them',
+    originMode: 'conversation',
+    sourceLanguage: 'es',
+    targetLanguage: 'en',
+    originalText: 'Buenas tardes',
+    translatedText: 'Good afternoon',
+  });
+
+  assert.equal(await audio.resolve({ kind: 'message', id: 'live_turn_2', role: 'source' }), null);
+
+  await liveController.attachSourceAudio('live_turn_2', { uri: 'file://recording2.m4a', durationMs: 1800 });
+  const resolved2 = await audio.resolve({ kind: 'message', id: 'live_turn_2', role: 'source' });
+  assert.equal(resolved2?.availability, 'available');
+  assert.equal(resolved2?.uri, 'file://audio_2.m4a');
+
+  console.log('Mobile chat controller passed: SQLite-before-dispatch, pending state, repeat send/retry locks, same-row retry, restart recovery, storage failure, swapLanguages modes and identity boundary.');
+} finally { db.close(); }

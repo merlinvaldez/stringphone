@@ -3,6 +3,7 @@ import {
   archiveLanguageCollectionEntry,
   getLanguageCollectionDetail,
   listLanguageCollections,
+  updateLanguageCollectionEntry,
   upsertLanguageCollectionEntry,
 } from "../db/queries/languageCollections.js";
 import { getSupportedTtsLanguage } from "../lib/languages.js";
@@ -177,4 +178,74 @@ export async function archiveLanguageCollectionEntryForUser(params: {
     entryId,
     userId: params.userId,
   });
+}
+
+export type CollectionUpdateInput = {
+  entryId: string;
+  targetLanguageCode: string;
+  sourceLanguageCode: string;
+  phraseText: string;
+  phrasePronunciation: string;
+  meaningText: string;
+  meaningPronunciation: string;
+  noteText: string;
+};
+
+export function parseCollectionUpdateInput(body: unknown): CollectionUpdateInput {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new CollectionRequestError("A valid request body is required", 400);
+  }
+
+  const candidate = body as Record<string, unknown>;
+
+  const entryId = coerceOptionalUuid(candidate.entryId ?? candidate.id);
+  if (!entryId) {
+    throw new CollectionRequestError("A collection entry id is required", 400);
+  }
+
+  const phraseText = coerceRequiredText(
+    candidate.phraseText,
+    "A phrase is required",
+  );
+  const meaningText = coerceRequiredText(
+    candidate.meaningText,
+    "A meaning is required",
+  );
+  const targetLanguageCode = normalizeSupportedLanguageCode(
+    candidate.targetLanguageCode ?? candidate.languageCode,
+    "A supported target language is required",
+  );
+  const sourceLanguageCode = normalizeSupportedLanguageCode(
+    candidate.sourceLanguageCode,
+    "A supported source language is required",
+  );
+
+  return {
+    entryId,
+    targetLanguageCode,
+    sourceLanguageCode,
+    phraseText,
+    phrasePronunciation: coerceOptionalText(candidate.phrasePronunciation, 300),
+    meaningText,
+    meaningPronunciation: coerceOptionalText(candidate.meaningPronunciation, 300),
+    noteText: coerceOptionalText(candidate.noteText, 500),
+  };
+}
+
+export async function updateLanguageCollectionEntryForUser(params: {
+  userId: number;
+  body: unknown;
+}) {
+  const parsedInput = parseCollectionUpdateInput(params.body);
+
+  const result = await updateLanguageCollectionEntry({
+    userId: params.userId,
+    ...parsedInput,
+  });
+
+  if (!result) {
+    throw new CollectionRequestError("Collection entry not found", 404);
+  }
+
+  return result;
 }

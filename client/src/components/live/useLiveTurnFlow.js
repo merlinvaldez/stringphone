@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { useLiveConversationCapture } from "./useLiveConversationCapture.js";
+import {
+  prefetchBothTranscriptionSecrets,
+  SECRET_REFRESH_INTERVAL_MS,
+  useLiveConversationCapture,
+} from "./useLiveConversationCapture.js";
 
 function mapCaptureStatus(status) {
+  if (status === "starting") {
+    return "starting";
+  }
+
   if (
-    status === "starting" ||
     status === "listening" ||
     status === "processing"
   ) {
@@ -27,16 +34,64 @@ export function useLiveTurnFlow({
   onLiveTranscriptDelta,
   onLiveTranscript,
   onLiveCaptureClosed,
+  onBeforeCapture,
 }) {
   const runRef = useRef(null);
   const [currentRun, setCurrentRun] = useState(null);
   const [activeMessageId, setActiveMessageId] = useState(null);
   const [localError, setLocalError] = useState("");
   const onLiveCaptureClosedRef = useRef(onLiveCaptureClosed);
+  const onBeforeCaptureRef = useRef(onBeforeCapture);
 
   useEffect(() => {
     onLiveCaptureClosedRef.current = onLiveCaptureClosed;
   }, [onLiveCaptureClosed]);
+
+  useEffect(() => {
+    onBeforeCaptureRef.current = onBeforeCapture;
+  }, [onBeforeCapture]);
+
+  // Warm up OpenAI Realtime transcription client secrets and HTTPS socket in both directions as soon as the screen
+  // is mounted/visible, and refresh them periodically so tapping the mic never waits for an expired token roundtrip.
+  useEffect(() => {
+    const isVisible = () =>
+      typeof document === "undefined" || document.visibilityState === "visible";
+
+    if (!isVisible() || !myLang || !theirLang) {
+      return;
+    }
+
+    prefetchBothTranscriptionSecrets({ myLang, theirLang, authFetch });
+
+    const handleVisibilityChange = () => {
+      if (isVisible()) {
+        prefetchBothTranscriptionSecrets({ myLang, theirLang, authFetch });
+      }
+    };
+
+    const refreshTimer = setInterval(() => {
+      if (isVisible()) {
+        prefetchBothTranscriptionSecrets({ myLang, theirLang, authFetch });
+      }
+    }, SECRET_REFRESH_INTERVAL_MS);
+
+    if (
+      typeof document !== "undefined" &&
+      typeof document.addEventListener === "function"
+    ) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(refreshTimer);
+      if (
+        typeof document !== "undefined" &&
+        typeof document.removeEventListener === "function"
+      ) {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
+  }, [myLang, theirLang, authFetch]);
 
   const { startListening, stopListening } = useLiveConversationCapture({
     myLang,
@@ -110,6 +165,8 @@ export function useLiveTurnFlow({
     ) {
       return;
     }
+
+    onBeforeCaptureRef.current?.();
 
     const nextRun = { ...run };
     runRef.current = nextRun;

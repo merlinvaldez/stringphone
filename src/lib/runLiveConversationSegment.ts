@@ -183,7 +183,7 @@ export async function runLiveConversationSegment(input: {
       originalPronunciation = guidance.originalPronunciation;
       translatedPronunciation = guidance.translatedPronunciation;
     } catch (error) {
-      console.error("Live segment pronunciation guidance failed", error);
+      console.error("Live segment pronunciation guidance failed");
     }
   }
 
@@ -212,7 +212,7 @@ export async function runLiveConversationSegment(input: {
         targetLanguageCode: theirLanguage.code,
       });
     } catch (error) {
-      console.error("Failed to persist live conversation segment", error);
+      console.error("Failed to persist live conversation segment");
     }
   }
 

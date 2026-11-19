@@ -67,7 +67,7 @@ export default {
         },
       });
     } catch (error) {
-      console.error("Voice chat translation failed", error);
+      console.error("Voice chat translation failed");
       return jsonResponse({ error: "Voice chat translation failed" }, 502);
     }
   },
