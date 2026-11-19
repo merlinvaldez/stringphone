@@ -43,9 +43,11 @@ const store = createLocalStore({
   assert.equal(initialPrefs.myLanguageCode, 'en');
   assert.equal(initialPrefs.theirLanguageCode, 'es');
   assert.equal(initialPrefs.ttsVoice, 'marin');
+  assert.equal(initialPrefs.ttsVoiceMode, 'voice_clone');
 
   await store.setLanguagePair('es', 'fr');
   await store.setTtsVoice('onyx');
+  await store.setTtsVoiceMode('ai_tts');
   await store.setActiveConversationId('conv-pref-1');
 
   const updatedPrefs = store.getPreferences();
@@ -53,8 +55,10 @@ const store = createLocalStore({
   assert.equal(updatedPrefs.myLanguageCode, 'es');
   assert.equal(updatedPrefs.theirLanguageCode, 'fr');
   assert.equal(updatedPrefs.ttsVoice, 'onyx');
+  assert.equal(updatedPrefs.ttsVoiceMode, 'ai_tts');
 
   // Reset for subsequent tests
+  await store.setTtsVoiceMode('voice_clone');
   await store.setLanguagePair('en', 'es');
   await store.setActiveConversationId(null);
   console.log('✓ 1. Preference roundtrip passed');

@@ -42,7 +42,10 @@ import {
   updateRoomMessage,
 } from "./lib/realtimeRooms.js";
 import { runOutputTextToSpeech } from "./lib/runOutputTextToSpeech.js";
-import { runChatVoiceCloning } from "./lib/runChatVoiceCloning.js";
+import {
+  clearCachedServerChatVoiceClonesForConversation,
+  runChatVoiceCloning,
+} from "./lib/runChatVoiceCloning.js";
 import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscriptionClientSecret.js";
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
@@ -1191,6 +1194,7 @@ app.post("/speech/output", async (req, res) => {
       language: req.body?.language,
       speechVoice: req.body?.speechVoice,
       clonedVoiceId: req.body?.clonedVoiceId,
+      clonedVoiceReferenceAudio: req.body?.clonedVoiceReferenceAudio,
       conversationId: req.body?.conversationId,
       sourceLanguage: req.body?.sourceLanguage,
       pronunciationText: req.body?.pronunciationText,
@@ -1242,6 +1246,7 @@ app.post(
         conversationId: req.body?.conversationId,
         language: req.body?.language,
         samples,
+        forceRefresh: req.body?.forceRefresh,
       });
 
       if (!result.ok) {
@@ -1257,6 +1262,36 @@ app.post(
     }
   },
 );
+
+app.delete("/speech/clone", async (req, res) => {
+  try {
+    const rawConversationId =
+      typeof req.body?.conversationId === "string" &&
+      req.body.conversationId.trim()
+        ? req.body.conversationId.trim()
+        : typeof req.query?.conversationId === "string" &&
+            req.query.conversationId.trim()
+          ? req.query.conversationId.trim()
+          : "";
+
+    if (!rawConversationId) {
+      return res.status(400).json({ error: "conversationId is required" });
+    }
+
+    const clearedCount =
+      clearCachedServerChatVoiceClonesForConversation(rawConversationId);
+    return res.status(200).json({
+      ok: true,
+      conversationId: rawConversationId,
+      clearedCount,
+    });
+  } catch {
+    console.error("Chat voice clone clearing failed");
+    return res
+      .status(502)
+      .json({ error: "Chat voice clone clearing failed" });
+  }
+});
 
 app.listen(port, () => {
   console.log(`StringPhone backend is listening on Port: ${port}`);

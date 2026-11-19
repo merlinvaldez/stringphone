@@ -1,4 +1,5 @@
 import {
+  clearCachedServerChatVoiceClonesForConversation,
   runChatVoiceCloning,
   type RawVoiceCloneSample,
 } from "../../src/lib/runChatVoiceCloning.js";
@@ -22,10 +23,43 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          "Access-Control-Allow-Methods": "POST,OPTIONS",
+          "Access-Control-Allow-Methods": "POST,DELETE,OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type,Authorization",
         },
       });
+    }
+
+    if (request.method === "DELETE") {
+      try {
+        const body = await request.json().catch(() => null);
+        const queryConversationId = new URL(request.url).searchParams.get(
+          "conversationId",
+        );
+        const rawConversationId =
+          typeof body?.conversationId === "string" && body.conversationId.trim()
+            ? body.conversationId.trim()
+            : typeof queryConversationId === "string" && queryConversationId.trim()
+              ? queryConversationId.trim()
+              : "";
+
+        if (!rawConversationId) {
+          return jsonResponse({ error: "conversationId is required" }, 400);
+        }
+
+        const clearedCount =
+          clearCachedServerChatVoiceClonesForConversation(rawConversationId);
+        return jsonResponse(
+          {
+            ok: true,
+            conversationId: rawConversationId,
+            clearedCount,
+          },
+          200,
+        );
+      } catch {
+        console.error("Chat voice clone clearing failed");
+        return jsonResponse({ error: "Chat voice clone clearing failed" }, 502);
+      }
     }
 
     if (request.method !== "POST") {
@@ -37,11 +71,13 @@ export default {
       let conversationId: unknown;
       let language: unknown;
       let samples: unknown;
+      let forceRefresh: unknown;
 
       if (contentType.includes("multipart/form-data")) {
         const formData = await request.formData();
         conversationId = formData.get("conversationId");
         language = formData.get("language");
+        forceRefresh = formData.get("forceRefresh");
 
         const uploadedEntries = formData.getAll("samples");
         const uploadedTranscripts = formData.getAll("transcripts");
@@ -66,12 +102,14 @@ export default {
         conversationId = body?.conversationId;
         language = body?.language;
         samples = body?.samples;
+        forceRefresh = body?.forceRefresh;
       }
 
       const result = await runChatVoiceCloning({
         conversationId,
         language,
         samples,
+        forceRefresh,
       });
 
       if (result.ok === false) {

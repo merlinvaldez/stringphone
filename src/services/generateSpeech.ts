@@ -1,8 +1,8 @@
 import type { SupportedTtsLanguage } from "../lib/languages.js";
 import {
-  generateFishClonedSpeech,
-  type GenerateFishClonedSpeechInput,
-} from "./fishVoiceCloning.js";
+  generateMistralClonedSpeech,
+  type GenerateMistralClonedSpeechInput,
+} from "./mistralVoiceCloning.js";
 import {
   generateOpenAiSpeech,
   type OpenAiSpeechVoice,
@@ -13,13 +13,14 @@ export type GenerateSpeechInput = {
   targetLanguage: SupportedTtsLanguage;
   speechVoice?: OpenAiSpeechVoice;
   clonedVoiceId?: string | null;
+  clonedVoiceReferenceAudio?: string | null;
   pronunciationText?: string | null;
 };
 
 export type GenerateSpeechDeps = {
   generateOpenAiSpeechImpl?: typeof generateOpenAiSpeech;
-  generateFishClonedSpeechImpl?: (
-    input: GenerateFishClonedSpeechInput,
+  generateClonedSpeechImpl?: (
+    input: GenerateMistralClonedSpeechInput,
   ) => Promise<Buffer>;
 };
 
@@ -28,22 +29,26 @@ export async function generateSpeech(
   deps: GenerateSpeechDeps = {},
 ) {
   const openAiSpeech = deps.generateOpenAiSpeechImpl ?? generateOpenAiSpeech;
-  const fishClonedSpeech =
-    deps.generateFishClonedSpeechImpl ?? generateFishClonedSpeech;
+  const clonedSpeech =
+    deps.generateClonedSpeechImpl ?? generateMistralClonedSpeech;
   const clonedVoiceId =
     typeof input.clonedVoiceId === "string" ? input.clonedVoiceId.trim() : "";
+  const referenceAudioBase64 =
+    typeof input.clonedVoiceReferenceAudio === "string"
+      ? input.clonedVoiceReferenceAudio.trim()
+      : "";
 
-  if (clonedVoiceId) {
+  if (clonedVoiceId || referenceAudioBase64) {
     try {
-      return await fishClonedSpeech({
+      return await clonedSpeech({
         text: input.text,
         targetLanguage: input.targetLanguage,
-        clonedVoiceId,
-        pronunciationText: input.pronunciationText,
+        clonedVoiceId: clonedVoiceId || undefined,
+        referenceAudioBase64: referenceAudioBase64 || undefined,
       });
     } catch {
       console.warn(
-        "Fish Audio cloned speech generation failed; falling back to default OpenAI speech",
+        "Cloned speech generation failed; falling back to default OpenAI speech",
       );
     }
   }

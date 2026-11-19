@@ -334,13 +334,16 @@ export async function fetchOutputSpeech({
   language,
   speechVoice = null,
   clonedVoiceId = null,
+  clonedVoiceReferenceAudio = null,
   pronunciationText = "",
   authFetch,
   signal,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
-  const trimmedPronunciation =
-    typeof pronunciationText === "string" ? pronunciationText.trim() : "";
+  const trimmedReferenceAudio =
+    typeof clonedVoiceReferenceAudio === "string"
+      ? clonedVoiceReferenceAudio.trim()
+      : "";
   const response = await request(`${API_BASE_URL}/speech/output`, {
     method: "POST",
     headers: {
@@ -352,7 +355,9 @@ export async function fetchOutputSpeech({
       language,
       ...(speechVoice ? { speechVoice } : {}),
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
-      ...(trimmedPronunciation ? { pronunciationText: trimmedPronunciation } : {}),
+      ...(trimmedReferenceAudio
+        ? { clonedVoiceReferenceAudio: trimmedReferenceAudio }
+        : {}),
     }),
   });
 
@@ -463,6 +468,7 @@ export async function requestChatVoiceClone({
   conversationId = null,
   language,
   samples = [],
+  forceRefresh = false,
   authFetch,
   signal,
 }) {
@@ -470,6 +476,9 @@ export async function requestChatVoiceClone({
   formData.append("language", typeof language === "string" ? language : language?.code || "");
   if (conversationId) {
     formData.append("conversationId", String(conversationId));
+  }
+  if (forceRefresh) {
+    formData.append("forceRefresh", "true");
   }
 
   for (let i = 0; i < samples.length; i += 1) {
@@ -496,6 +505,38 @@ export async function requestChatVoiceClone({
   if (!response.ok) {
     throw new Error(
       await parseApiError(response, "Voice cloning failed."),
+    );
+  }
+
+  return response.json();
+}
+
+export async function clearServerChatVoiceClones({
+  conversationId,
+  authFetch,
+  signal,
+}) {
+  const trimmedId =
+    typeof conversationId === "string" ? conversationId.trim() : "";
+  if (!trimmedId) {
+    return { ok: true, clearedCount: 0 };
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/speech/clone`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    signal,
+    body: JSON.stringify({
+      conversationId: trimmedId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await parseApiError(response, "Failed to clear cloned voices."),
     );
   }
 

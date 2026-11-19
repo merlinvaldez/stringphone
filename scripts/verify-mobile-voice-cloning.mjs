@@ -223,11 +223,13 @@ try {
 
   const savedEn = await history.setConversationVoiceClone("conv_a", {
     languageCode: "en",
-    voiceId: "fish_mobile_en_a",
+    voiceId: "voxtral_ref_mobile_en_a",
     totalDurationMs: 11_000,
     mode: "merged",
+    referenceAudioBase64: "MOBILE_REF_B64",
   });
-  assert.equal(savedEn.voiceId, "fish_mobile_en_a");
+  assert.equal(savedEn.voiceId, "voxtral_ref_mobile_en_a");
+  assert.equal(savedEn.referenceAudioBase64, "MOBILE_REF_B64");
 
   // Cached default-voice translated TTS for 'en' message in conv_a is evicted, while raw source voice recording stays intact!
   assert.equal(
@@ -239,8 +241,10 @@ try {
     "available",
   );
 
-  // Per-language & per-chat isolation
-  assert.equal((await history.getConversationVoiceClone("conv_a", "en"))?.voiceId, "fish_mobile_en_a");
+  // Per-language & per-chat isolation (including referenceAudioBase64 round-trip)
+  const storedMobileEn = await history.getConversationVoiceClone("conv_a", "en");
+  assert.equal(storedMobileEn?.voiceId, "voxtral_ref_mobile_en_a");
+  assert.equal(storedMobileEn?.referenceAudioBase64, "MOBILE_REF_B64");
   assert.equal(await history.getConversationVoiceClone("conv_a", "es"), null);
   assert.equal(await history.getConversationVoiceClone("conv_b", "en"), null);
 
@@ -293,7 +297,8 @@ try {
           ok: true,
           cloned: true,
           language: "en",
-          clonedVoiceId: "fish_mobile_en_a",
+          clonedVoiceId: "voxtral_ref_mobile_en_a",
+          referenceAudioBase64: "MOBILE_REF_B64",
           mode: "merged",
           totalDurationMs: 11_000,
           usedSampleCount: 2,
@@ -325,29 +330,32 @@ try {
     ],
   });
   assert.equal(cloneResp.cloned, true);
-  assert.equal(cloneResp.clonedVoiceId, "fish_mobile_en_a");
+  assert.equal(cloneResp.clonedVoiceId, "voxtral_ref_mobile_en_a");
+  assert.equal(cloneResp.referenceAudioBase64, "MOBILE_REF_B64");
   assert.equal(httpCalls[0].url, "https://api.stringphone.test/speech/clone");
   const cloneBody = JSON.parse(httpCalls[0].options.body);
   assert.equal(cloneBody.language, "en");
   assert.equal(cloneBody.samples.length, 2);
   assert.equal(cloneBody.conversationId, undefined, "Mobile must never send local conversationId");
 
-  // Output speech WITH clonedVoiceId forwards clonedVoiceId
+  // Output speech WITH clonedVoiceId & clonedVoiceReferenceAudio forwards both
   await speechApi.requestOutputSpeech({
     text: "Hola abuela",
     language: "es",
     speechVoice: "marin",
-    clonedVoiceId: "fish_mobile_en_a",
+    clonedVoiceId: "voxtral_ref_mobile_en_a",
+    clonedVoiceReferenceAudio: "MOBILE_REF_B64",
   });
   assert.equal(httpCalls[1].url, "https://api.stringphone.test/speech/output");
   assert.deepEqual(JSON.parse(httpCalls[1].options.body), {
     text: "Hola abuela",
     language: "es",
     speechVoice: "marin",
-    clonedVoiceId: "fish_mobile_en_a",
+    clonedVoiceId: "voxtral_ref_mobile_en_a",
+    clonedVoiceReferenceAudio: "MOBILE_REF_B64",
   });
 
-  // Output speech WITHOUT clonedVoiceId omits clonedVoiceId
+  // Output speech WITHOUT clonedVoiceId omits clonedVoiceId & clonedVoiceReferenceAudio
   await speechApi.requestOutputSpeech({
     text: "Hola abuela",
     language: "es",
@@ -359,7 +367,74 @@ try {
     speechVoice: "onyx",
   });
 
-  // 6. Deleting conv_a removes its voice clones from preferences
+  // 6. Speech voice mode preference & clearing cloned voices in a conversation
+  assert.equal((await history.getChatPreferences()).ttsVoiceMode, undefined);
+  await history.setTtsVoiceModePreference("ai_tts");
+  assert.equal((await history.getChatPreferences()).ttsVoiceMode, "ai_tts");
+  await history.setTtsVoiceModePreference("voice_clone");
+  assert.equal((await history.getChatPreferences()).ttsVoiceMode, "voice_clone");
+
+  // Re-cache a generated translated TTS clip on live_cap123_item1 before clearing
+  await audio.save(
+    { kind: "message", id: "live_cap123_item1", role: "translated" },
+    { bytes: createMockWavBytes(1200) },
+    { format: "wav", mimeType: "audio/wav", durationMs: 500 },
+  );
+  assert.ok(await audio.resolve({ kind: "message", id: "live_cap123_item1", role: "translated" }));
+
+  const clearedMobile = await history.clearConversationVoiceClones("conv_a");
+  assert.equal(clearedMobile.clearedCount, 1);
+  assert.ok(clearedMobile.resetAt > 0);
+  assert.equal(await history.getConversationVoiceClone("conv_a", "en"), null);
+  assert.deepEqual(await history.getConversationVoiceClones("conv_a"), {});
+  // Evicts generated translated TTS while keeping raw source recording intact
+  assert.equal(
+    await audio.resolve({ kind: "message", id: "live_cap123_item1", role: "translated" }),
+    null,
+  );
+  assert.equal(
+    (await audio.resolve({ kind: "message", id: "live_cap123_item1", role: "source" }))?.availability,
+    "available",
+  );
+
+  // Pre-reset recordings in conv_a must NOT trigger re-cloning after clearing
+  const postClearOld = await history.collectEligibleVoiceCloneSamples("conv_a", "en");
+  assert.equal(postClearOld.eligible, false);
+  assert.equal(postClearOld.totalDurationMs, 0);
+  assert.equal(postClearOld.samples.length, 0);
+
+  // New 10.5s recording saved AFTER clearing becomes eligible on its own
+  await history.saveReadyLiveMessage({
+    id: "live_cap999_item1",
+    requestId: "live_req_cap999_item1",
+    conversationId: "conv_a",
+    speaker: "me",
+    originMode: "conversation",
+    sourceLanguage: "en",
+    targetLanguage: "es",
+    originalText: "Recording fresh ten second sample after clearing",
+    translatedText: "Grabando nueva muestra de diez segundos",
+  });
+  await audio.save(
+    { kind: "message", id: "live_cap999_item1", role: "source" },
+    { bytes: new Uint8Array([11, 22, 33, 44]) },
+    { format: "m4a", mimeType: "audio/mp4", durationMs: 10_500 },
+  );
+  const postClearFresh = await history.collectEligibleVoiceCloneSamples("conv_a", "en");
+  assert.equal(postClearFresh.eligible, true);
+  assert.equal(postClearFresh.samples.length, 1);
+  assert.equal(postClearFresh.samples[0].messageId, "live_cap999_item1");
+
+  // Re-save a clone so deletion check exercises removing both clones and reset cutoff
+  await history.setConversationVoiceClone("conv_a", {
+    languageCode: "en",
+    voiceId: "voxtral_ref_mobile_en_a_v2",
+    totalDurationMs: 10_500,
+    mode: "single",
+    referenceAudioBase64: "MOBILE_REF_B64_V2",
+  });
+
+  // 7. Deleting conv_a removes its voice clones and reset cutoff from preferences
   const delReport = await deletion.delete({ kind: "conversation", id: "conv_a" });
   assert.equal(delReport.status, "deleted");
   assert.equal(await history.getConversationVoiceClone("conv_a", "en"), null);
@@ -367,9 +442,13 @@ try {
     db.prepare("SELECT value_json FROM preferences WHERE key='chat.voiceClones.conv_a'").get(),
     undefined,
   );
+  assert.equal(
+    db.prepare("SELECT value_json FROM preferences WHERE key='chat.voiceCloneResetAt.conv_a'").get(),
+    undefined,
+  );
 } finally {
   db.close();
   rmSync(directory, { recursive: true, force: true });
 }
 
-console.log("PASS Task 4: Android APK per-chat, per-language 10s single/merged voice cloning, deduplication, cache eviction, and transport checks");
+console.log("PASS Task 4: Android APK per-chat, per-language 10s single/merged voice cloning, voice mode toggle/clear, deduplication, cache eviction, and transport checks");

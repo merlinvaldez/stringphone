@@ -3,7 +3,7 @@ import { createNativeAudioFiles } from '../adapters/files';
 import { translateTextMessage, translateVoiceMessage, requestOutputSpeech, requestVoiceClone } from '../adapters/api';
 import { createVoiceMessageProcessor } from '../storage/voiceProcessing';
 import { createAudioStorage } from '../storage/audio';
-import { createHistoryRepository, MIN_VOICE_CLONE_DURATION_MS } from '../storage/history';
+import { createHistoryRepository, MIN_VOICE_CLONE_DURATION_MS, type TtsVoiceMode } from '../storage/history';
 import { createSavedMessageFlow } from '../storage/processing';
 import { createTextChatController } from './controller';
 import { createDeletionService } from '../storage/deletion';
@@ -21,8 +21,26 @@ let phrasebookSession: ReturnType<typeof createPhrasebookRepository> | undefined
 let deletionSession: ReturnType<typeof createDeletionService> | undefined;
 let currentTtsVoice: 'marin' | 'onyx' = 'marin';
 const ttsVoiceListeners = new Set<(voice: 'marin' | 'onyx') => void>();
-const inFlightCloneRequests = new Map<string, Promise<string | null>>();
+let currentTtsVoiceMode: TtsVoiceMode = 'voice_clone';
+const ttsVoiceModeListeners = new Set<(mode: TtsVoiceMode) => void>();
+let activeController: ReturnType<typeof createTextChatController> | undefined;
+type ResolvedVoiceClone = {
+  voiceId: string;
+  referenceAudioBase64?: string;
+};
+
+const inFlightCloneRequests = new Map<string, Promise<ResolvedVoiceClone | null>>();
 const inFlightSpeechRequests = new Map<string, Promise<Awaited<ReturnType<ReturnType<typeof createAudioStorage>['resolve']>>>>();
+
+function toResolvedVoiceClone(
+  clone: { voiceId?: string | null; referenceAudioBase64?: string | null } | null | undefined,
+): ResolvedVoiceClone | null {
+  if (!clone?.voiceId) return null;
+  return {
+    voiceId: clone.voiceId,
+    ...(clone.referenceAudioBase64 ? { referenceAudioBase64: clone.referenceAudioBase64 } : {}),
+  };
+}
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   const chunkSize = 0x8000;
@@ -37,16 +55,26 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 export async function ensureConversationVoiceClone(
   conversationId: string,
   languageCode: string,
-): Promise<string | null> {
+): Promise<ResolvedVoiceClone | null> {
+  if (currentTtsVoiceMode !== 'voice_clone') {
+    return null;
+  }
   await getNativeTextChat();
+  if (currentTtsVoiceMode !== 'voice_clone') {
+    return null;
+  }
   const normalizedLang = (languageCode || '').trim().toLowerCase();
   if (!conversationId || !normalizedLang || !historySession || !audioSession) {
     return null;
   }
 
   const existing = await historySession.getConversationVoiceClone(conversationId, normalizedLang);
-  if (existing?.voiceId) {
-    return existing.voiceId;
+  if (
+    existing?.voiceId &&
+    existing.voiceId.startsWith('voxtral_ref_') &&
+    existing.referenceAudioBase64
+  ) {
+    return toResolvedVoiceClone(existing);
   }
 
   const eligible = await historySession.collectEligibleVoiceCloneSamples(
@@ -55,7 +83,7 @@ export async function ensureConversationVoiceClone(
     MIN_VOICE_CLONE_DURATION_MS,
   );
   if (!eligible.eligible || eligible.samples.length === 0) {
-    return null;
+    return toResolvedVoiceClone(existing);
   }
 
   const inFlightKey = `${conversationId}::${normalizedLang}`;
@@ -64,7 +92,7 @@ export async function ensureConversationVoiceClone(
     return inFlight;
   }
 
-  const task = (async () => {
+  const task = (async (): Promise<ResolvedVoiceClone | null> => {
     try {
       const samplePayloads: Array<{
         base64: string;
@@ -91,7 +119,7 @@ export async function ensureConversationVoiceClone(
       }
 
       if (samplePayloads.length === 0) {
-        return null;
+        return toResolvedVoiceClone(existing);
       }
 
       const result = await requestVoiceClone({
@@ -105,13 +133,17 @@ export async function ensureConversationVoiceClone(
           voiceId: result.clonedVoiceId,
           totalDurationMs: result.totalDurationMs || eligible.totalDurationMs,
           mode: result.mode === 'single' ? 'single' : 'merged',
+          ...(result.referenceAudioBase64 ? { referenceAudioBase64: result.referenceAudioBase64 } : {}),
         });
-        return result.clonedVoiceId;
+        return {
+          voiceId: result.clonedVoiceId,
+          ...(result.referenceAudioBase64 ? { referenceAudioBase64: result.referenceAudioBase64 } : {}),
+        };
       }
 
-      return null;
+      return toResolvedVoiceClone(existing);
     } catch {
-      return null;
+      return toResolvedVoiceClone(existing);
     } finally {
       inFlightCloneRequests.delete(inFlightKey);
     }
@@ -136,8 +168,70 @@ export function subscribeTtsVoice(listener: (voice: 'marin' | 'onyx') => void) {
 export async function setNativeTtsVoice(voice: 'marin' | 'onyx') {
   currentTtsVoice = voice;
   ttsVoiceListeners.forEach(listener => listener(voice));
+  inFlightSpeechRequests.clear();
   await getNativeTextChat();
   await historySession?.setTtsVoicePreference(voice);
+  await historySession?.clearGeneratedSpeechCache();
+}
+
+export function getActiveTtsVoiceMode(): TtsVoiceMode {
+  return currentTtsVoiceMode;
+}
+
+export function subscribeTtsVoiceMode(listener: (mode: TtsVoiceMode) => void) {
+  ttsVoiceModeListeners.add(listener);
+  listener(currentTtsVoiceMode);
+  return () => {
+    ttsVoiceModeListeners.delete(listener);
+  };
+}
+
+export async function setNativeTtsVoiceMode(mode: TtsVoiceMode) {
+  const normalized: TtsVoiceMode = mode === 'ai_tts' ? 'ai_tts' : 'voice_clone';
+  currentTtsVoiceMode = normalized;
+  ttsVoiceModeListeners.forEach(listener => listener(normalized));
+  inFlightSpeechRequests.clear();
+  await getNativeTextChat();
+  await historySession?.setTtsVoiceModePreference(normalized);
+  await historySession?.clearGeneratedSpeechCache();
+}
+
+export async function getActiveConversationVoiceCloneStatus(): Promise<{
+  conversationId: string | null;
+  count: number;
+}> {
+  await getNativeTextChat();
+  const conversationId = activeController?.getState().conversation?.id ?? null;
+  if (!conversationId || !historySession) {
+    return { conversationId: null, count: 0 };
+  }
+  const clones = await historySession.getConversationVoiceClones(conversationId);
+  return {
+    conversationId,
+    count: Object.keys(clones).length,
+  };
+}
+
+export async function clearActiveConversationVoiceClones(): Promise<{
+  conversationId: string | null;
+  clearedCount: number;
+}> {
+  await getNativeTextChat();
+  const conversationId = activeController?.getState().conversation?.id ?? null;
+  if (!conversationId || !historySession) {
+    return { conversationId: null, clearedCount: 0 };
+  }
+  for (const key of inFlightCloneRequests.keys()) {
+    if (key.startsWith(`${conversationId}::`)) {
+      inFlightCloneRequests.delete(key);
+    }
+  }
+  inFlightSpeechRequests.clear();
+  const result = await historySession.clearConversationVoiceClones(conversationId);
+  return {
+    conversationId,
+    clearedCount: result.clearedCount,
+  };
 }
 
 export async function resolveNativeSourceAudio(id: string) {
@@ -168,7 +262,9 @@ export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin
       return recorded;
     }
   }
-  const clonedVoiceId = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  const clonedVoice = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  const clonedVoiceId = clonedVoice?.voiceId;
+  const clonedVoiceReferenceAudio = clonedVoice?.referenceAudioBase64;
   const existing = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
@@ -185,7 +281,7 @@ export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin
       language: message.source_language,
       speechVoice: speechVoice ?? currentTtsVoice,
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
-      ...(message.original_pronunciation ? { pronunciationText: message.original_pronunciation } : {}),
+      ...(clonedVoiceReferenceAudio ? { clonedVoiceReferenceAudio } : {}),
     });
     await audioSession!.save(
       { kind: 'message', id: messageId, role: 'source' },
@@ -206,7 +302,9 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
   await getNativeTextChat();
   const message = await historySession!.getMessage(messageId);
   if (!message) throw new Error('Message not found.');
-  const clonedVoiceId = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  const clonedVoice = await ensureConversationVoiceClone(message.conversation_id, message.source_language);
+  const clonedVoiceId = clonedVoice?.voiceId;
+  const clonedVoiceReferenceAudio = clonedVoice?.referenceAudioBase64;
   const existing = await audioSession!.resolve({ kind: 'message', id: messageId, role: 'translated' });
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
@@ -224,7 +322,7 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
       language: targetLanguage,
       speechVoice: speechVoice ?? currentTtsVoice,
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
-      ...(message.translated_pronunciation ? { pronunciationText: message.translated_pronunciation } : {}),
+      ...(clonedVoiceReferenceAudio ? { clonedVoiceReferenceAudio } : {}),
     });
     await audioSession!.save(
       { kind: 'message', id: messageId, role: 'translated' },
@@ -275,10 +373,15 @@ export function getNativeTextChat() {
         currentTtsVoice = prefs.ttsVoice;
         ttsVoiceListeners.forEach(listener => listener(currentTtsVoice));
       }
+      if (prefs.ttsVoiceMode === 'ai_tts' || prefs.ttsVoiceMode === 'voice_clone') {
+        currentTtsVoiceMode = prefs.ttsVoiceMode;
+        ttsVoiceModeListeners.forEach(listener => listener(currentTtsVoiceMode));
+      }
       audioSession = audio;
       historySession = history;
       phrasebookSession = phrasebook;
       deletionSession = deletion;
+      activeController = controller;
       return controller;
     } catch (error) {
       await database.closeAsync().catch(() => undefined);

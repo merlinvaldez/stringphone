@@ -22,12 +22,14 @@ export type HistoryCursor = { updatedAt: number; id: string };
 export type MessageCursor = { createdAt: number; id: string };
 export const MIN_VOICE_CLONE_DURATION_MS = 10_000;
 export const MAX_VOICE_CLONE_DURATION_MS = 60_000;
+export type TtsVoiceMode = 'ai_tts' | 'voice_clone';
 export type ConversationVoiceClone = {
   voiceId: string;
   languageCode: string;
   totalDurationMs: number;
   mode: 'single' | 'merged';
   createdAt: number;
+  referenceAudioBase64?: string;
 };
 export type EligibleVoiceCloneSample = {
   messageId: string;
@@ -42,6 +44,43 @@ export type EligibleVoiceCloneSample = {
 type SearchRow = { kind: 'conversation' | 'message' | 'phrase'; record_id: string; text: string };
 function voiceClonePrefKey(conversationId: string) {
   return `chat.voiceClones.${conversationId}`;
+}
+function voiceCloneResetPrefKey(conversationId: string) {
+  return `chat.voiceCloneResetAt.${conversationId}`;
+}
+async function deleteGeneratedSpeechAudioRows(
+  transaction: SQLiteDatabase,
+  conversationId?: string,
+  languageCode?: string,
+) {
+  if (conversationId && languageCode) {
+    await transaction.runAsync(
+      "DELETE FROM message_audio WHERE role='translated' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=?)",
+      conversationId,
+      languageCode,
+    );
+    await transaction.runAsync(
+      "DELETE FROM message_audio WHERE role='source' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=? AND input_kind='text')",
+      conversationId,
+      languageCode,
+    );
+    return;
+  }
+  if (conversationId) {
+    await transaction.runAsync(
+      "DELETE FROM message_audio WHERE role='translated' AND message_id IN (SELECT id FROM messages WHERE conversation_id=?)",
+      conversationId,
+    );
+    await transaction.runAsync(
+      "DELETE FROM message_audio WHERE role='source' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND input_kind='text')",
+      conversationId,
+    );
+    return;
+  }
+  await transaction.runAsync("DELETE FROM message_audio WHERE role='translated'");
+  await transaction.runAsync(
+    "DELETE FROM message_audio WHERE role='source' AND message_id IN (SELECT id FROM messages WHERE input_kind='text')",
+  );
 }
 function boundedLimit(limit: number) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Limit must be between 1 and 200.');
@@ -174,12 +213,23 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
       const active = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.activeConversationId'");
       const pair = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.languagePair'");
       const voice = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.ttsVoice'");
+      const voiceMode = await database.getFirstAsync<{ value_json: string }>("SELECT value_json FROM preferences WHERE key='chat.ttsVoiceMode'");
       return { activeId: active ? JSON.parse(active.value_json) as unknown : undefined,
         pair: pair ? JSON.parse(pair.value_json) as unknown : undefined,
-        ttsVoice: voice ? JSON.parse(voice.value_json) as unknown : undefined };
+        ttsVoice: voice ? JSON.parse(voice.value_json) as unknown : undefined,
+        ttsVoiceMode: voiceMode ? JSON.parse(voiceMode.value_json) as unknown : undefined };
     },
     async setTtsVoicePreference(voice: 'marin' | 'onyx') {
       await database.runAsync("INSERT INTO preferences(key,value_json,updated_at) VALUES ('chat.ttsVoice',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at", JSON.stringify(voice), now());
+    },
+    async setTtsVoiceModePreference(mode: TtsVoiceMode) {
+      const normalized: TtsVoiceMode = mode === 'ai_tts' ? 'ai_tts' : 'voice_clone';
+      await database.runAsync("INSERT INTO preferences(key,value_json,updated_at) VALUES ('chat.ttsVoiceMode',?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at", JSON.stringify(normalized), now());
+    },
+    async clearGeneratedSpeechCache(conversationId?: string) {
+      await database.withExclusiveTransactionAsync(async transaction => {
+        await deleteGeneratedSpeechAudioRows(transaction, conversationId);
+      });
     },
     async selectChatConversation(id: string | null, myLanguage: string, theirLanguage: string, updateLanguages = false) {
       await database.withExclusiveTransactionAsync(async transaction => {
@@ -309,7 +359,13 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
     },
     async setConversationVoiceClone(
       conversationId: string,
-      input: { languageCode: string; voiceId: string; totalDurationMs: number; mode?: 'single' | 'merged' },
+      input: {
+        languageCode: string;
+        voiceId: string;
+        totalDurationMs: number;
+        mode?: 'single' | 'merged';
+        referenceAudioBase64?: string;
+      },
     ): Promise<ConversationVoiceClone> {
       required(conversationId);
       required(input.languageCode);
@@ -321,12 +377,17 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
       }
       const mode: 'single' | 'merged' = input.mode === 'single' ? 'single' : 'merged';
       const time = now();
+      const referenceAudioBase64 =
+        typeof input.referenceAudioBase64 === 'string' && input.referenceAudioBase64.trim()
+          ? input.referenceAudioBase64.trim()
+          : undefined;
       const record: ConversationVoiceClone = {
         voiceId: input.voiceId.trim(),
         languageCode: lang,
         totalDurationMs,
         mode,
         createdAt: time,
+        ...(referenceAudioBase64 ? { referenceAudioBase64 } : {}),
       };
       await database.withExclusiveTransactionAsync(async transaction => {
         if (!await transaction.getFirstAsync('SELECT id FROM conversations WHERE id=?', conversationId)) {
@@ -352,18 +413,37 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         );
         // Evict cached non-cloned TTS links for messages spoken in `lang` in this conversation
         // while preserving raw voice recordings (role='source' on input_kind='voice').
-        await transaction.runAsync(
-          "DELETE FROM message_audio WHERE role='translated' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=?)",
-          conversationId,
-          lang,
-        );
-        await transaction.runAsync(
-          "DELETE FROM message_audio WHERE role='source' AND message_id IN (SELECT id FROM messages WHERE conversation_id=? AND lower(source_language)=? AND input_kind='text')",
-          conversationId,
-          lang,
-        );
+        await deleteGeneratedSpeechAudioRows(transaction, conversationId, lang);
       });
       return record;
+    },
+    async clearConversationVoiceClones(conversationId: string): Promise<{ clearedCount: number; resetAt: number }> {
+      required(conversationId);
+      const time = now();
+      let clearedCount = 0;
+      await database.withExclusiveTransactionAsync(async transaction => {
+        const key = voiceClonePrefKey(conversationId);
+        const existingPref = await transaction.getFirstAsync<{ value_json: string }>('SELECT value_json FROM preferences WHERE key=?', key);
+        if (existingPref?.value_json) {
+          try {
+            const parsed = JSON.parse(existingPref.value_json);
+            if (parsed && typeof parsed === 'object') {
+              clearedCount = Object.keys(parsed as Record<string, unknown>).length;
+            }
+          } catch {
+            clearedCount = 0;
+          }
+        }
+        await transaction.runAsync('DELETE FROM preferences WHERE key=?', key);
+        await transaction.runAsync(
+          'INSERT INTO preferences(key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at',
+          voiceCloneResetPrefKey(conversationId),
+          JSON.stringify(time),
+          time,
+        );
+        await deleteGeneratedSpeechAudioRows(transaction, conversationId);
+      });
+      return { clearedCount, resetAt: time };
     },
     async collectEligibleVoiceCloneSamples(
       conversationId: string,
@@ -378,6 +458,19 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
       const lang = (languageCode || '').trim().toLowerCase();
       if (!conversationId.trim() || !lang) {
         return { eligible: false, mode: 'insufficient', totalDurationMs: 0, samples: [] };
+      }
+      const resetPref = await database.getFirstAsync<{ value_json: string }>(
+        'SELECT value_json FROM preferences WHERE key=?',
+        voiceCloneResetPrefKey(conversationId),
+      );
+      let resetAt = 0;
+      if (resetPref?.value_json) {
+        try {
+          const parsedReset = Number(JSON.parse(resetPref.value_json));
+          if (Number.isFinite(parsedReset) && parsedReset > 0) resetAt = parsedReset;
+        } catch {
+          resetAt = 0;
+        }
       }
       const rows = await database.getAllAsync<{
         message_id: string;
@@ -396,6 +489,7 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
          JOIN audio_assets a ON a.id = ma.audio_id
          WHERE m.conversation_id = ?
            AND lower(m.source_language) = ?
+           AND (? <= 0 OR m.created_at > ?)
            AND m.input_kind = 'voice'
            AND a.availability = 'available'
            AND a.duration_ms IS NOT NULL
@@ -403,6 +497,8 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
          ORDER BY m.created_at ASC, m.id ASC`,
         conversationId,
         lang,
+        resetAt,
+        resetAt,
       );
 
       const distinctSamples: EligibleVoiceCloneSample[] = [];

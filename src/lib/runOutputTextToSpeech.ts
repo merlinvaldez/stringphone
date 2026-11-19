@@ -4,6 +4,7 @@ import {
 } from "./languages.js";
 import { getCachedServerChatVoiceClone } from "./runChatVoiceCloning.js";
 import { generateSpeech } from "../services/generateSpeech.js";
+import { MAX_INLINE_REFERENCE_AUDIO_BASE64_LENGTH } from "../services/mistralVoiceCloning.js";
 import type { OpenAiSpeechVoice } from "../services/generateOpenAiSpeech.js";
 
 const MAX_OUTPUT_SPEECH_CHARACTERS = 500;
@@ -14,6 +15,7 @@ export type RunOutputTextToSpeechInput = {
   language: unknown;
   speechVoice?: unknown;
   clonedVoiceId?: unknown;
+  clonedVoiceReferenceAudio?: unknown;
   conversationId?: unknown;
   sourceLanguage?: unknown;
   pronunciationText?: unknown;
@@ -89,6 +91,27 @@ export async function runOutputTextToSpeech(
   }
 
   let resolvedClonedVoiceId: string | null = null;
+  let resolvedClonedVoiceReferenceAudio: string | null = null;
+
+  if (
+    input.clonedVoiceReferenceAudio !== undefined &&
+    input.clonedVoiceReferenceAudio !== null &&
+    input.clonedVoiceReferenceAudio !== ""
+  ) {
+    if (
+      typeof input.clonedVoiceReferenceAudio !== "string" ||
+      !input.clonedVoiceReferenceAudio.trim() ||
+      input.clonedVoiceReferenceAudio.trim().length >
+        MAX_INLINE_REFERENCE_AUDIO_BASE64_LENGTH
+    ) {
+      return {
+        ok: false,
+        status: 400,
+        body: { error: "clonedVoiceReferenceAudio is not supported" },
+      };
+    }
+    resolvedClonedVoiceReferenceAudio = input.clonedVoiceReferenceAudio.trim();
+  }
 
   if (input.clonedVoiceId !== undefined && input.clonedVoiceId !== null && input.clonedVoiceId !== "") {
     if (
@@ -111,6 +134,9 @@ export async function runOutputTextToSpeech(
       input.sourceLanguage ?? supportedLanguage.code,
     );
     resolvedClonedVoiceId = cached?.voiceId ?? null;
+    if (!resolvedClonedVoiceReferenceAudio && cached?.referenceAudioBase64) {
+      resolvedClonedVoiceReferenceAudio = cached.referenceAudioBase64;
+    }
   }
 
   const pronunciationText =
@@ -124,6 +150,7 @@ export async function runOutputTextToSpeech(
     targetLanguage: supportedLanguage,
     speechVoice,
     clonedVoiceId: resolvedClonedVoiceId,
+    clonedVoiceReferenceAudio: resolvedClonedVoiceReferenceAudio,
     pronunciationText,
   });
 

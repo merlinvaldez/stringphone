@@ -55,6 +55,7 @@ export function createDeletionService(database: SQLiteDatabase, audio: Pick<Retu
           removed = result.changes === 1;
           if (removed && target.kind === 'conversation') {
             await transaction.runAsync('DELETE FROM preferences WHERE key=?', `chat.voiceClones.${target.id}`);
+            await transaction.runAsync('DELETE FROM preferences WHERE key=?', `chat.voiceCloneResetAt.${target.id}`);
           }
         });
         if (!removed) return empty('changed');

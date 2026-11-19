@@ -27,7 +27,6 @@
   },
   "homepage": "https://github.com/merlinvaldez/stringphone#readme",
   "dependencies": {
-    "@ai-sdk/fish-audio": "^3.0.60",
     "@ai-sdk/gateway": "^4.0.150",
     "@clerk/express": "^2.1.17",
     "ai": "^7.0.177",

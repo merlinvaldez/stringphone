@@ -153,50 +153,140 @@ function makeBlob(text, type = "audio/webm") {
     /10 seconds/i,
   );
 
-  // Save 'en' clone on conv1
+  // Save 'en' clone on conv1 with inline referenceAudioBase64 (stored in IndexedDB ttsCache, NOT prefsStorage)
   const savedEnClone = await store.setChatVoiceClone(conv1.id, "en", {
-    voiceId: "fish_clone_en_conv1",
+    voiceId: "voxtral_ref_en_conv1",
     totalDurationMs: 10_600,
     mode: "single",
+    referenceAudioBase64: "REF_AUDIO_EN_BASE64",
   });
-  assert.equal(savedEnClone.voiceId, "fish_clone_en_conv1");
+  assert.equal(savedEnClone.voiceId, "voxtral_ref_en_conv1");
   assert.equal(savedEnClone.languageCode, "en");
+  assert.equal(savedEnClone.referenceAudioBase64, "REF_AUDIO_EN_BASE64");
 
-  // Default-voice TTS cache for 'en' messages in conv1 is evicted, while 'es' message cache remains untouched!
+  // Default-voice TTS cache for 'en' messages in conv1 is evicted, while 'es' cache & 'voice-ref:' stay intact!
   assert.equal(await store.getCachedTtsAudio("message:m_en_1:translated:marin"), null);
   assert.ok(await store.getCachedTtsAudio("message:m_es_1:translated:marin"));
 
-  // Per-language & per-chat lookup verification
-  assert.equal((await store.getChatVoiceClone(conv1.id, "en"))?.voiceId, "fish_clone_en_conv1");
+  // Per-language & per-chat lookup verification (hydrates referenceAudioBase64 without leaking into localStorage prefs)
+  const fetchedEnClone = await store.getChatVoiceClone(conv1.id, "en");
+  assert.equal(fetchedEnClone?.voiceId, "voxtral_ref_en_conv1");
+  assert.equal(fetchedEnClone?.referenceAudioBase64, "REF_AUDIO_EN_BASE64");
   assert.equal(await store.getChatVoiceClone(conv1.id, "es"), null);
   assert.equal(await store.getChatVoiceClone(conv2.id, "en"), null);
 
   // Save 'es' clone on conv1
   await store.setChatVoiceClone(conv1.id, "es", {
-    voiceId: "fish_clone_es_conv1",
+    voiceId: "voxtral_ref_es_conv1",
     totalDurationMs: 10_600,
     mode: "merged",
+    referenceAudioBase64: "REF_AUDIO_ES_BASE64",
   });
-  assert.equal((await store.getChatVoiceClone(conv1.id, "es"))?.voiceId, "fish_clone_es_conv1");
+  assert.equal((await store.getChatVoiceClone(conv1.id, "es"))?.voiceId, "voxtral_ref_es_conv1");
+  assert.equal((await store.getChatVoiceClone(conv1.id, "es"))?.referenceAudioBase64, "REF_AUDIO_ES_BASE64");
   assert.equal(await store.getCachedTtsAudio("message:m_es_1:translated:marin"), null);
 
+  // En clone reference audio in ttsCache must still be intact after 'es' clone eviction
+  assert.equal(
+    (await store.getChatVoiceClone(conv1.id, "en"))?.referenceAudioBase64,
+    "REF_AUDIO_EN_BASE64",
+  );
+
   const conv1Clones = await store.getChatVoiceClones(conv1.id);
-  assert.equal(conv1Clones.en.voiceId, "fish_clone_en_conv1");
-  assert.equal(conv1Clones.es.voiceId, "fish_clone_es_conv1");
+  assert.equal(conv1Clones.en.voiceId, "voxtral_ref_en_conv1");
+  assert.equal(conv1Clones.en.referenceAudioBase64, undefined, "Metadata record must stay compact without inline base64");
+  assert.equal(conv1Clones.es.voiceId, "voxtral_ref_es_conv1");
   assert.deepEqual(await store.getChatVoiceClones(conv2.id), {});
 
-  // Deleting conv1 removes its voice clones
+  // Cache a Voxtral cloned TTS entry + a default AI TTS entry on conv1, then clear cloned voices for conv1
+  await store.putCachedTtsAudio("message:m_en_1:translated:voxtral:voxtral_ref_en_conv1", makeBlob("cached-cloned-en", "audio/wav"));
+  await store.putCachedTtsAudio("message:m_en_1:translated:onyx", makeBlob("cached-ai-en", "audio/wav"));
+
+  const clearRes = await store.clearChatVoiceClones(conv1.id);
+  assert.equal(clearRes.clearedCount, 2);
+  assert.ok(clearRes.resetAt > 0);
+  assert.equal(await store.getChatVoiceClone(conv1.id, "en"), null);
+  assert.equal(await store.getChatVoiceClone(conv1.id, "es"), null);
+  assert.deepEqual(await store.getChatVoiceClones(conv1.id), {});
+  assert.equal(await store.getCachedTtsAudio("voice-ref:voxtral_ref_en_conv1"), null);
+  assert.equal(await store.getCachedTtsAudio("voice-ref:voxtral_ref_es_conv1"), null);
+  assert.equal(await store.getCachedTtsAudio("message:m_en_1:translated:voxtral:voxtral_ref_en_conv1"), null);
+  assert.ok(await store.getCachedTtsAudio("message:m_en_1:translated:onyx"), "Default AI TTS cache must survive clearing clones");
+  assert.ok(await store.getAudioAsset(audioEnSingle10), "Raw source recording must remain playable after clearing clones");
+
+  // Pre-reset recordings must NOT be immediately re-cloned after clearing
+  const postClearOldSamples = await store.collectEligibleCloneAudioSamples(conv1.id, "en");
+  assert.equal(postClearOldSamples.eligible, false);
+  assert.equal(postClearOldSamples.totalDurationMs, 0);
+  assert.equal(postClearOldSamples.samples.length, 0);
+
+  // Recording a NEW >= 10s sample AFTER clearing makes ONLY the new sample eligible
+  const audioEnFresh = await store.saveAudioAsset(makeBlob("en-fresh-10.4s"), undefined, {
+    durationMs: 10_400,
+  });
+  await store.saveMessage({
+    id: "m_en_fresh_1",
+    conversationId: conv1.id,
+    speaker: "self",
+    kind: "voice",
+    status: "ready",
+    originalText: "Fresh recording after resetting clones",
+    translatedText: "Grabacion nueva",
+    sourceLanguageCode: "en",
+    targetLanguageCode: "es",
+    sourceAudioId: audioEnFresh,
+  });
+  const postClearFreshSamples = await store.collectEligibleCloneAudioSamples(conv1.id, "en");
+  assert.equal(postClearFreshSamples.eligible, true);
+  assert.equal(postClearFreshSamples.samples.length, 1);
+  assert.equal(postClearFreshSamples.samples[0].audioId, audioEnFresh);
+  assert.ok(postClearFreshSamples.resetAt > 0);
+
+  // Re-save a clone so deleteConversation also exercises deleting non-empty clones
+  await store.setChatVoiceClone(conv1.id, "en", {
+    voiceId: "voxtral_ref_en_conv1_recloned",
+    totalDurationMs: 10_400,
+    mode: "single",
+    referenceAudioBase64: "REF_AUDIO_EN_FRESH_B64",
+  });
+
+  // Deleting conv1 removes its voice clones and cached voice-ref entries
   await store.deleteConversation(conv1.id);
   assert.equal(await store.getChatVoiceClone(conv1.id, "en"), null);
   assert.equal(await store.getChatVoiceClone(conv1.id, "es"), null);
+  assert.equal(await store.getCachedTtsAudio("voice-ref:voxtral_ref_en_conv1_recloned"), null);
+}
+
+// 2b. PrefsStorage fallback (when conversation row is absent) keeps localStorage compact and stores ref audio in ttsCache
+{
+  const prefsStorage = createMemoryPrefsStorage();
+  const store = createLocalStore({
+    driver: createMemoryStorageDriver(),
+    prefsStorage,
+  });
+  await store.setChatVoiceClone("cloud_chat_1", "fa", {
+    voiceId: "voxtral_ref_cloud_fa",
+    totalDurationMs: 11_000,
+    mode: "single",
+    referenceAudioBase64: "CLOUD_REF_FA_BASE64",
+  });
+  const storedJson = prefsStorage.getItem("stringphone-chat-voice-clones-v1");
+  assert.ok(storedJson);
+  assert.equal(storedJson.includes("CLOUD_REF_FA_BASE64"), false);
+  const hydrated = await store.getChatVoiceClone("cloud_chat_1", "fa");
+  assert.equal(hydrated?.voiceId, "voxtral_ref_cloud_fa");
+  assert.equal(hydrated?.referenceAudioBase64, "CLOUD_REF_FA_BASE64");
 }
 
 // 3. Source contract checks on client/src/chatApi.js, MessageBubble.jsx, useLiveConversationCapture.js, and StringPhoneApp.jsx
 {
   const chatApiSource = readFileSync("client/src/chatApi.js", "utf8");
   assert.match(chatApiSource, /export async function requestChatVoiceClone\b/);
+  assert.match(chatApiSource, /export async function clearServerChatVoiceClones\b/);
+  assert.match(chatApiSource, /forceRefresh/);
   assert.match(chatApiSource, /\/speech\/clone/);
   assert.match(chatApiSource, /clonedVoiceId/);
+  assert.match(chatApiSource, /clonedVoiceReferenceAudio/);
 
   const captureSource = readFileSync(
     "client/src/components/live/useLiveConversationCapture.js",
@@ -213,6 +303,12 @@ function makeBlob(text, type = "audio/webm") {
   const appSource = readFileSync("client/src/StringPhoneApp.jsx", "utf8");
   assert.match(appSource, /ensureChatLanguageVoiceClone/);
   assert.match(appSource, /requestChatVoiceClone/);
+  assert.match(appSource, /clearChatVoiceClones/);
+  assert.match(appSource, /ttsVoiceMode/);
+  assert.match(appSource, /Voice clone/);
+  assert.match(appSource, /Clear cloned voices/);
+  assert.match(appSource, /clonedVoiceReferenceAudio/);
+  assert.match(appSource, /:voxtral:/);
 }
 
-console.log("PASS Task 3: Web App per-chat, per-language 10s single/merged voice cloning and TTS cache eviction");
+console.log("PASS Web App: per-chat, per-language 10s single/merged Mistral Voxtral voice cloning, reset/clear workflow, inline ref storage, and TTS cache eviction");

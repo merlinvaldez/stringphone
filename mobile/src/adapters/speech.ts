@@ -168,6 +168,7 @@ export interface OutputSpeechRequest {
   language: string;
   speechVoice?: 'marin' | 'onyx';
   clonedVoiceId?: string;
+  clonedVoiceReferenceAudio?: string;
   pronunciationText?: string;
   signal?: AbortSignal;
 }
@@ -197,6 +198,7 @@ export interface VoiceCloneResult {
   ok: boolean;
   cloned: boolean;
   clonedVoiceId: string | null;
+  referenceAudioBase64: string | null;
   mode: 'single' | 'merged' | 'insufficient';
   totalDurationMs: number;
 }
@@ -216,10 +218,15 @@ export function createSpeechApi(transport: ReturnType<typeof createProcessingTra
         request.signal,
       );
       const data = await response.json();
+      const referenceAudioBase64 =
+        typeof data?.referenceAudioBase64 === 'string' && data.referenceAudioBase64.trim()
+          ? data.referenceAudioBase64.trim()
+          : null;
       return {
         ok: Boolean(data?.ok),
         cloned: Boolean(data?.cloned && typeof data?.clonedVoiceId === 'string' && data.clonedVoiceId.trim()),
         clonedVoiceId: typeof data?.clonedVoiceId === 'string' && data.clonedVoiceId.trim() ? data.clonedVoiceId.trim() : null,
+        referenceAudioBase64,
         mode: data?.mode === 'single' ? 'single' : data?.mode === 'merged' ? 'merged' : 'insufficient',
         totalDurationMs: Number(data?.totalDurationMs) || 0,
       };
@@ -258,8 +265,8 @@ export function createSpeechApi(transport: ReturnType<typeof createProcessingTra
             language: supported.code,
             ...(request.speechVoice ? { speechVoice: request.speechVoice } : {}),
             ...(request.clonedVoiceId && request.clonedVoiceId.trim() ? { clonedVoiceId: request.clonedVoiceId.trim() } : {}),
-            ...(chunks.length === 1 && request.pronunciationText && request.pronunciationText.trim()
-              ? { pronunciationText: request.pronunciationText.trim() }
+            ...(request.clonedVoiceReferenceAudio && request.clonedVoiceReferenceAudio.trim()
+              ? { clonedVoiceReferenceAudio: request.clonedVoiceReferenceAudio.trim() }
               : {}),
           },
           request.signal,

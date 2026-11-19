@@ -37,6 +37,7 @@ export default {
         language: body?.language,
         speechVoice: body?.speechVoice,
         clonedVoiceId: body?.clonedVoiceId,
+        clonedVoiceReferenceAudio: body?.clonedVoiceReferenceAudio,
         conversationId: body?.conversationId,
         sourceLanguage: body?.sourceLanguage,
         pronunciationText: body?.pronunciationText,

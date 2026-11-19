@@ -3,10 +3,11 @@ import {
   getSupportedTtsLanguage,
 } from "./languages.js";
 import {
-  createFishVoiceClone,
-  getFishAudioApiKey,
-  type CreateFishVoiceCloneInput,
-} from "../services/fishVoiceCloning.js";
+  createMistralVoiceClone,
+  deleteVoiceReferenceFromCache,
+  hasAiGatewayCredentials,
+  type CreateMistralVoiceCloneInput,
+} from "../services/mistralVoiceCloning.js";
 import {
   MIN_VOICE_CLONE_DURATION_MS,
   prepareVoiceReference,
@@ -29,13 +30,18 @@ export type RunChatVoiceCloningInput = {
   conversationId?: unknown;
   language: unknown;
   samples?: unknown;
+  forceRefresh?: unknown;
 };
 
 export type RunChatVoiceCloningDeps = {
   prepareVoiceReferenceImpl?: typeof prepareVoiceReference;
-  createFishVoiceCloneImpl?: (
-    input: CreateFishVoiceCloneInput,
-  ) => Promise<{ voiceId: string; durationMs: number }>;
+  createVoiceCloneImpl?: (
+    input: CreateMistralVoiceCloneInput,
+  ) => Promise<{
+    voiceId: string;
+    durationMs: number;
+    referenceAudioBase64?: string;
+  }>;
 };
 
 export type CachedChatVoiceClone = {
@@ -44,6 +50,7 @@ export type CachedChatVoiceClone = {
   mode: "single" | "merged";
   totalDurationMs: number;
   usedSampleCount: number;
+  referenceAudioBase64?: string;
   createdAt: number;
 };
 
@@ -54,6 +61,7 @@ export type RunChatVoiceCloningResult =
       conversationId: string | null;
       language: string;
       clonedVoiceId: string;
+      referenceAudioBase64?: string;
       mode: "single" | "merged";
       totalDurationMs: number;
       minDurationMs: number;
@@ -119,7 +127,31 @@ export function setCachedServerChatVoiceClone(
 }
 
 export function clearCachedServerChatVoiceClones() {
+  for (const entry of serverChatVoiceCloneCache.values()) {
+    deleteVoiceReferenceFromCache(entry.voiceId);
+  }
   serverChatVoiceCloneCache.clear();
+}
+
+export function clearCachedServerChatVoiceClonesForConversation(
+  conversationId: unknown,
+): number {
+  if (typeof conversationId !== "string" || !conversationId.trim()) {
+    return 0;
+  }
+
+  const prefix = `${conversationId.trim()}::`;
+  let clearedCount = 0;
+
+  for (const [key, entry] of serverChatVoiceCloneCache.entries()) {
+    if (key.startsWith(prefix)) {
+      serverChatVoiceCloneCache.delete(key);
+      deleteVoiceReferenceFromCache(entry.voiceId);
+      clearedCount += 1;
+    }
+  }
+
+  return clearedCount;
 }
 
 function normalizeSampleBuffer(sample: RawVoiceCloneSample): {
@@ -188,24 +220,37 @@ export async function runChatVoiceCloning(
       ? input.conversationId.trim()
       : null;
 
-  // If this chat already has a voice clone for this spoken language, return it immediately.
+  const forceRefresh =
+    input.forceRefresh === true || input.forceRefresh === "true";
+
+  // If this chat already has a voice clone for this spoken language, return it immediately
+  // unless the caller explicitly requested a fresh clone after clearing.
   if (conversationId) {
     const existing = getCachedServerChatVoiceClone(
       conversationId,
       supportedLanguage.code,
     );
-    if (existing) {
+    if (existing && !forceRefresh) {
       return {
         ok: true,
         cloned: true,
         conversationId,
         language: supportedLanguage.code,
         clonedVoiceId: existing.voiceId,
+        ...(existing.referenceAudioBase64
+          ? { referenceAudioBase64: existing.referenceAudioBase64 }
+          : {}),
         mode: existing.mode,
         totalDurationMs: existing.totalDurationMs,
         minDurationMs: MIN_VOICE_CLONE_DURATION_MS,
         usedSampleCount: existing.usedSampleCount,
       };
+    }
+    if (existing && forceRefresh) {
+      serverChatVoiceCloneCache.delete(
+        buildCacheKey(conversationId, supportedLanguage.code),
+      );
+      deleteVoiceReferenceFromCache(existing.voiceId);
     }
   }
 
@@ -304,10 +349,10 @@ export async function runChatVoiceCloning(
     };
   }
 
-  const cloneFn = deps.createFishVoiceCloneImpl ?? createFishVoiceClone;
+  const cloneFn = deps.createVoiceCloneImpl ?? createMistralVoiceClone;
 
-  if (!deps.createFishVoiceCloneImpl && !getFishAudioApiKey()) {
-    console.warn("FISH_AUDIO_API_KEY is not set; skipping Fish Audio voice clone creation");
+  if (!deps.createVoiceCloneImpl && !hasAiGatewayCredentials()) {
+    console.warn("Vercel AI Gateway credentials are not set; skipping voice clone creation");
     return {
       ok: true,
       cloned: false,
@@ -338,6 +383,9 @@ export async function runChatVoiceCloning(
         mode: selection.mode,
         totalDurationMs: selection.totalDurationMs,
         usedSampleCount: selection.usedSampleCount,
+        ...(cloneResult.referenceAudioBase64
+          ? { referenceAudioBase64: cloneResult.referenceAudioBase64 }
+          : {}),
         createdAt: Date.now(),
       });
     }
@@ -348,13 +396,16 @@ export async function runChatVoiceCloning(
       conversationId,
       language: supportedLanguage.code,
       clonedVoiceId: cloneResult.voiceId,
+      ...(cloneResult.referenceAudioBase64
+        ? { referenceAudioBase64: cloneResult.referenceAudioBase64 }
+        : {}),
       mode: selection.mode,
       totalDurationMs: selection.totalDurationMs,
       minDurationMs: MIN_VOICE_CLONE_DURATION_MS,
       usedSampleCount: selection.usedSampleCount,
     };
   } catch {
-    console.warn("Fish Audio voice clone creation failed; falling back to default speech");
+    console.warn("Voice clone creation failed; falling back to default speech");
     return {
       ok: true,
       cloned: false,
