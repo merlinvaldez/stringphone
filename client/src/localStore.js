@@ -727,6 +727,14 @@ export function createLocalStore(options = {}) {
     const all = await driver.getAll('messages');
     return all
       .filter((m) => m.conversationId === conversationId)
+      .map((m) => {
+        const resolvedSpeaker = m.sender || m.speaker || 'self';
+        return {
+          ...m,
+          speaker: m.speaker || resolvedSpeaker,
+          sender: m.sender || resolvedSpeaker,
+        };
+      })
       .sort((a, b) => {
         const diff = (a.createdAt || 0) - (b.createdAt || 0);
         if (diff !== 0) return diff;
@@ -745,6 +753,12 @@ export function createLocalStore(options = {}) {
     const timestamp = now();
     const createdAt = existing ? existing.createdAt : (messageRecord.createdAt || timestamp);
     const updatedAt = timestamp;
+    const resolvedSpeaker =
+      messageRecord.speaker ||
+      messageRecord.sender ||
+      existing?.speaker ||
+      existing?.sender ||
+      'self';
 
     const message = {
       ...existing,
@@ -753,7 +767,8 @@ export function createLocalStore(options = {}) {
       conversationId: messageRecord.conversationId !== undefined
         ? messageRecord.conversationId
         : (existing?.conversationId || null),
-      speaker: messageRecord.speaker || existing?.speaker || 'self',
+      speaker: resolvedSpeaker,
+      sender: resolvedSpeaker,
       originMode: messageRecord.originMode || existing?.originMode || 'chat',
       kind: messageRecord.kind || existing?.kind || 'text',
       status: messageRecord.status || existing?.status || 'ready',

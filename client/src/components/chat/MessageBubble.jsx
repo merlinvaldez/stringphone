@@ -27,9 +27,8 @@ export function MessageBubble({
   isSaved = false,
   isSaving = false,
 }) {
-  const isSelf = message.sender === "self";
-  const showOriginalPronunciation = !isSelf || message.sourceLanguageCode === "zh";
-  const showTranslatedPronunciation = isSelf || message.targetLanguageCode === "zh";
+  const resolvedSender = message.sender || message.speaker || "self";
+  const isSelf = resolvedSender === "self";
   const isVoice =
     message.kind === "voice" ||
     (message.originMode === "live" && Boolean(message.audioUrl));
@@ -37,6 +36,10 @@ export function MessageBubble({
   const isLanguageOne = baseLanguageCode
     ? message.sourceLanguageCode === baseLanguageCode
     : isSelf;
+  const showOriginalPronunciation =
+    !isLanguageOne || message.sourceLanguageCode === "zh";
+  const showTranslatedPronunciation =
+    isLanguageOne || message.targetLanguageCode === "zh";
   const bubbleClasses = isLanguageOne
     ? "ml-auto border-emerald-500/25 bg-emerald-500/10"
     : "mr-auto border-sky-500/25 bg-sky-500/10";

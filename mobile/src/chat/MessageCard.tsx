@@ -58,9 +58,9 @@ export function MessageCard({
   const originalPronunciation = formatPronunciationGuide(message.original_pronunciation);
   const translatedPronunciation = formatPronunciationGuide(message.translated_pronunciation);
   const showOriginalPronunciation =
-    Boolean(originalPronunciation) && (!isSelf || message.source_language === 'zh');
+    Boolean(originalPronunciation) && (!isLanguageOne || message.source_language === 'zh');
   const showTranslatedPronunciation =
-    Boolean(translatedPronunciation) && (isSelf || message.target_language === 'zh');
+    Boolean(translatedPronunciation) && (isLanguageOne || message.target_language === 'zh');
 
   const statusText = message.status === 'pending'
     ? 'Translating'

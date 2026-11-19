@@ -651,4 +651,85 @@ const store = createLocalStore({
   console.log('✓ 9. Null/undefined key guards and IDB connection lifecycle passed');
 }
 
+// 10. Sender/speaker preservation and backfill on reload
+{
+  const memDriver = createMemoryStorageDriver();
+  const senderStore = createLocalStore({
+    driver: memDriver,
+    prefsStorage: createTestPrefsStorage(),
+    newId: testNewId,
+    now: testNow,
+  });
+
+  const conv = await senderStore.createConversation({
+    title: 'Sender Preservation',
+    originMode: 'chat',
+    myLanguageCode: 'en',
+    theirLanguageCode: 'fa',
+  });
+
+  // a) Saving with speaker: 'self' must also populate sender: 'self'
+  const savedSelf = await senderStore.saveMessage({
+    id: 'msg-sender-self',
+    conversationId: conv.id,
+    speaker: 'self',
+    kind: 'text',
+    status: 'ready',
+    originalText: 'Hi',
+    translatedText: 'سلام',
+    originalPronunciation: 'های',
+    translatedPronunciation: 'salam',
+    sourceLanguageCode: 'en',
+    targetLanguageCode: 'fa',
+  });
+  assert.equal(savedSelf.sender, 'self', 'saveMessage must populate sender from speaker');
+  assert.equal(savedSelf.speaker, 'self');
+
+  // b) Legacy IndexedDB record saved with speaker: 'self' and NO sender property is backfilled on listMessages
+  await memDriver.put('messages', {
+    id: 'msg-legacy-no-sender',
+    conversationId: conv.id,
+    speaker: 'self',
+    originMode: 'chat',
+    kind: 'voice',
+    status: 'ready',
+    originalText: 'Okay',
+    translatedText: 'خوب',
+    originalPronunciation: 'اوکی',
+    translatedPronunciation: 'khoob',
+    sourceLanguageCode: 'en',
+    targetLanguageCode: 'fa',
+    createdAt: 1700000000010,
+    updatedAt: 1700000000010,
+  });
+
+  // c) Partner message resolves sender === 'partner'
+  await memDriver.put('messages', {
+    id: 'msg-partner-speaker',
+    conversationId: conv.id,
+    speaker: 'partner',
+    originMode: 'chat',
+    kind: 'voice',
+    status: 'ready',
+    originalText: 'سلام',
+    translatedText: 'Hello',
+    originalPronunciation: 'salam',
+    translatedPronunciation: 'هلُو',
+    sourceLanguageCode: 'fa',
+    targetLanguageCode: 'en',
+    createdAt: 1700000000020,
+    updatedAt: 1700000000020,
+  });
+
+  const listed = await senderStore.listMessages(conv.id);
+  const legacySelf = listed.find(m => m.id === 'msg-legacy-no-sender');
+  const partnerMsg = listed.find(m => m.id === 'msg-partner-speaker');
+  assert.equal(legacySelf?.sender, 'self', 'listMessages must backfill sender from speaker for legacy self records');
+  assert.equal(legacySelf?.speaker, 'self');
+  assert.equal(partnerMsg?.sender, 'partner', 'listMessages must resolve partner sender from speaker');
+  assert.equal(partnerMsg?.speaker, 'partner');
+
+  console.log('✓ 10. Sender/speaker preservation and backfill on reload passed');
+}
+
 console.log('All web local store tests passed successfully!');

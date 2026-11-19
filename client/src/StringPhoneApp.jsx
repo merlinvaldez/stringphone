@@ -2723,8 +2723,11 @@ export default function StringPhoneApp() {
               audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
             }
           }
+          const resolvedSpeaker = msg.sender || msg.speaker || "self";
           return {
             ...msg,
+            sender: resolvedSpeaker,
+            speaker: msg.speaker || resolvedSpeaker,
             audioUrl: audioUrl || "",
           };
         }),
@@ -5286,7 +5289,13 @@ export default function StringPhoneApp() {
                   audioUrl = getOrCreateBlobUrl(msg.sourceAudioId, asset.blob);
                 }
               }
-              return { ...msg, audioUrl: audioUrl || "" };
+              const resolvedSpeaker = msg.sender || msg.speaker || "self";
+              return {
+                ...msg,
+                sender: resolvedSpeaker,
+                speaker: msg.speaker || resolvedSpeaker,
+                audioUrl: audioUrl || "",
+              };
             }),
           );
           replaceMessages(loadedMessages);
