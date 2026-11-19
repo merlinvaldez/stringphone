@@ -140,7 +140,7 @@ function encodeFishZeroShotTtsMsgpack(input: {
     encodeMsgpackString("temperature"),
     encodeMsgpackFloat64(0.4),
     encodeMsgpackString("top_p"),
-    encodeMsgpackFloat64(0.3),
+    encodeMsgpackFloat64(0.1),
     encodeMsgpackString("repetition_penalty"),
     encodeMsgpackFloat64(1.2),
     encodeMsgpackString("references"),
@@ -411,7 +411,7 @@ export async function generateFishClonedSpeech(
     normalize: true,
     latency: "normal",
     temperature: 0.4,
-    topP: 0.3,
+    topP: 0.1,
     repetitionPenalty: 1.2,
   };
 

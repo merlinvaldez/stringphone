@@ -198,7 +198,7 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   assert.equal(providerOpts.fishAudio.latency, "normal");
   assert.equal(providerOpts.fishAudio.normalize, true);
   assert.equal(providerOpts.fishAudio.temperature, 0.4);
-  assert.equal(providerOpts.fishAudio.topP, 0.3);
+  assert.equal(providerOpts.fishAudio.topP, 0.1);
   assert.equal(providerOpts.fishAudio.repetitionPenalty, 1.2);
   assert.equal(getWavDurationMs(synthesized), 1_500);
 
