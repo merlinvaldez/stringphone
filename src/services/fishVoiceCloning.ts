@@ -9,6 +9,8 @@ import type { SupportedTtsLanguage } from "../lib/languages.js";
 import {
   MIN_VOICE_CLONE_DURATION_MS,
   createCanonicalPcmWavBuffer,
+  getWavDurationMs,
+  normalizeWavToSampleRateAndMaxDuration,
   parsePcmWav,
   prepareVoiceReference,
   type PreparedVoiceReference,
@@ -18,6 +20,9 @@ export const FISH_AUDIO_API_BASE_URL = "https://api.fish.audio";
 export const FISH_AUDIO_DEFAULT_GATEWAY_MODEL = "fish-audio/s2.1-pro";
 export const FISH_AUDIO_DEFAULT_DIRECT_MODEL = "s2.1-pro";
 export const FISH_AUDIO_FREE_DIRECT_MODEL = "s2.1-pro-free";
+export const FISH_AUDIO_DEFAULT_SPEED = 0.85;
+export const INLINE_VOICE_CLONE_SAMPLE_RATE = 24_000;
+export const INLINE_VOICE_CLONE_MAX_DURATION_MS = 15_000;
 
 type InlineVoiceReference = {
   buffer: Buffer;
@@ -28,17 +33,32 @@ type InlineVoiceReference = {
 const inlineVoiceReferenceMemoryStore = new Map<string, InlineVoiceReference>();
 const INLINE_REF_DIR = path.join(os.tmpdir(), "stringphone-fish-refs");
 
+function compactInlineReference(ref: InlineVoiceReference): InlineVoiceReference {
+  const compactedBuffer = normalizeWavToSampleRateAndMaxDuration(
+    ref.buffer,
+    INLINE_VOICE_CLONE_SAMPLE_RATE,
+    INLINE_VOICE_CLONE_MAX_DURATION_MS,
+  );
+  const compactedDurationMs = getWavDurationMs(compactedBuffer) || ref.durationMs;
+  return {
+    buffer: compactedBuffer,
+    transcript: ref.transcript,
+    durationMs: compactedDurationMs,
+  };
+}
+
 function saveInlineVoiceReference(voiceId: string, ref: InlineVoiceReference) {
-  inlineVoiceReferenceMemoryStore.set(voiceId, ref);
+  const compacted = compactInlineReference(ref);
+  inlineVoiceReferenceMemoryStore.set(voiceId, compacted);
   try {
     mkdirSync(INLINE_REF_DIR, { recursive: true });
     const filePath = path.join(INLINE_REF_DIR, `${voiceId}.json`);
     writeFileSync(
       filePath,
       JSON.stringify({
-        base64: ref.buffer.toString("base64"),
-        transcript: ref.transcript,
-        durationMs: ref.durationMs,
+        base64: compacted.buffer.toString("base64"),
+        transcript: compacted.transcript,
+        durationMs: compacted.durationMs,
       }),
       "utf8",
     );
@@ -59,13 +79,13 @@ function loadInlineVoiceReference(voiceId: string): InlineVoiceReference | null 
     const filePath = path.join(INLINE_REF_DIR, `${voiceId}.json`);
     const raw = JSON.parse(readFileSync(filePath, "utf8"));
     if (typeof raw?.base64 === "string" && raw.base64) {
-      const ref: InlineVoiceReference = {
+      const loaded = compactInlineReference({
         buffer: Buffer.from(raw.base64, "base64"),
         transcript: typeof raw.transcript === "string" ? raw.transcript : "",
         durationMs: Number(raw.durationMs) || MIN_VOICE_CLONE_DURATION_MS,
-      };
-      inlineVoiceReferenceMemoryStore.set(voiceId, ref);
-      return ref;
+      });
+      inlineVoiceReferenceMemoryStore.set(voiceId, loaded);
+      return loaded;
     }
   } catch {
     return null;
@@ -125,10 +145,10 @@ function encodeFishZeroShotTtsMsgpack(input: {
   referenceAudio: Buffer;
   referenceText: string;
 }): Buffer {
-  // Map of 8 entries:
-  // { text, format: "wav", normalize: true, latency: "normal", temperature: 0.65, top_p: 0.7, repetition_penalty: 1.2, references: [{ audio, text }] }
+  // Map of 9 entries:
+  // { text, format: "wav", normalize: true, latency: "balanced", temperature: 0.4, top_p: 0.1, repetition_penalty: 1.2, prosody: { speed: 0.85 }, references: [{ audio, text }] }
   return Buffer.concat([
-    Buffer.from([0x88]),
+    Buffer.from([0x89]),
     encodeMsgpackString("text"),
     encodeMsgpackString(input.text),
     encodeMsgpackString("format"),
@@ -136,13 +156,17 @@ function encodeFishZeroShotTtsMsgpack(input: {
     encodeMsgpackString("normalize"),
     encodeMsgpackBool(true),
     encodeMsgpackString("latency"),
-    encodeMsgpackString("normal"),
+    encodeMsgpackString("balanced"),
     encodeMsgpackString("temperature"),
     encodeMsgpackFloat64(0.4),
     encodeMsgpackString("top_p"),
     encodeMsgpackFloat64(0.1),
     encodeMsgpackString("repetition_penalty"),
     encodeMsgpackFloat64(1.2),
+    encodeMsgpackString("prosody"),
+    Buffer.from([0x81]), // 1-entry map: { speed: 0.85 }
+    encodeMsgpackString("speed"),
+    encodeMsgpackFloat64(FISH_AUDIO_DEFAULT_SPEED),
     encodeMsgpackString("references"),
     Buffer.from([0x91, 0x82]), // 1-element array of 2-entry map
     encodeMsgpackString("audio"),
@@ -409,7 +433,7 @@ export async function generateFishClonedSpeech(
     referenceId: clonedVoiceId,
     normalizeLoudness: true,
     normalize: true,
-    latency: "normal",
+    latency: "balanced",
     temperature: 0.4,
     topP: 0.1,
     repetitionPenalty: 1.2,
@@ -425,6 +449,7 @@ export async function generateFishClonedSpeech(
         model: gateway.speechModel(gatewayModelSlug),
         text: input.text,
         voice: clonedVoiceId,
+        speed: FISH_AUDIO_DEFAULT_SPEED,
         outputFormat: "wav",
         providerOptions: {
           fishAudio: fishAudioOptions,
@@ -450,6 +475,7 @@ export async function generateFishClonedSpeech(
     model: fishAudio.speech(directModelSlug),
     text: input.text,
     voice: clonedVoiceId,
+    speed: FISH_AUDIO_DEFAULT_SPEED,
     outputFormat: "wav",
     providerOptions: {
       fishAudio: fishAudioOptions,

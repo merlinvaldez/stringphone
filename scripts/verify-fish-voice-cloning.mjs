@@ -7,11 +7,15 @@ import {
   getWavDurationMs,
   parsePcmWav,
   concatenatePcmWavBuffers,
+  normalizeWavToSampleRateAndMaxDuration,
   prepareVoiceReference,
   selectAndMergeVoiceSamplesForCloning,
 } from "../src/services/prepareVoiceReference.ts";
 import {
   FISH_AUDIO_DEFAULT_GATEWAY_MODEL,
+  FISH_AUDIO_DEFAULT_SPEED,
+  INLINE_VOICE_CLONE_MAX_DURATION_MS,
+  INLINE_VOICE_CLONE_SAMPLE_RATE,
   createFishVoiceClone,
   generateFishClonedSpeech,
 } from "../src/services/fishVoiceCloning.ts";
@@ -190,12 +194,14 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   );
 
   assert.ok(gatewayCallArgs);
+  assert.equal(FISH_AUDIO_DEFAULT_SPEED, 0.85);
   assert.equal(gatewayCallArgs.text, "Hola desde el clon de voz");
   assert.equal(gatewayCallArgs.voice, "fish_voice_es_chat_abc");
+  assert.equal(gatewayCallArgs.speed, 0.85);
   assert.equal(gatewayCallArgs.outputFormat, "wav");
   const providerOpts = gatewayCallArgs.providerOptions;
   assert.equal(providerOpts.fishAudio.referenceId, "fish_voice_es_chat_abc");
-  assert.equal(providerOpts.fishAudio.latency, "normal");
+  assert.equal(providerOpts.fishAudio.latency, "balanced");
   assert.equal(providerOpts.fishAudio.normalize, true);
   assert.equal(providerOpts.fishAudio.temperature, 0.4);
   assert.equal(providerOpts.fishAudio.topP, 0.1);
@@ -457,6 +463,21 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   assert.equal(parsedPrepared24k.channels, 1);
   assert.equal(parsedPrepared24k.bitsPerSample, 16);
   assert.equal(prepared24k.durationMs, 6_000);
+
+  // 8. Inline reference compaction to 24kHz / max 15s for fast MessagePack zero-shot synthesis
+  assert.equal(INLINE_VOICE_CLONE_SAMPLE_RATE, 24_000);
+  assert.equal(INLINE_VOICE_CLONE_MAX_DURATION_MS, 15_000);
+  const long44kWav = makeWavSample(25_000, "long-25s.wav");
+  const compactedInlineWav = normalizeWavToSampleRateAndMaxDuration(
+    long44kWav.buffer,
+    INLINE_VOICE_CLONE_SAMPLE_RATE,
+    INLINE_VOICE_CLONE_MAX_DURATION_MS,
+  );
+  const parsedCompacted = parsePcmWav(compactedInlineWav);
+  assert.equal(parsedCompacted.sampleRate, 24_000);
+  assert.equal(parsedCompacted.channels, 1);
+  assert.equal(parsedCompacted.durationMs, 15_000);
+  assert.ok(compactedInlineWav.length < long44kWav.buffer.length / 2);
 }
 
 console.log("PASS Task 1 & Task 2: 10s audio qualification, WAV merging, Fish Audio clone creation, Vercel AI Gateway speech synthesis, and /speech/clone + /speech/output endpoints");

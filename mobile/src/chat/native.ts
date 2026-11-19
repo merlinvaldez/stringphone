@@ -22,6 +22,7 @@ let deletionSession: ReturnType<typeof createDeletionService> | undefined;
 let currentTtsVoice: 'marin' | 'onyx' = 'marin';
 const ttsVoiceListeners = new Set<(voice: 'marin' | 'onyx') => void>();
 const inFlightCloneRequests = new Map<string, Promise<string | null>>();
+const inFlightSpeechRequests = new Map<string, Promise<Awaited<ReturnType<ReturnType<typeof createAudioStorage>['resolve']>>>>();
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   const chunkSize = 0x8000;
@@ -172,21 +173,32 @@ export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
   }
-  const text = message.original_text;
-  if (!text || !text.trim()) throw new Error('No original text available for speech generation.');
-  const speech = await requestOutputSpeech({
-    text,
-    language: message.source_language,
-    speechVoice: speechVoice ?? currentTtsVoice,
-    ...(clonedVoiceId ? { clonedVoiceId } : {}),
+  const inFlightKey = `source:${messageId}:${clonedVoiceId ?? (speechVoice ?? currentTtsVoice)}`;
+  const inFlight = inFlightSpeechRequests.get(inFlightKey);
+  if (inFlight) return inFlight;
+
+  const task = (async () => {
+    const text = message.original_text;
+    if (!text || !text.trim()) throw new Error('No original text available for speech generation.');
+    const speech = await requestOutputSpeech({
+      text,
+      language: message.source_language,
+      speechVoice: speechVoice ?? currentTtsVoice,
+      ...(clonedVoiceId ? { clonedVoiceId } : {}),
+    });
+    await audioSession!.save(
+      { kind: 'message', id: messageId, role: 'source' },
+      { bytes: speech.bytes },
+      { format: speech.format, mimeType: speech.mimeType, durationMs: speech.durationMs },
+      true,
+    );
+    return audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
+  })().finally(() => {
+    inFlightSpeechRequests.delete(inFlightKey);
   });
-  await audioSession!.save(
-    { kind: 'message', id: messageId, role: 'source' },
-    { bytes: speech.bytes },
-    { format: speech.format, mimeType: speech.mimeType, durationMs: speech.durationMs },
-    true,
-  );
-  return audioSession!.resolve({ kind: 'message', id: messageId, role: 'source' });
+
+  inFlightSpeechRequests.set(inFlightKey, task);
+  return task;
 }
 
 export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'marin' | 'onyx') {
@@ -198,22 +210,33 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
   if (existing && existing.availability === 'available' && existing.uri) {
     return existing;
   }
-  const text = message.translated_text;
-  if (!text || !text.trim()) throw new Error('No translation available for speech generation.');
-  const targetLanguage = message.target_language;
-  const speech = await requestOutputSpeech({
-    text,
-    language: targetLanguage,
-    speechVoice: speechVoice ?? currentTtsVoice,
-    ...(clonedVoiceId ? { clonedVoiceId } : {}),
+  const inFlightKey = `translated:${messageId}:${clonedVoiceId ?? (speechVoice ?? currentTtsVoice)}`;
+  const inFlight = inFlightSpeechRequests.get(inFlightKey);
+  if (inFlight) return inFlight;
+
+  const task = (async () => {
+    const text = message.translated_text;
+    if (!text || !text.trim()) throw new Error('No translation available for speech generation.');
+    const targetLanguage = message.target_language;
+    const speech = await requestOutputSpeech({
+      text,
+      language: targetLanguage,
+      speechVoice: speechVoice ?? currentTtsVoice,
+      ...(clonedVoiceId ? { clonedVoiceId } : {}),
+    });
+    await audioSession!.save(
+      { kind: 'message', id: messageId, role: 'translated' },
+      { bytes: speech.bytes },
+      { format: speech.format, mimeType: speech.mimeType, durationMs: speech.durationMs },
+      true,
+    );
+    return audioSession!.resolve({ kind: 'message', id: messageId, role: 'translated' });
+  })().finally(() => {
+    inFlightSpeechRequests.delete(inFlightKey);
   });
-  await audioSession!.save(
-    { kind: 'message', id: messageId, role: 'translated' },
-    { bytes: speech.bytes },
-    { format: speech.format, mimeType: speech.mimeType, durationMs: speech.durationMs },
-    true,
-  );
-  return audioSession!.resolve({ kind: 'message', id: messageId, role: 'translated' });
+
+  inFlightSpeechRequests.set(inFlightKey, task);
+  return task;
 }
 
 export function getNativeAudioStorage() {

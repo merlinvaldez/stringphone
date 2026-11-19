@@ -320,6 +320,20 @@ function normalizeParsedWavToCanonicalPcm(
   return createCanonicalPcmWavBuffer(outPcm, targetSampleRate, 1, 16);
 }
 
+export function normalizeWavToSampleRateAndMaxDuration(
+  wavBuffer: Buffer,
+  targetSampleRate = 24_000,
+  maxDurationMs = 15_000,
+): Buffer {
+  const parsed = parsePcmWav(wavBuffer);
+  if (!parsed) {
+    return wavBuffer;
+  }
+  const resampled =
+    normalizeParsedWavToCanonicalPcm(parsed, targetSampleRate) ?? wavBuffer;
+  return trimCanonicalPcmWavBuffer(resampled, maxDurationMs);
+}
+
 function runFfmpeg(
   inputPath: string,
   outputPath: string,

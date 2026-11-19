@@ -3215,6 +3215,7 @@ export default function StringPhoneApp() {
   };
 
   const inFlightVoiceCloneRequestsRef = useRef(new Map());
+  const prefetchedTtsPromisesRef = useRef(new Map());
 
   const measureAudioBlobDurationMs = async (blob, fallbackDurationMs = 0) => {
     if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
@@ -3313,6 +3314,65 @@ export default function StringPhoneApp() {
 
     inFlightVoiceCloneRequestsRef.current.set(inFlightKey, task);
     return task;
+  };
+
+  const prefetchMessageTranslatedSpeech = async ({
+    messageId,
+    chatId,
+    translatedText,
+    targetLanguageCode,
+    sourceLanguageCode,
+  }) => {
+    const trimmedText = typeof translatedText === "string" ? translatedText.trim() : "";
+    const targetLang = typeof targetLanguageCode === "string" ? targetLanguageCode.trim().toLowerCase() : "";
+    const sourceLang = typeof sourceLanguageCode === "string" ? sourceLanguageCode.trim().toLowerCase() : "";
+    if (!messageId || !trimmedText || !targetLang || !localStore || sharedRoomSession) {
+      return null;
+    }
+
+    try {
+      const activeVoice = ttsVoice;
+      const clonedVoiceId =
+        chatId && sourceLang
+          ? await ensureChatLanguageVoiceClone(chatId, sourceLang)
+          : null;
+      const cacheKey = clonedVoiceId
+        ? `message:${messageId}:translated:clone:${clonedVoiceId}`
+        : `message:${messageId}:translated:${activeVoice}`;
+
+      const existingCached = await localStore.getCachedTtsAudio(cacheKey).catch(() => null);
+      if (existingCached) {
+        return existingCached;
+      }
+
+      const existingInFlight = prefetchedTtsPromisesRef.current.get(cacheKey);
+      if (existingInFlight) {
+        return existingInFlight;
+      }
+
+      const fetchTask = fetchOutputSpeech({
+        text: trimmedText,
+        language: targetLang,
+        speechVoice: activeVoice,
+        clonedVoiceId,
+        authFetch: isSignedIn ? authFetch : undefined,
+      })
+        .then(async (blob) => {
+          if (blob) {
+            await localStore.putCachedTtsAudio(cacheKey, blob).catch(() => undefined);
+          }
+          return blob;
+        })
+        .catch(() => null)
+        .finally(() => {
+          prefetchedTtsPromisesRef.current.delete(cacheKey);
+        });
+
+      prefetchedTtsPromisesRef.current.set(cacheKey, fetchTask);
+      return fetchTask;
+    } catch {
+      return null;
+    }
   };
 
   const handleThreadAudioPlay = (audioElement) => {
@@ -3447,7 +3507,7 @@ export default function StringPhoneApp() {
       }
 
       const cacheKey =
-        !isSignedIn && localStore && ownerId
+        localStore && ownerId
           ? clonedVoiceId
             ? `${ownerKind}:${ownerId}:${role}:clone:${clonedVoiceId}`
             : `${ownerKind}:${ownerId}:${role}:${activeVoice}`
@@ -3459,6 +3519,12 @@ export default function StringPhoneApp() {
           audioBlob = await localStore.getCachedTtsAudio(cacheKey);
         } catch (e) {
           console.error("Failed to read TTS cache", e);
+        }
+        if (!audioBlob) {
+          const inFlightPrefetch = prefetchedTtsPromisesRef.current.get(cacheKey);
+          if (inFlightPrefetch) {
+            audioBlob = await inFlightPrefetch.catch(() => null);
+          }
         }
       }
 
@@ -3961,6 +4027,14 @@ export default function StringPhoneApp() {
         });
       }
 
+      void prefetchMessageTranslatedSpeech({
+        messageId,
+        chatId: isSignedIn ? conversationId : localConvId,
+        translatedText: data.translatedText,
+        targetLanguageCode: targetSnapshot.code,
+        sourceLanguageCode: sourceSnapshot.code,
+      });
+
       if (conversationId) {
         void persistConversationLanguages(
           conversationId,
@@ -4179,7 +4253,14 @@ export default function StringPhoneApp() {
           sourceAudioId: finalSourceAudioId || undefined,
           sourceAudioDurationMs: measuredDurationMs || undefined,
         });
-        void ensureChatLanguageVoiceClone(localConvId, sourceSnapshot.code);
+        await ensureChatLanguageVoiceClone(localConvId, sourceSnapshot.code);
+        void prefetchMessageTranslatedSpeech({
+          messageId,
+          chatId: localConvId,
+          translatedText: data.translatedText,
+          targetLanguageCode: targetSnapshot.code,
+          sourceLanguageCode: sourceSnapshot.code,
+        });
       }
 
       if (isSignedIn && localStore && conversationId && (recording?.blob || audioBlob)) {
@@ -4206,7 +4287,14 @@ export default function StringPhoneApp() {
             sourceAudioId: signedInSourceAudioId,
             sourceAudioDurationMs: measuredDurationMs || undefined,
           });
-          void ensureChatLanguageVoiceClone(conversationId, sourceSnapshot.code);
+          await ensureChatLanguageVoiceClone(conversationId, sourceSnapshot.code);
+          void prefetchMessageTranslatedSpeech({
+            messageId,
+            chatId: conversationId,
+            translatedText: data.translatedText,
+            targetLanguageCode: targetSnapshot.code,
+            sourceLanguageCode: sourceSnapshot.code,
+          });
         } catch {
           // Ignore local mirror errors for signed-in conversations
         }
@@ -4764,11 +4852,18 @@ export default function StringPhoneApp() {
                 sourceAudioDurationMs: measuredDurationMs || undefined,
               });
               if (sourceAudioId) {
-                void ensureChatLanguageVoiceClone(
+                await ensureChatLanguageVoiceClone(
                   localConvId,
                   finalMessage.sourceLanguageCode,
                 );
               }
+              void prefetchMessageTranslatedSpeech({
+                messageId: resolvedMessageId || finalMessage.id || utteranceId,
+                chatId: localConvId,
+                translatedText: finalMessage.translatedText,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+              });
             }
           } else if (isSignedIn && localStore && conversationId && audioBlob) {
             try {
@@ -4796,10 +4891,17 @@ export default function StringPhoneApp() {
                 sourceAudioId: signedInSourceAudioId,
                 sourceAudioDurationMs: measuredDurationMs || undefined,
               });
-              void ensureChatLanguageVoiceClone(
+              await ensureChatLanguageVoiceClone(
                 conversationId,
                 finalMessage.sourceLanguageCode,
               );
+              void prefetchMessageTranslatedSpeech({
+                messageId: resolvedMessageId || finalMessage.id || utteranceId,
+                chatId: conversationId,
+                translatedText: finalMessage.translatedText,
+                targetLanguageCode: finalMessage.targetLanguageCode,
+                sourceLanguageCode: finalMessage.sourceLanguageCode,
+              });
             } catch {
               // Ignore local mirror errors for signed-in conversations
             }

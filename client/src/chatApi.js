@@ -392,16 +392,25 @@ async function convertAudioBlobToWavIfPossible(blob) {
       return blob;
     }
 
-    const monoPcm = new Int16Array(length);
+    const targetSampleRate = Math.min(sampleRate, 24000);
+    const outputLength =
+      targetSampleRate === sampleRate
+        ? length
+        : Math.max(1, Math.round((length * targetSampleRate) / sampleRate));
+    const monoPcm = new Int16Array(outputLength);
     const channelData = [];
     for (let ch = 0; ch < numChannels; ch += 1) {
       channelData.push(audioBuffer.getChannelData(ch));
     }
 
-    for (let i = 0; i < length; i += 1) {
+    for (let i = 0; i < outputLength; i += 1) {
+      const srcIdx =
+        targetSampleRate === sampleRate
+          ? i
+          : Math.min(length - 1, Math.floor((i * sampleRate) / targetSampleRate));
       let sum = 0;
       for (let ch = 0; ch < numChannels; ch += 1) {
-        sum += channelData[ch][i] || 0;
+        sum += channelData[ch][srcIdx] || 0;
       }
       const avg = Math.max(-1, Math.min(1, sum / numChannels));
       monoPcm[i] = avg < 0 ? Math.round(avg * 32768) : Math.round(avg * 32767);
@@ -423,8 +432,8 @@ async function convertAudioBlobToWavIfPossible(blob) {
     view.setUint32(16, 16, true);
     view.setUint16(20, 1, true); // PCM
     view.setUint16(22, 1, true); // Mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
+    view.setUint32(24, targetSampleRate, true);
+    view.setUint32(28, targetSampleRate * 2, true);
     view.setUint16(32, 2, true);
     view.setUint16(34, 16, true);
     writeAscii(36, "data");
