@@ -6,6 +6,7 @@ import { generateSpeech as aiGenerateSpeech } from "ai";
 import { createGateway } from "@ai-sdk/gateway";
 import { createFishAudio } from "@ai-sdk/fish-audio";
 import type { SupportedTtsLanguage } from "../lib/languages.js";
+import { generatePronunciationGuidance } from "./generatePronunciationGuidance.js";
 import {
   MIN_VOICE_CLONE_DURATION_MS,
   createCanonicalPcmWavBuffer,
@@ -23,6 +24,42 @@ export const FISH_AUDIO_FREE_DIRECT_MODEL = "s2.1-pro-free";
 export const FISH_AUDIO_DEFAULT_SPEED = 0.85;
 export const INLINE_VOICE_CLONE_SAMPLE_RATE = 24_000;
 export const INLINE_VOICE_CLONE_MAX_DURATION_MS = 15_000;
+
+const PERSIAN_LETTER_REGEX = /[\u0621-\u064A\u067E\u0686\u0698\u06A9\u06AF\u06CC]/;
+
+export function normalizeRomanizedPronunciationForFishTts(
+  pronunciationGuide?: string | null,
+): string {
+  if (typeof pronunciationGuide !== "string") {
+    return "";
+  }
+
+  let cleaned = pronunciationGuide
+    .trim()
+    .replace(/^pronounce:\s*/i, "")
+    .replace(/؟/g, "?")
+    .replace(/،/g, ",")
+    .replace(/؛/g, ";")
+    .replace(/\u200C/g, "");
+
+  if (cleaned.startsWith("(") && cleaned.endsWith(")")) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+
+  if (!cleaned || !/[A-Za-z]/.test(cleaned) || PERSIAN_LETTER_REGEX.test(cleaned)) {
+    return "";
+  }
+
+  // Collapse syllable-stress hyphens (e.g. "aa-YAA be KO-mak" -> "aayaa be komak")
+  // so Fish Audio reads natural whole words without pausing on dashes or shouting ALL CAPS.
+  let previous = "";
+  while (cleaned !== previous) {
+    previous = cleaned;
+    cleaned = cleaned.replace(/([A-Za-z])-([A-Za-z])/g, "$1$2");
+  }
+
+  return cleaned.toLowerCase().replace(/\s+/g, " ").trim();
+}
 
 type InlineVoiceReference = {
   buffer: Buffer;
@@ -188,6 +225,7 @@ export type GenerateFishClonedSpeechInput = {
   text: string;
   targetLanguage: SupportedTtsLanguage;
   clonedVoiceId: string;
+  pronunciationText?: string | null;
 };
 
 export type FishVoiceCloningDeps = {
@@ -372,12 +410,39 @@ export async function generateFishClonedSpeech(
     throw new Error("clonedVoiceId is required for Fish Audio cloned speech.");
   }
 
+  let spokenText = input.text;
+  if (input.targetLanguage.code === "fa") {
+    let romanized = normalizeRomanizedPronunciationForFishTts(
+      input.pronunciationText,
+    );
+    if (!romanized && !deps.generateSpeechImpl) {
+      try {
+        const guidance = await generatePronunciationGuidance({
+          originalText: input.text,
+          translatedText: input.text,
+          sourceLanguageCode: "fa",
+          sourceLanguage: "Persian",
+          targetLanguageCode: "en",
+          targetLanguage: "English",
+        });
+        romanized = normalizeRomanizedPronunciationForFishTts(
+          guidance.originalPronunciation,
+        );
+      } catch {
+        // Keep original text if on-the-fly romanization fails
+      }
+    }
+    if (romanized) {
+      spokenText = romanized;
+    }
+  }
+
   const fishApiKey = getFishAudioApiKey(deps.apiKey);
   const inlineReference = loadInlineVoiceReference(clonedVoiceId);
   if (inlineReference && fishApiKey) {
     const fetchImpl = deps.fetchImpl ?? fetch;
     const msgpackPayload = encodeFishZeroShotTtsMsgpack({
-      text: input.text,
+      text: spokenText,
       referenceAudio: inlineReference.buffer,
       referenceText: inlineReference.transcript,
     });
@@ -447,7 +512,7 @@ export async function generateFishClonedSpeech(
       // First attempt uses Vercel AI Gateway system credits (requires visibility='unlist' on Fish Audio).
       const result = await generateSpeechFn({
         model: gateway.speechModel(gatewayModelSlug),
-        text: input.text,
+        text: spokenText,
         voice: clonedVoiceId,
         speed: FISH_AUDIO_DEFAULT_SPEED,
         outputFormat: "wav",
@@ -473,7 +538,7 @@ export async function generateFishClonedSpeech(
   const fishAudio = createFishAudio({ apiKey: fishApiKey });
   const directResult = await generateSpeechFn({
     model: fishAudio.speech(directModelSlug),
-    text: input.text,
+    text: spokenText,
     voice: clonedVoiceId,
     speed: FISH_AUDIO_DEFAULT_SPEED,
     outputFormat: "wav",

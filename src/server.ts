@@ -1193,6 +1193,7 @@ app.post("/speech/output", async (req, res) => {
       clonedVoiceId: req.body?.clonedVoiceId,
       conversationId: req.body?.conversationId,
       sourceLanguage: req.body?.sourceLanguage,
+      pronunciationText: req.body?.pronunciationText,
     });
 
     if (!result.ok) {

@@ -3320,12 +3320,15 @@ export default function StringPhoneApp() {
     messageId,
     chatId,
     translatedText,
+    translatedPronunciation = "",
     targetLanguageCode,
     sourceLanguageCode,
   }) => {
     const trimmedText = typeof translatedText === "string" ? translatedText.trim() : "";
     const targetLang = typeof targetLanguageCode === "string" ? targetLanguageCode.trim().toLowerCase() : "";
     const sourceLang = typeof sourceLanguageCode === "string" ? sourceLanguageCode.trim().toLowerCase() : "";
+    const trimmedPronunciation =
+      typeof translatedPronunciation === "string" ? translatedPronunciation.trim() : "";
     if (!messageId || !trimmedText || !targetLang || !localStore || sharedRoomSession) {
       return null;
     }
@@ -3337,7 +3340,7 @@ export default function StringPhoneApp() {
           ? await ensureChatLanguageVoiceClone(chatId, sourceLang)
           : null;
       const cacheKey = clonedVoiceId
-        ? `message:${messageId}:translated:clone:${clonedVoiceId}`
+        ? `message:${messageId}:translated:clone:${clonedVoiceId}${targetLang === "fa" ? ":romanized" : ""}`
         : `message:${messageId}:translated:${activeVoice}`;
 
       const existingCached = await localStore.getCachedTtsAudio(cacheKey).catch(() => null);
@@ -3355,6 +3358,7 @@ export default function StringPhoneApp() {
         language: targetLang,
         speechVoice: activeVoice,
         clonedVoiceId,
+        pronunciationText: trimmedPronunciation,
         authFetch: isSignedIn ? authFetch : undefined,
       })
         .then(async (blob) => {
@@ -3453,6 +3457,7 @@ export default function StringPhoneApp() {
     ownerId = null,
     role = "translated",
     sourceLanguageCode = "",
+    pronunciationText = "",
   }) => {
     const trimmedText = typeof text === "string" ? text.trim() : "";
     const normalizedLanguageCode =
@@ -3482,16 +3487,23 @@ export default function StringPhoneApp() {
           : activeLocalConversationId ||
             localStore?.getPreferences?.()?.activeConversationId ||
             null;
+      const ownerMessage =
+        ownerKind === "message" && ownerId
+          ? messagesRef.current.find((m) => m.id === ownerId) || null
+          : null;
       const resolvedSourceLanguageCode =
         typeof sourceLanguageCode === "string" && sourceLanguageCode.trim()
           ? sourceLanguageCode.trim().toLowerCase()
-          : ownerKind === "message" && ownerId
+          : (ownerMessage?.sourceLanguageCode || "").trim().toLowerCase();
+      const resolvedPronunciationText =
+        typeof pronunciationText === "string" && pronunciationText.trim()
+          ? pronunciationText.trim()
+          : ownerMessage
             ? (
-                messagesRef.current.find((m) => m.id === ownerId)
-                  ?.sourceLanguageCode || ""
-              )
-                .trim()
-                .toLowerCase()
+                role === "source"
+                  ? ownerMessage.originalPronunciation
+                  : ownerMessage.translatedPronunciation
+              )?.trim() || ""
             : "";
 
       let clonedVoiceId = null;
@@ -3509,7 +3521,7 @@ export default function StringPhoneApp() {
       const cacheKey =
         localStore && ownerId
           ? clonedVoiceId
-            ? `${ownerKind}:${ownerId}:${role}:clone:${clonedVoiceId}`
+            ? `${ownerKind}:${ownerId}:${role}:clone:${clonedVoiceId}${normalizedLanguageCode === "fa" ? ":romanized" : ""}`
             : `${ownerKind}:${ownerId}:${role}:${activeVoice}`
           : null;
 
@@ -3534,6 +3546,7 @@ export default function StringPhoneApp() {
           language: normalizedLanguageCode,
           speechVoice: activeVoice,
           clonedVoiceId,
+          pronunciationText: resolvedPronunciationText,
           authFetch: isSignedIn ? authFetch : undefined,
           signal: abortController.signal,
         });
@@ -4031,6 +4044,7 @@ export default function StringPhoneApp() {
         messageId,
         chatId: isSignedIn ? conversationId : localConvId,
         translatedText: data.translatedText,
+        translatedPronunciation: data.translatedPronunciation ?? "",
         targetLanguageCode: targetSnapshot.code,
         sourceLanguageCode: sourceSnapshot.code,
       });
@@ -4258,6 +4272,7 @@ export default function StringPhoneApp() {
           messageId,
           chatId: localConvId,
           translatedText: data.translatedText,
+          translatedPronunciation: data.translatedPronunciation ?? "",
           targetLanguageCode: targetSnapshot.code,
           sourceLanguageCode: sourceSnapshot.code,
         });
@@ -4280,8 +4295,10 @@ export default function StringPhoneApp() {
             kind: "voice",
             status: "ready",
             originalText: data.transcript,
+            originalPronunciation: data.originalPronunciation ?? "",
             transcript: data.transcript,
             translatedText: data.translatedText,
+            translatedPronunciation: data.translatedPronunciation ?? "",
             sourceLanguageCode: sourceSnapshot.code,
             targetLanguageCode: targetSnapshot.code,
             sourceAudioId: signedInSourceAudioId,
@@ -4292,6 +4309,7 @@ export default function StringPhoneApp() {
             messageId,
             chatId: conversationId,
             translatedText: data.translatedText,
+            translatedPronunciation: data.translatedPronunciation ?? "",
             targetLanguageCode: targetSnapshot.code,
             sourceLanguageCode: sourceSnapshot.code,
           });
@@ -4861,6 +4879,7 @@ export default function StringPhoneApp() {
                 messageId: resolvedMessageId || finalMessage.id || utteranceId,
                 chatId: localConvId,
                 translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
                 targetLanguageCode: finalMessage.targetLanguageCode,
                 sourceLanguageCode: finalMessage.sourceLanguageCode,
               });
@@ -4884,7 +4903,9 @@ export default function StringPhoneApp() {
                 kind: finalMessage.kind,
                 status: finalMessage.status,
                 originalText: finalMessage.originalText,
+                originalPronunciation: finalMessage.originalPronunciation,
                 translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
                 transcript: finalMessage.transcript,
                 sourceLanguageCode: finalMessage.sourceLanguageCode,
                 targetLanguageCode: finalMessage.targetLanguageCode,
@@ -4899,6 +4920,7 @@ export default function StringPhoneApp() {
                 messageId: resolvedMessageId || finalMessage.id || utteranceId,
                 chatId: conversationId,
                 translatedText: finalMessage.translatedText,
+                translatedPronunciation: finalMessage.translatedPronunciation,
                 targetLanguageCode: finalMessage.targetLanguageCode,
                 sourceLanguageCode: finalMessage.sourceLanguageCode,
               });

@@ -334,10 +334,13 @@ export async function fetchOutputSpeech({
   language,
   speechVoice = null,
   clonedVoiceId = null,
+  pronunciationText = "",
   authFetch,
   signal,
 }) {
   const request = typeof authFetch === "function" ? authFetch : fetch;
+  const trimmedPronunciation =
+    typeof pronunciationText === "string" ? pronunciationText.trim() : "";
   const response = await request(`${API_BASE_URL}/speech/output`, {
     method: "POST",
     headers: {
@@ -349,6 +352,7 @@ export async function fetchOutputSpeech({
       language,
       ...(speechVoice ? { speechVoice } : {}),
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
+      ...(trimmedPronunciation ? { pronunciationText: trimmedPronunciation } : {}),
     }),
   });
 

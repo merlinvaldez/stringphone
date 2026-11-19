@@ -13,6 +13,7 @@ export type GenerateSpeechInput = {
   targetLanguage: SupportedTtsLanguage;
   speechVoice?: OpenAiSpeechVoice;
   clonedVoiceId?: string | null;
+  pronunciationText?: string | null;
 };
 
 export type GenerateSpeechDeps = {
@@ -38,6 +39,7 @@ export async function generateSpeech(
         text: input.text,
         targetLanguage: input.targetLanguage,
         clonedVoiceId,
+        pronunciationText: input.pronunciationText,
       });
     } catch {
       console.warn(

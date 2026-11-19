@@ -18,7 +18,9 @@ import {
   INLINE_VOICE_CLONE_SAMPLE_RATE,
   createFishVoiceClone,
   generateFishClonedSpeech,
+  normalizeRomanizedPronunciationForFishTts,
 } from "../src/services/fishVoiceCloning.ts";
+import { validatePronunciationLine } from "../src/services/generatePronunciationGuidance.ts";
 import { generateSpeech } from "../src/services/generateSpeech.ts";
 import {
   clearCachedServerChatVoiceClones,
@@ -478,6 +480,87 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   assert.equal(parsedCompacted.channels, 1);
   assert.equal(parsedCompacted.durationMs, 15_000);
   assert.ok(compactedInlineWav.length < long44kWav.buffer.length / 2);
+
+  // 9. Normalized romanized Persian for Fish Audio TTS & pronunciation guide punctuation preservation
+  assert.equal(
+    normalizeRomanizedPronunciationForFishTts("aa-YAA be KO-mak ni-YAAZ daa-REED؟"),
+    "aayaa be komak niyaaz daareed?",
+  );
+  assert.equal(
+    normalizeRomanizedPronunciationForFishTts("sa-LAM، ma-MAAN bo-ZORG!"),
+    "salam, mamaan bozorg!",
+  );
+  assert.equal(
+    normalizeRomanizedPronunciationForFishTts("سلام مامان بزرگ"),
+    "",
+  );
+
+  const persian = getSupportedTtsLanguage("fa");
+  let fishPersianText = "";
+  const mockFaOut = makeWavSample(1_200, "fa-out.wav");
+  await generateFishClonedSpeech(
+    {
+      text: "آیا به کمک نیاز دارید؟",
+      pronunciationText: "aa-YAA be KO-mak ni-YAAZ daa-REED؟",
+      targetLanguage: persian,
+      clonedVoiceId: "fish_voice_en_chat_fa",
+    },
+    {
+      apiKey: "test-fish-key",
+      gatewayApiKey: "test-gateway-key",
+      generateSpeechImpl: async (args) => {
+        fishPersianText = args.text;
+        return { audio: { uint8Array: new Uint8Array(mockFaOut.buffer) } };
+      },
+    },
+  );
+  assert.equal(fishPersianText, "aayaa be komak niyaaz daareed?");
+
+  // Fallback to OpenAI TTS must still receive the original Persian script, not romanization
+  let openAiFallbackText = "";
+  await generateSpeech(
+    {
+      text: "آیا به کمک نیاز دارید؟",
+      pronunciationText: "aa-YAA be KO-mak ni-YAAZ daa-REED؟",
+      targetLanguage: persian,
+      clonedVoiceId: "fish_voice_en_chat_fa",
+      speechVoice: "marin",
+    },
+    {
+      generateFishClonedSpeechImpl: async () => {
+        throw new Error("Simulated Fish outage");
+      },
+      generateOpenAiSpeechImpl: async (opts) => {
+        openAiFallbackText = opts.text;
+        return mockFaOut.buffer;
+      },
+    },
+  );
+  assert.equal(openAiFallbackText, "آیا به کمک نیاز دارید؟");
+
+  // Pronunciation guide validator must NOT discard Latin guides that contain Persian punctuation (؟, ،, ؛)
+  assert.equal(
+    validatePronunciationLine("haa-LET che-TO-reh؟", {
+      text: "حالت چطوره؟",
+      textLanguage: "Persian",
+      textLanguageCode: "fa",
+      readerLanguage: "English",
+      readerLanguageCode: "en",
+      disallowedCopyText: "How are you?",
+    }),
+    "haa-LET che-TO-reh?",
+  );
+  assert.equal(
+    validatePronunciationLine("sa-LAM، ma-MAAN bo-ZORG!", {
+      text: "سلام، مامان بزرگ!",
+      textLanguage: "Persian",
+      textLanguageCode: "fa",
+      readerLanguage: "English",
+      readerLanguageCode: "en",
+      disallowedCopyText: "Hello, Grandma!",
+    }),
+    "sa-LAM, ma-MAAN bo-ZORG!",
+  );
 }
 
 console.log("PASS Task 1 & Task 2: 10s audio qualification, WAV merging, Fish Audio clone creation, Vercel AI Gateway speech synthesis, and /speech/clone + /speech/output endpoints");

@@ -2,12 +2,12 @@
 // Use Expo FileSystem's native multipart uploader for saved recordings.
 const PROCESSING_FIELDS = {
   '/chat/messages/text': ['text', 'sourceLanguage', 'targetLanguage'],
-  '/speech/output': ['text', 'language', 'speechVoice', 'clonedVoiceId'],
+  '/speech/output': ['text', 'language', 'speechVoice', 'clonedVoiceId', 'pronunciationText'],
 } as const;
 export type ProcessingEndpoint = keyof typeof PROCESSING_FIELDS;
 type Payloads = {
   '/chat/messages/text': { text: string; sourceLanguage: string; targetLanguage: string };
-  '/speech/output': { text: string; language: string; speechVoice?: 'marin' | 'onyx'; clonedVoiceId?: string };
+  '/speech/output': { text: string; language: string; speechVoice?: 'marin' | 'onyx'; clonedVoiceId?: string; pronunciationText?: string };
 };
 
 export class ProcessingApiError extends Error {

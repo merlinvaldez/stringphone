@@ -16,6 +16,7 @@ export type RunOutputTextToSpeechInput = {
   clonedVoiceId?: unknown;
   conversationId?: unknown;
   sourceLanguage?: unknown;
+  pronunciationText?: unknown;
 };
 
 export type RunOutputTextToSpeechDeps = {
@@ -112,6 +113,10 @@ export async function runOutputTextToSpeech(
     resolvedClonedVoiceId = cached?.voiceId ?? null;
   }
 
+  const pronunciationText =
+    typeof input.pronunciationText === "string" && input.pronunciationText.trim()
+      ? input.pronunciationText.trim().slice(0, MAX_OUTPUT_SPEECH_CHARACTERS * 2)
+      : undefined;
   const speechVoice = input.speechVoice as OpenAiSpeechVoice | undefined;
   const generateSpeechFn = deps.generateSpeechImpl ?? generateSpeech;
   const audioBuffer = await generateSpeechFn({
@@ -119,6 +124,7 @@ export async function runOutputTextToSpeech(
     targetLanguage: supportedLanguage,
     speechVoice,
     clonedVoiceId: resolvedClonedVoiceId,
+    pronunciationText,
   });
 
   return {

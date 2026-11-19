@@ -168,6 +168,7 @@ export interface OutputSpeechRequest {
   language: string;
   speechVoice?: 'marin' | 'onyx';
   clonedVoiceId?: string;
+  pronunciationText?: string;
   signal?: AbortSignal;
 }
 
@@ -257,6 +258,9 @@ export function createSpeechApi(transport: ReturnType<typeof createProcessingTra
             language: supported.code,
             ...(request.speechVoice ? { speechVoice: request.speechVoice } : {}),
             ...(request.clonedVoiceId && request.clonedVoiceId.trim() ? { clonedVoiceId: request.clonedVoiceId.trim() } : {}),
+            ...(chunks.length === 1 && request.pronunciationText && request.pronunciationText.trim()
+              ? { pronunciationText: request.pronunciationText.trim() }
+              : {}),
           },
           request.signal,
         );

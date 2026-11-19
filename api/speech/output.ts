@@ -39,6 +39,7 @@ export default {
         clonedVoiceId: body?.clonedVoiceId,
         conversationId: body?.conversationId,
         sourceLanguage: body?.sourceLanguage,
+        pronunciationText: body?.pronunciationText,
       });
 
       if (result.ok === false) {

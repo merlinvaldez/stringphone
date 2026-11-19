@@ -185,6 +185,7 @@ export async function ensureSourceSpeech(messageId: string, speechVoice?: 'marin
       language: message.source_language,
       speechVoice: speechVoice ?? currentTtsVoice,
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
+      ...(message.original_pronunciation ? { pronunciationText: message.original_pronunciation } : {}),
     });
     await audioSession!.save(
       { kind: 'message', id: messageId, role: 'source' },
@@ -223,6 +224,7 @@ export async function ensureTranslatedSpeech(messageId: string, speechVoice?: 'm
       language: targetLanguage,
       speechVoice: speechVoice ?? currentTtsVoice,
       ...(clonedVoiceId ? { clonedVoiceId } : {}),
+      ...(message.translated_pronunciation ? { pronunciationText: message.translated_pronunciation } : {}),
     });
     await audioSession!.save(
       { kind: 'message', id: messageId, role: 'translated' },
