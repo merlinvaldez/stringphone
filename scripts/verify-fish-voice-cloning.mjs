@@ -196,10 +196,10 @@ function makeWavSample(durationMs, filename = "sample.wav", fillByte = 0x11) {
   );
 
   assert.ok(gatewayCallArgs);
-  assert.equal(FISH_AUDIO_DEFAULT_SPEED, 0.85);
+  assert.equal(FISH_AUDIO_DEFAULT_SPEED, 0.95);
   assert.equal(gatewayCallArgs.text, "Hola desde el clon de voz");
   assert.equal(gatewayCallArgs.voice, "fish_voice_es_chat_abc");
-  assert.equal(gatewayCallArgs.speed, 0.85);
+  assert.equal(gatewayCallArgs.speed, 0.95);
   assert.equal(gatewayCallArgs.outputFormat, "wav");
   const providerOpts = gatewayCallArgs.providerOptions;
   assert.equal(providerOpts.fishAudio.referenceId, "fish_voice_es_chat_abc");

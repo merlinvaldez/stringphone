@@ -21,7 +21,7 @@ export const FISH_AUDIO_API_BASE_URL = "https://api.fish.audio";
 export const FISH_AUDIO_DEFAULT_GATEWAY_MODEL = "fish-audio/s2.1-pro";
 export const FISH_AUDIO_DEFAULT_DIRECT_MODEL = "s2.1-pro";
 export const FISH_AUDIO_FREE_DIRECT_MODEL = "s2.1-pro-free";
-export const FISH_AUDIO_DEFAULT_SPEED = 0.85;
+export const FISH_AUDIO_DEFAULT_SPEED = 0.95;
 export const INLINE_VOICE_CLONE_SAMPLE_RATE = 24_000;
 export const INLINE_VOICE_CLONE_MAX_DURATION_MS = 15_000;
 
@@ -183,7 +183,7 @@ function encodeFishZeroShotTtsMsgpack(input: {
   referenceText: string;
 }): Buffer {
   // Map of 9 entries:
-  // { text, format: "wav", normalize: true, latency: "balanced", temperature: 0.4, top_p: 0.1, repetition_penalty: 1.2, prosody: { speed: 0.85 }, references: [{ audio, text }] }
+  // { text, format: "wav", normalize: true, latency: "balanced", temperature: 0.4, top_p: 0.1, repetition_penalty: 1.2, prosody: { speed: 0.95 }, references: [{ audio, text }] }
   return Buffer.concat([
     Buffer.from([0x89]),
     encodeMsgpackString("text"),
@@ -201,7 +201,7 @@ function encodeFishZeroShotTtsMsgpack(input: {
     encodeMsgpackString("repetition_penalty"),
     encodeMsgpackFloat64(1.2),
     encodeMsgpackString("prosody"),
-    Buffer.from([0x81]), // 1-entry map: { speed: 0.85 }
+    Buffer.from([0x81]), // 1-entry map: { speed: 0.95 }
     encodeMsgpackString("speed"),
     encodeMsgpackFloat64(FISH_AUDIO_DEFAULT_SPEED),
     encodeMsgpackString("references"),
