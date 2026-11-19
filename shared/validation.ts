@@ -1,4 +1,4 @@
-import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages";
+import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import type { ProcessingFailure, TextChatMessageInput } from "./messages";
 
 // Same normalization/error precedence as the existing server text handler.
