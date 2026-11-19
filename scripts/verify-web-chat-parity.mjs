@@ -453,11 +453,11 @@ const stringPhoneAppSrc = readFileSync(
     'ChatHistorySidebar must import and use formatHistoryRowMeta',
   );
 
-  // Confirm delete for local conversations
-  assert.match(
+  // Delete local and signed-in conversations outright without a confirmation warning
+  assert.doesNotMatch(
     chatHistorySidebarSrc,
-    /confirm\(/,
-    'ChatHistorySidebar must prompt confirmation before deleting conversations',
+    /confirm\s*\(/,
+    'ChatHistorySidebar must delete conversations outright without a confirmation warning',
   );
 
   // Card count fallback uses entryCount / count / totalCount cleanly (Finding 3)

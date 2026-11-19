@@ -278,14 +278,6 @@ export function ChatHistorySidebar({
   }
 
   async function handleArchiveConversation(conversationId) {
-    if (!isSignedIn) {
-      const confirmed = window.confirm(
-        "Permanently delete this conversation and its recorded audio?",
-      );
-      if (!confirmed) {
-        return;
-      }
-    }
     try {
       setArchivingConversationId(conversationId);
       setError("");

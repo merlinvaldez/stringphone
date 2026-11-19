@@ -16,6 +16,7 @@ import {
 } from "./prepareVoiceReference.js";
 
 export const MISTRAL_VOXTRAL_DEFAULT_GATEWAY_MODEL = "mistral/voxtral-mini-tts-3";
+export const MISTRAL_VOXTRAL_DEFAULT_PACE = "moderate";
 export const VOXTRAL_REFERENCE_SAMPLE_RATE = 16_000;
 export const VOXTRAL_REFERENCE_MAX_DURATION_MS = 8_000;
 export const MAX_INLINE_REFERENCE_AUDIO_BASE64_LENGTH = 2_000_000;
@@ -268,6 +269,16 @@ function resolveInlineReferenceWavBuffer(
   throw new Error("Cloned voice reference audio is unavailable.");
 }
 
+function applyMistralPaceTag(text: string): string {
+  const trimmed = text.trim();
+  const pace =
+    process.env.MISTRAL_TTS_PACE?.trim() || MISTRAL_VOXTRAL_DEFAULT_PACE;
+  if (!trimmed || !pace || /^\[pace=/i.test(trimmed)) {
+    return text;
+  }
+  return `[pace=${pace}] ${trimmed}`;
+}
+
 export async function generateMistralClonedSpeech(
   input: GenerateMistralClonedSpeechInput,
   deps: MistralVoiceCloningDeps = {},
@@ -294,7 +305,7 @@ export async function generateMistralClonedSpeech(
 
   const result = await generateSpeechFn({
     model: gateway.speechModel(gatewayModelSlug),
-    text: input.text,
+    text: applyMistralPaceTag(input.text),
     outputFormat: "wav",
     providerOptions: {
       mistral: {

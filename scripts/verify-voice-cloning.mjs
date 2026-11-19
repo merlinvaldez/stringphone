@@ -13,6 +13,7 @@ import {
 } from "../src/services/prepareVoiceReference.ts";
 import {
   MISTRAL_VOXTRAL_DEFAULT_GATEWAY_MODEL,
+  MISTRAL_VOXTRAL_DEFAULT_PACE,
   VOXTRAL_REFERENCE_SAMPLE_RATE,
   VOXTRAL_REFERENCE_MAX_DURATION_MS,
   MAX_INLINE_REFERENCE_AUDIO_BASE64_LENGTH,
@@ -115,6 +116,7 @@ try {
   let cloneResult = null;
   {
     assert.equal(MISTRAL_VOXTRAL_DEFAULT_GATEWAY_MODEL, "mistral/voxtral-mini-tts-3");
+    assert.equal(MISTRAL_VOXTRAL_DEFAULT_PACE, "moderate");
     assert.equal(VOXTRAL_REFERENCE_SAMPLE_RATE, 16_000);
     assert.equal(VOXTRAL_REFERENCE_MAX_DURATION_MS, 8_000);
 
@@ -206,7 +208,7 @@ try {
     );
 
     assert.ok(gatewayCallArgs);
-    assert.equal(gatewayCallArgs.text, "Hola desde el clon de voz");
+    assert.equal(gatewayCallArgs.text, "[pace=moderate] Hola desde el clon de voz");
     assert.equal(gatewayCallArgs.outputFormat, "wav");
     assert.equal("speed" in gatewayCallArgs, false);
     assert.equal("language" in gatewayCallArgs, false);
@@ -234,7 +236,7 @@ try {
         },
       },
     );
-    assert.equal(persianGatewayArgs.text, "آیا به کمک نیاز دارید؟");
+    assert.equal(persianGatewayArgs.text, "[pace=moderate] آیا به کمک نیاز دارید؟");
     assert.equal(
       persianGatewayArgs.providerOptions.mistral.refAudio,
       cloneResult.referenceAudioBase64,
