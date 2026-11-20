@@ -42,7 +42,7 @@ jobs:
           npx tsx scripts/verify-mobile-phrasebook.mjs
           npx tsx scripts/verify-mobile-text-chat.mjs
           npx tsx scripts/verify-mobile-mic-listening-state.mjs
-          npx tsx scripts/verify-collection-update-validation.mjs
+          DATABASE_URL=postgres://ci:ci@127.0.0.1:5432/stringphone npx tsx scripts/verify-collection-update-validation.mjs
           npx tsx scripts/verify-web-local-store.mjs
           npx tsx scripts/verify-web-shell-parity.mjs
           npx tsx scripts/verify-web-chat-parity.mjs
@@ -50,28 +50,33 @@ jobs:
       - name: Verify /api/ui/translations bundled fast-path
         run: |
           npx tsx -e '
-            import assert from "node:assert/strict";
-            import handler from "./api/ui/translations.ts";
-            for (const lang of ["en", "es", "ar", "ja"]) {
-              const res = await handler.fetch(
-                new Request("https://stringphone.test/api/ui/translations", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ targetLanguage: lang }),
-                }),
-              );
-              assert.equal(res.status, 200, `${lang} status`);
-              assert.match(res.headers.get("cache-control") ?? "", /max-age=3600/, `${lang} cache-control`);
-              const payload = await res.json();
-              assert.equal(payload.targetLanguage?.code, lang, `${lang} code`);
-              assert.equal(Object.keys(payload.strings ?? {}).length, 128, `${lang} key count`);
-              if (lang === "en") {
-                assert.equal(payload.strings.modePhrasebook, "Phrasebook");
-              } else {
-                assert.notEqual(payload.strings.modePhrasebook, "Phrasebook", `${lang} translated`);
+            (async () => {
+              const assert = (await import("node:assert/strict")).default;
+              const { default: handler } = await import("./api/ui/translations.ts");
+              for (const lang of ["en", "es", "ar", "ja"]) {
+                const res = await handler.fetch(
+                  new Request("https://stringphone.test/api/ui/translations", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ targetLanguage: lang }),
+                  }),
+                );
+                assert.equal(res.status, 200, `${lang} status`);
+                assert.match(res.headers.get("cache-control") ?? "", /max-age=3600/, `${lang} cache-control`);
+                const payload = await res.json();
+                assert.equal(payload.targetLanguage?.code, lang, `${lang} code`);
+                assert.equal(Object.keys(payload.strings ?? {}).length, 128, `${lang} key count`);
+                if (lang === "en") {
+                  assert.equal(payload.strings.modePhrasebook, "Phrasebook");
+                } else {
+                  assert.notEqual(payload.strings.modePhrasebook, "Phrasebook", `${lang} translated`);
+                }
               }
-            }
-            console.log("Verified /api/ui/translations bundled fast-path (en, es, ar, ja).");
+              console.log("Verified /api/ui/translations bundled fast-path (en, es, ar, ja).");
+            })().catch((err) => {
+              console.error(err);
+              process.exit(1);
+            });
           '
 
   mobile-checks:
