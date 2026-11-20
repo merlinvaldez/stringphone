@@ -22,6 +22,7 @@ import { getNativeLanguageName } from '../components/LanguageFlag';
 import type { MessageRow } from '../storage/history';
 import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
+import { compactLabelStyle } from './presentation';
 import { TranscriptCarousel } from './TranscriptCarousel';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
@@ -71,6 +72,7 @@ export function SingleView({ chat, state, loadError }: Props) {
   const activeAction = liveFlow.activeAction;
   const myStrings = useUiStrings(state.myLanguage);
   const theirStrings = useUiStrings(state.theirLanguage);
+  const activeUiLanguage = activeAction === 'listen' ? state.theirLanguage : state.myLanguage;
   const strings = activeAction === 'listen' ? theirStrings : myStrings;
 
   const displayMessages: MessageRow[] = liveFlow.liveDraft
@@ -137,7 +139,7 @@ export function SingleView({ chat, state, loadError }: Props) {
       <View style={styles.stage}>
         <View style={styles.topStatusSlot}>
           {isStarting && (
-            <Text style={styles.connectingStatusText}>{strings.connecting}</Text>
+            <Text style={[styles.connectingStatusText, compactLabelStyle(activeUiLanguage)]}>{strings.connecting}</Text>
           )}
           {isRecording && (
             <View style={styles.recordingPill}>
@@ -151,7 +153,7 @@ export function SingleView({ chat, state, loadError }: Props) {
             </View>
           )}
           {isProcessing && (
-            <Text style={styles.translatingStatusText}>{strings.translating}</Text>
+            <Text style={[styles.translatingStatusText, compactLabelStyle(activeUiLanguage)]}>{strings.translating}</Text>
           )}
         </View>
 
@@ -254,7 +256,14 @@ export function SingleView({ chat, state, loadError }: Props) {
               ) : (
                 <>
                   <Feather name="mic" size={24} color={palette.text} />
-                  <Text style={styles.actionLabel}>{strings.speak}</Text>
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    style={[styles.actionLabel, compactLabelStyle(activeUiLanguage)]}
+                  >
+                    {strings.speak}
+                  </Text>
                 </>
               )}
             </Pressable>
@@ -288,7 +297,14 @@ export function SingleView({ chat, state, loadError }: Props) {
               ) : (
                 <>
                   <Feather name="headphones" size={24} color={palette.text} />
-                  <Text style={styles.actionLabel}>{strings.listen}</Text>
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    style={[styles.actionLabel, compactLabelStyle(activeUiLanguage)]}
+                  >
+                    {strings.listen}
+                  </Text>
                 </>
               )}
             </Pressable>
@@ -345,7 +361,8 @@ export function SingleView({ chat, state, loadError }: Props) {
           onClose={() => setHistoryVisible(false)}
           state={state}
           chat={chat}
-          newLabel="New Conversation"
+          strings={myStrings}
+          newLabel={myStrings.newConversation}
           onNewChat={() => {
             void chat.newModeConversation('single').then(() => setHistoryVisible(false));
           }}

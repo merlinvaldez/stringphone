@@ -22,6 +22,7 @@ import { getNativeLanguageName } from '../components/LanguageFlag';
 import type { MessageRow } from '../storage/history';
 import type { ChatState, createTextChatController } from './controller';
 import { HistorySheet } from './HistorySheet';
+import { compactLabelStyle } from './presentation';
 import { TranscriptCarousel } from './TranscriptCarousel';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
@@ -203,7 +204,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
       >
         <View style={styles.statusSlot}>
           {!!statusLabel && (
-            <Text style={[styles.statusLabelText, { color: statusColor }]}>
+            <Text style={[styles.statusLabelText, compactLabelStyle(currentLang), { color: statusColor }]}>
               {statusLabel}
             </Text>
           )}
@@ -234,7 +235,14 @@ export function ConversationView({ chat, state, loadError }: Props) {
           ) : (
             <>
               <Feather name="mic" size={20} color={palette.text} />
-              <Text style={styles.micTapLabel}>{strings.tap}</Text>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={[styles.micTapLabel, compactLabelStyle(currentLang)]}
+              >
+                {strings.tap}
+              </Text>
             </>
           )}
         </Pressable>
@@ -367,7 +375,8 @@ export function ConversationView({ chat, state, loadError }: Props) {
           onClose={() => setHistoryVisible(false)}
           state={state}
           chat={chat}
-          newLabel="New Conversation"
+          strings={myStrings}
+          newLabel={myStrings.newConversation}
           onNewChat={() => {
             void chat.newModeConversation('conversation').then(() => setHistoryVisible(false));
           }}

@@ -26,7 +26,7 @@ import type { MessageRow } from '../storage/history';
 import type { ChatState, createTextChatController } from './controller';
 import { MessageCard } from './MessageCard';
 import { HistorySheet } from './HistorySheet';
-import { messageDirection } from './presentation';
+import { compactLabelStyle, messageDirection } from './presentation';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 import { useLiveTurnFlow } from '../live/useLiveTurnFlow';
@@ -374,7 +374,7 @@ export function ChatView({ chat, state, loadError }: Props) {
                       isRecording ? styles.dotRose : isStarting ? styles.dotSky : styles.dotAmber,
                     ]}
                   />
-                  <Text style={styles.recordingBannerText}>
+                  <Text style={[styles.recordingBannerText, compactLabelStyle(state.myLanguage)]}>
                     {isStarting
                       ? strings.connectingMicrophone
                       : isRecording
@@ -455,6 +455,7 @@ export function ChatView({ chat, state, loadError }: Props) {
             onClose={() => setHistoryVisible(false)}
             state={state}
             chat={chat}
+            strings={strings}
             onNewChat={() => {
               void chat.newConversation().then(() => setHistoryVisible(false));
             }}

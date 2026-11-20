@@ -4,40 +4,47 @@ import { StatusBar } from 'expo-status-bar';
 import { router, Slot, usePathname } from 'expo-router';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { interpolateTemplate } from '../../../shared/uiStrings';
 import {
   clearActiveConversationVoiceClones,
   getActiveConversationVoiceCloneStatus,
+  getActiveMyLanguage,
   getActiveTtsVoice,
   getActiveTtsVoiceMode,
+  getNativeTextChat,
   setNativeTtsVoice,
   setNativeTtsVoiceMode,
+  subscribeMyLanguage,
   subscribeTtsVoice,
   subscribeTtsVoiceMode,
 } from '../chat/native';
+import { compactLabelStyle } from '../chat/presentation';
+import { useUiStrings } from '../chat/useUiStrings';
 import type { TtsVoiceMode } from '../storage/history';
 import { palette } from '../theme';
 
 const MODES = [
-  { route: '/', label: 'Chat', icon: 'message-square' },
-  { route: '/single', label: 'Single', icon: 'user' },
-  { route: '/conversation', label: 'Conversation', icon: 'users' },
-  { route: '/phrasebook', label: 'Phrasebook', icon: 'bookmark' },
+  { route: '/', labelKey: 'modeChat', icon: 'message-square' },
+  { route: '/single', labelKey: 'modeSingle', icon: 'user' },
+  { route: '/conversation', labelKey: 'modeConversation', icon: 'users' },
+  { route: '/phrasebook', labelKey: 'modePhrasebook', icon: 'bookmark' },
 ] as const;
 
 const VOICE_OPTIONS = [
-  { id: 'marin' as const, label: 'Female' },
-  { id: 'onyx' as const, label: 'Male' },
+  { id: 'marin' as const, labelKey: 'female' as const },
+  { id: 'onyx' as const, labelKey: 'male' as const },
 ];
 
-const VOICE_MODE_OPTIONS: ReadonlyArray<{ id: TtsVoiceMode; label: string }> = [
-  { id: 'ai_tts', label: 'AI TTS voice' },
-  { id: 'voice_clone', label: 'Voice clone' },
+const VOICE_MODE_OPTIONS: readonly { id: TtsVoiceMode; labelKey: 'aiTtsVoice' | 'voiceClone' }[] = [
+  { id: 'ai_tts', labelKey: 'aiTtsVoice' },
+  { id: 'voice_clone', labelKey: 'voiceClone' },
 ];
 
 export function AppShell() {
   const pathname = usePathname();
   const activeRoute = pathname === '/' ? '/' : `/${pathname.split('/')[1]}`;
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
+  const [myLanguage, setMyLanguage] = useState(getActiveMyLanguage);
   const [ttsVoice, setTtsVoice] = useState<'marin' | 'onyx'>(getActiveTtsVoice);
   const [ttsVoiceMode, setTtsVoiceMode] = useState<TtsVoiceMode>(getActiveTtsVoiceMode);
   const [cloneStatus, setCloneStatus] = useState<{ conversationId: string | null; count: number }>({
@@ -47,8 +54,14 @@ export function AppShell() {
   const [clearingClones, setClearingClones] = useState(false);
   const [justClearedClones, setJustClearedClones] = useState(false);
 
+  const strings = useUiStrings(myLanguage);
+
+  useEffect(() => subscribeMyLanguage(setMyLanguage), []);
   useEffect(() => subscribeTtsVoice(setTtsVoice), []);
   useEffect(() => subscribeTtsVoiceMode(setTtsVoiceMode), []);
+  useEffect(() => {
+    void getNativeTextChat().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!voiceMenuOpen) return;
@@ -73,7 +86,7 @@ export function AppShell() {
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Return home"
+            accessibilityLabel={strings.returnHome}
             onPress={() => {
               if (activeRoute !== '/') router.replace('/');
             }}
@@ -85,14 +98,14 @@ export function AppShell() {
               style={styles.brandMark}
             />
           </Pressable>
-          <View accessibilityRole="tablist" accessibilityLabel="StringPhone modes" style={styles.modeSwitcher}>
-            {MODES.map(({ route, label, icon }) => {
+          <View accessibilityRole="tablist" accessibilityLabel={strings.stringPhoneModes} style={styles.modeSwitcher}>
+            {MODES.map(({ route, labelKey, icon }) => {
               const selected = activeRoute === route;
               return (
                 <Pressable
                   key={route}
                   accessibilityRole="tab"
-                  accessibilityLabel={label}
+                  accessibilityLabel={strings[labelKey]}
                   accessibilityState={{ selected }}
                   onPress={() => {
                     if (!selected) router.replace(route);
@@ -106,7 +119,7 @@ export function AppShell() {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="AI TTS voice settings"
+            accessibilityLabel={strings.voiceSettings}
             onPress={() => setVoiceMenuOpen(true)}
             style={styles.voiceMenuTrigger}
           >
@@ -126,15 +139,16 @@ export function AppShell() {
       >
         <Pressable style={styles.menuBackdrop} onPress={() => setVoiceMenuOpen(false)}>
           <Pressable style={styles.menuPopover} onPress={event => event.stopPropagation()}>
-            <Text style={styles.menuHeading}>Speech voice</Text>
+            <Text style={[styles.menuHeading, compactLabelStyle(myLanguage)]}>{strings.speechVoice}</Text>
             <View style={styles.voiceGrid}>
               {VOICE_MODE_OPTIONS.map(option => {
                 const selected = ttsVoiceMode === option.id;
+                const label = strings[option.labelKey];
                 return (
                   <Pressable
                     key={option.id}
                     accessibilityRole="button"
-                    accessibilityLabel={option.label}
+                    accessibilityLabel={label}
                     accessibilityState={{ selected }}
                     onPress={() => {
                       setJustClearedClones(false);
@@ -143,7 +157,7 @@ export function AppShell() {
                     style={[styles.voiceOption, selected && styles.voiceOptionSelected]}
                   >
                     <Text style={[styles.voiceOptionText, selected && styles.voiceOptionTextSelected]}>
-                      {option.label}
+                      {label}
                     </Text>
                   </Pressable>
                 );
@@ -153,11 +167,12 @@ export function AppShell() {
               <View style={[styles.voiceGrid, styles.subGrid]}>
                 {VOICE_OPTIONS.map(option => {
                   const selected = ttsVoice === option.id;
+                  const label = strings[option.labelKey];
                   return (
                     <Pressable
                       key={option.id}
                       accessibilityRole="button"
-                      accessibilityLabel={`${option.label} AI TTS voice`}
+                      accessibilityLabel={`${label} ${strings.aiTtsVoice}`}
                       accessibilityState={{ selected }}
                       onPress={() => {
                         void setNativeTtsVoice(option.id);
@@ -166,7 +181,7 @@ export function AppShell() {
                       style={[styles.voiceOption, selected && styles.voiceOptionSelected]}
                     >
                       <Text style={[styles.voiceOptionText, selected && styles.voiceOptionTextSelected]}>
-                        {option.label}
+                        {label}
                       </Text>
                     </Pressable>
                   );
@@ -176,16 +191,18 @@ export function AppShell() {
               <View style={styles.clonePanel}>
                 <Text style={styles.cloneStatusText}>
                   {justClearedClones
-                    ? 'Cloned voices cleared. Record 10s to clone again.'
+                    ? strings.clonedVoicesCleared
                     : !cloneStatus.conversationId
-                      ? 'Open a chat to manage cloned voices.'
+                      ? strings.openChatForClones
                       : cloneStatus.count > 0
-                        ? `${cloneStatus.count} cloned ${cloneStatus.count === 1 ? 'voice' : 'voices'} in this chat.`
-                        : 'No cloned voices in this chat yet.'}
+                        ? cloneStatus.count === 1
+                          ? strings.clonedVoiceCountOne
+                          : interpolateTemplate(strings.clonedVoiceCountMany, { count: cloneStatus.count })
+                        : strings.noClonedVoices}
                 </Text>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Clear cloned voices"
+                  accessibilityLabel={strings.clearClonedVoices}
                   accessibilityState={{ disabled: clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0 }}
                   disabled={clearingClones || !cloneStatus.conversationId || cloneStatus.count === 0}
                   onPress={async () => {
@@ -206,7 +223,7 @@ export function AppShell() {
                 >
                   <Feather name="rotate-ccw" size={12} color={palette.text} />
                   <Text style={styles.clearCloneButtonText}>
-                    {clearingClones ? 'Clearing...' : 'Clear cloned voices'}
+                    {clearingClones ? strings.clearing : strings.clearClonedVoices}
                   </Text>
                 </Pressable>
               </View>

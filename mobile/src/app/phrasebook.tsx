@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { interpolateTemplate } from '../../../shared/uiStrings';
 import { ActionButton } from '../components/ActionButton';
 import {
   LanguageFlag,
@@ -25,7 +26,8 @@ import {
 import { getNativePhrasebookServices, getNativeTextChat } from '../chat/native';
 import { INITIAL_CHAT_STATE } from '../chat/controller';
 import { HistorySheet } from '../chat/HistorySheet';
-import { messageDirection } from '../chat/presentation';
+import { compactLabelStyle, messageDirection } from '../chat/presentation';
+import { useUiStrings } from '../chat/useUiStrings';
 import type { PhrasebookInput, PhrasebookRow } from '../storage/phrasebook';
 import {
   createTranslatedNativePhrasebookEntry,
@@ -50,6 +52,7 @@ export default function PhrasebookScreen() {
   const params = useLocalSearchParams<{ lang?: string }>();
   const [chat, setChat] = useState<Awaited<ReturnType<typeof getNativeTextChat>> | null>(null);
   const [state, setState] = useState(INITIAL_CHAT_STATE);
+  const strings = useUiStrings(state.myLanguage);
   const playback = usePhrasebookAudioPlayback();
 
   useEffect(() => {
@@ -356,7 +359,7 @@ export default function PhrasebookScreen() {
       <View style={styles.topNavRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Open history"
+          accessibilityLabel={strings.openHistory}
           disabled={!chat}
           onPress={() => setHistoryVisible(true)}
           style={styles.circleNavBtn}
@@ -367,7 +370,7 @@ export default function PhrasebookScreen() {
         {activeLanguageCode && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to phrasebook"
+            accessibilityLabel={strings.backToPhrasebook}
             onPress={() => {
               setOpenActionEntryId(null);
               setViewingIndex(null);
@@ -394,11 +397,13 @@ export default function PhrasebookScreen() {
                 <View style={styles.emeraldIconBadge}>
                   <Feather name="bookmark" size={18} color="#A7F3D0" />
                 </View>
-                <Text style={styles.heroBadgeLabel}>PHRASEBOOK</Text>
+                <Text style={[styles.heroBadgeLabel, compactLabelStyle(state.myLanguage)]}>
+                  {strings.modePhrasebook}
+                </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Add phrasebook card"
+                accessibilityLabel={strings.addPhrasebookCard}
                 onPress={() => openComposer()}
                 style={styles.addCircleBtn}
               >
@@ -407,14 +412,14 @@ export default function PhrasebookScreen() {
             </View>
 
             <Text style={styles.heroSubtitle}>
-              Words and phrases you want to remember.
+              {strings.phrasebookSubtitle}
             </Text>
 
             <View style={styles.searchBox}>
               <Feather name="search" size={16} color={palette.textSubtle} />
               <TextInput
-                accessibilityLabel="Search phrasebook"
-                placeholder="Search phrasebook"
+                accessibilityLabel={strings.searchPhrasebook}
+                placeholder={strings.searchPhrasebook}
                 placeholderTextColor={palette.textSubtle}
                 value={query}
                 onChangeText={setQuery}
@@ -424,7 +429,7 @@ export default function PhrasebookScreen() {
               {!!query && (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Clear search"
+                  accessibilityLabel={strings.clearSearch}
                   onPress={() => {
                     setQuery('');
                     setCommittedQuery('');
@@ -456,7 +461,7 @@ export default function PhrasebookScreen() {
           )}
           {maintenancePending && (
             <ActionButton
-              label="Retry storage cleanup"
+              label={strings.retryStorageCleanup}
               tone="secondary"
               disabled={mutating}
               onPress={() => {
@@ -473,12 +478,15 @@ export default function PhrasebookScreen() {
             ) : collections.length === 0 ? (
               <View style={styles.emptyCardState}>
                 <Text style={styles.emptyCardText}>
-                  {committedQuery ? 'No phrasebook cards match your search.' : 'No phrasebook cards yet.'}
+                  {committedQuery ? strings.noMatchingPhrasebookCards : strings.noPhrasebookCardsYet}
                 </Text>
               </View>
             ) : (
               collections.map((collection, idx) => {
-                const countLabel = `${collection.entryCount} ${collection.entryCount === 1 ? 'card' : 'cards'}`;
+                const countLabel = interpolateTemplate(
+                  collection.entryCount === 1 ? strings.cardCountOne : strings.cardCountMany,
+                  { count: collection.entryCount },
+                );
                 return (
                   <Pressable
                     key={collection.languageCode}
@@ -527,7 +535,10 @@ export default function PhrasebookScreen() {
                       {activeCollection?.languageName}
                     </Text>
                     <Text style={styles.collectionCount}>
-                      {`${entries.length} ${entries.length === 1 ? 'card' : 'cards'}`}
+                      {interpolateTemplate(
+                        entries.length === 1 ? strings.cardCountOne : strings.cardCountMany,
+                        { count: entries.length },
+                      )}
                     </Text>
                   </View>
                 </View>
@@ -535,8 +546,12 @@ export default function PhrasebookScreen() {
                 <View style={styles.searchBox}>
                   <Feather name="search" size={16} color={palette.textSubtle} />
                   <TextInput
-                    accessibilityLabel={`Search ${activeCollection?.languageName || 'cards'}`}
-                    placeholder={`Search ${activeCollection?.languageName || 'cards'}`}
+                    accessibilityLabel={interpolateTemplate(strings.searchLanguageCards, {
+                      language: activeCollection?.languageName || '',
+                    }).trim()}
+                    placeholder={interpolateTemplate(strings.searchLanguageCards, {
+                      language: activeCollection?.languageName || '',
+                    }).trim()}
                     placeholderTextColor={palette.textSubtle}
                     value={query}
                     onChangeText={setQuery}
@@ -546,7 +561,7 @@ export default function PhrasebookScreen() {
                   {!!query && (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Clear search"
+                      accessibilityLabel={strings.clearSearch}
                       onPress={() => {
                         setQuery('');
                         setCommittedQuery('');
@@ -560,7 +575,7 @@ export default function PhrasebookScreen() {
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Add phrasebook card"
+                accessibilityLabel={strings.addPhrasebookCard}
                 onPress={() => openComposer(activeLanguageCode)}
                 style={styles.fullWidthAddBtn}
               >
@@ -587,7 +602,7 @@ export default function PhrasebookScreen() {
               )}
               {maintenancePending && (
                 <ActionButton
-                  label="Retry storage cleanup"
+                  label={strings.retryStorageCleanup}
                   tone="secondary"
                   disabled={mutating}
                   onPress={() => {
@@ -605,7 +620,7 @@ export default function PhrasebookScreen() {
             ) : (
               <View style={styles.emptyDetailCard}>
                 <Text style={styles.emptyCardText}>
-                  {committedQuery ? 'No cards match your search.' : 'No cards in this language yet.'}
+                  {committedQuery ? strings.noMatchingCards : strings.noCardsInLanguageYet}
                 </Text>
               </View>
             )
@@ -649,7 +664,7 @@ export default function PhrasebookScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={
-                      isPlayingTarget ? 'Stop phrase audio' : 'Play phrase audio'
+                      isPlayingTarget ? strings.stopOriginalAudio : strings.playPhrase
                     }
                     disabled={mutating || isGeneratingTarget}
                     onPress={() => {
@@ -686,7 +701,7 @@ export default function PhrasebookScreen() {
                       <>
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel="Edit card"
+                          accessibilityLabel={strings.editCard}
                           disabled={mutating}
                           onPress={() => {
                             setOpenActionEntryId(null);
@@ -699,7 +714,7 @@ export default function PhrasebookScreen() {
                         </Pressable>
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel="Delete card"
+                          accessibilityLabel={strings.deleteCard}
                           disabled={mutating}
                           onPress={() => {
                             void removePhrase(item.id);
@@ -712,7 +727,7 @@ export default function PhrasebookScreen() {
                     )}
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Card actions"
+                      accessibilityLabel={strings.cardActions}
                       onPress={() =>
                         setOpenActionEntryId(current => (current === item.id ? null : item.id))
                       }
@@ -754,11 +769,13 @@ export default function PhrasebookScreen() {
             <View style={styles.composerHeaderRow}>
               <View style={styles.newCardBadge}>
                 <Feather name="plus" size={14} color="#A7F3D0" />
-                <Text style={styles.newCardBadgeText}>NEW CARD</Text>
+                <Text style={[styles.newCardBadgeText, compactLabelStyle(state.myLanguage)]}>
+                  {strings.newCard}
+                </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close composer"
+                accessibilityLabel={strings.close}
                 disabled={composerSaving}
                 onPress={() => setComposerOpen(false)}
                 style={styles.modalCloseBtn}
@@ -771,7 +788,7 @@ export default function PhrasebookScreen() {
               <View style={styles.composerLangSection}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Select target language"
+                  accessibilityLabel={strings.translationLanguage}
                   onPress={() => setComposerLanguagePickerOpen(open => !open)}
                   style={styles.composerLangButton}
                 >
@@ -793,8 +810,8 @@ export default function PhrasebookScreen() {
                     <View style={styles.composerLangSearchRow}>
                       <Feather name="search" size={14} color={palette.textSubtle} />
                       <TextInput
-                        accessibilityLabel="Search languages"
-                        placeholder="Search languages..."
+                        accessibilityLabel={strings.searchLanguages}
+                        placeholder={strings.searchLanguages}
                         placeholderTextColor={palette.textSubtle}
                         value={composerLanguageSearch}
                         onChangeText={setComposerLanguageSearch}
@@ -838,8 +855,8 @@ export default function PhrasebookScreen() {
             )}
 
             <TextInput
-              accessibilityLabel="Word or phrase"
-              placeholder="Word or phrase"
+              accessibilityLabel={strings.wordOrPhrase}
+              placeholder={strings.wordOrPhrase}
               placeholderTextColor={palette.textSubtle}
               value={composerSourceText}
               onChangeText={setComposerSourceText}
@@ -848,13 +865,13 @@ export default function PhrasebookScreen() {
               onSubmitEditing={() => {
                 void handleSaveComposer();
               }}
-              style={styles.composerInput}
+              style={[styles.composerInput, messageDirection(state.myLanguage)]}
             />
 
             <View style={styles.composerFooterRow}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Manual offline editor"
+                accessibilityLabel={strings.manualFields}
                 disabled={composerSaving}
                 onPress={() => {
                   setComposerOpen(false);
@@ -862,12 +879,12 @@ export default function PhrasebookScreen() {
                   setEditorVisible(true);
                 }}
               >
-                <Text style={styles.manualLinkText}>Manual fields</Text>
+                <Text style={styles.manualLinkText}>{strings.manualFields}</Text>
               </Pressable>
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={composerSaving ? 'Translating' : 'Save'}
+                accessibilityLabel={composerSaving ? strings.translating : strings.save}
                 disabled={!composerSourceText.trim() || composerSaving}
                 onPress={() => {
                   void handleSaveComposer();
@@ -879,7 +896,7 @@ export default function PhrasebookScreen() {
               >
                 {composerSaving && <ActivityIndicator size={14} color="#09090B" />}
                 <Text style={styles.composerSaveBtnText}>
-                  {composerSaving ? 'Translating...' : 'Save'}
+                  {composerSaving ? strings.translatingShort : strings.save}
                 </Text>
               </Pressable>
             </View>
@@ -916,7 +933,7 @@ export default function PhrasebookScreen() {
               <View style={styles.viewerTopBar}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Random card"
+                  accessibilityLabel={strings.randomCard}
                   disabled={entries.length <= 1}
                   onPress={shuffleViewer}
                   style={[styles.viewerTopBtn, entries.length <= 1 && styles.disabledBtn]}
@@ -929,7 +946,7 @@ export default function PhrasebookScreen() {
                 {entries.length > 1 && (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Previous card"
+                    accessibilityLabel={strings.previousCard}
                     onPress={() => stepViewer(-1)}
                     style={styles.viewerArrowBtn}
                   >
@@ -940,7 +957,7 @@ export default function PhrasebookScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={
-                    viewerFlipped ? 'Show phrase side' : 'Show translation side'
+                    viewerFlipped ? strings.phrase : strings.translation
                   }
                   onPress={() => setViewerFlipped(flipped => !flipped)}
                   style={[
@@ -950,7 +967,7 @@ export default function PhrasebookScreen() {
                 >
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Close card viewer"
+                    accessibilityLabel={strings.close}
                     hitSlop={12}
                     onPress={e => {
                       e?.stopPropagation?.();
@@ -974,7 +991,7 @@ export default function PhrasebookScreen() {
                         </Text>
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel="Play phrase audio"
+                          accessibilityLabel={strings.playPhrase}
                           onPress={() => {
                             void playback.play(currentViewedEntry.id, 'translated');
                           }}
@@ -1006,7 +1023,9 @@ export default function PhrasebookScreen() {
                           )}
                         </Text>
                       )}
-                      <Text style={styles.flashcardTapHint}>Tap card to flip</Text>
+                      <Text style={[styles.flashcardTapHint, compactLabelStyle(state.myLanguage)]}>
+                        {strings.tapCardToFlip}
+                      </Text>
                     </View>
                   ) : (
                     <View style={styles.flashcardContent}>
@@ -1021,7 +1040,7 @@ export default function PhrasebookScreen() {
                         </Text>
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel="Play meaning audio"
+                          accessibilityLabel={strings.playTranslation}
                           onPress={() => {
                             void playback.play(currentViewedEntry.id, 'source');
                           }}
@@ -1047,7 +1066,9 @@ export default function PhrasebookScreen() {
                           {formatPronunciation(currentViewedEntry.original_pronunciation)}
                         </Text>
                       )}
-                      <Text style={styles.flashcardTapHint}>Tap card to flip</Text>
+                      <Text style={[styles.flashcardTapHint, compactLabelStyle(state.myLanguage)]}>
+                        {strings.tapCardToFlip}
+                      </Text>
                     </View>
                   )}
                 </Pressable>
@@ -1055,7 +1076,7 @@ export default function PhrasebookScreen() {
                 {entries.length > 1 && (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Next card"
+                    accessibilityLabel={strings.nextCard}
                     onPress={() => stepViewer(1)}
                     style={styles.viewerArrowBtn}
                   >
@@ -1073,6 +1094,7 @@ export default function PhrasebookScreen() {
           visible
           phrase={editingPhrase}
           busy={mutating}
+          strings={strings}
           onClose={() => {
             setEditorVisible(false);
             setEditingPhrase(null);
@@ -1089,6 +1111,7 @@ export default function PhrasebookScreen() {
           onClose={() => setHistoryVisible(false)}
           state={state}
           chat={chat}
+          strings={strings}
           initialView="phrasebook"
           activePhrasebookLanguageCode={activeLanguageCode}
           onSelectPhrasebookLanguage={code => {

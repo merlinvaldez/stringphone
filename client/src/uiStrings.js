@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { ENGLISH_UI_STRINGS } from "../../shared/uiStrings.ts";
+import {
+  ENGLISH_UI_STRINGS,
+  coerceUiStrings,
+  isCompleteUiStringCatalog,
+} from "../../shared/uiStrings.ts";
+import { BUNDLED_UI_STRINGS } from "../../shared/bundledUiStrings.ts";
 export { interpolateTemplate } from "../../shared/uiStrings.ts";
 
 const API_BASE_URL =
@@ -72,13 +77,21 @@ export function getShareInviteMessage(languageCode) {
 const uiStringCache = new Map([["en", DEFAULT_UI_STRINGS]]);
 const uiStringInflight = new Map();
 
+for (const [code, catalog] of Object.entries(BUNDLED_UI_STRINGS)) {
+  const normalizedCode = code.trim().toLowerCase();
+  if (normalizedCode && normalizedCode !== "en" && isCompleteUiStringCatalog(catalog)) {
+    uiStringCache.set(normalizedCode, coerceUiStrings(catalog));
+  }
+}
+
 export async function loadUiStrings(languageCode) {
-  if (uiStringCache.has(languageCode)) {
-    return uiStringCache.get(languageCode);
+  const normalizedCode = (languageCode || "en").trim().toLowerCase() || "en";
+  if (uiStringCache.has(normalizedCode)) {
+    return uiStringCache.get(normalizedCode);
   }
 
-  if (uiStringInflight.has(languageCode)) {
-    return uiStringInflight.get(languageCode);
+  if (uiStringInflight.has(normalizedCode)) {
+    return uiStringInflight.get(normalizedCode);
   }
 
   const request = fetch(`${API_BASE_URL}/ui/translations`, {
@@ -86,7 +99,7 @@ export async function loadUiStrings(languageCode) {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ targetLanguage: languageCode }),
+    body: JSON.stringify({ targetLanguage: normalizedCode }),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -95,26 +108,25 @@ export async function loadUiStrings(languageCode) {
 
       const payload = await response.json();
       const strings = {
-        ...buildFallbackUiStrings(languageCode),
+        ...buildFallbackUiStrings(normalizedCode),
         ...(payload.strings ?? {}),
       };
-      uiStringCache.set(languageCode, strings);
+      uiStringCache.set(normalizedCode, strings);
       return strings;
     })
-    .catch(() => buildFallbackUiStrings(languageCode))
+    .catch(() => buildFallbackUiStrings(normalizedCode))
     .finally(() => {
-      uiStringInflight.delete(languageCode);
+      uiStringInflight.delete(normalizedCode);
     });
 
-  uiStringInflight.set(languageCode, request);
+  uiStringInflight.set(normalizedCode, request);
   return request;
 }
 
 export function useUiStrings(language) {
-  const languageCode = language?.code ?? "en";
-  const [strings, setStrings] = useState(
-    uiStringCache.get(languageCode) ?? DEFAULT_UI_STRINGS,
-  );
+  const languageCode = (language?.code ?? "en").trim().toLowerCase() || "en";
+  const cachedSync = uiStringCache.get(languageCode);
+  const [strings, setStrings] = useState(cachedSync ?? DEFAULT_UI_STRINGS);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +134,7 @@ export function useUiStrings(language) {
 
     if (cachedStrings) {
       setStrings(cachedStrings);
+      return undefined;
     }
 
     loadUiStrings(languageCode).then((loadedStrings) => {
@@ -135,7 +148,7 @@ export function useUiStrings(language) {
     };
   }, [languageCode]);
 
-  return strings;
+  return cachedSync ?? strings;
 }
 
 export function getStatusLabel(status, uiStrings = DEFAULT_UI_STRINGS) {

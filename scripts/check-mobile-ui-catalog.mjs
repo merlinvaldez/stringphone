@@ -1,5 +1,21 @@
 import { getApiUrl } from '../mobile/src/config/api.ts';
-import { UI_STRING_KEYS } from '../shared/uiStrings.ts';
+import { BUNDLED_UI_STRINGS } from '../shared/bundledUiStrings.ts';
+import { isCompleteUiStringCatalog, UI_STRING_KEYS } from '../shared/uiStrings.ts';
+
+const incompleteBundled = Object.entries(BUNDLED_UI_STRINGS)
+  .filter(([, catalog]) => !isCompleteUiStringCatalog(catalog))
+  .map(([code]) => code);
+
+if (incompleteBundled.length > 0) {
+  console.error(
+    `Bundled UI translation catalogs are incomplete for: ${incompleteBundled.join(', ')}`,
+  );
+  process.exit(1);
+}
+
+console.log(
+  `Verified ${Object.keys(BUNDLED_UI_STRINGS).length} complete bundled UI translation catalogs (${UI_STRING_KEYS.length} keys each).`,
+);
 
 try {
   const response = await fetch(getApiUrl('/ui/translations'), {

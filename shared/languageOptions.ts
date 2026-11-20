@@ -1,5 +1,72 @@
 import { getSupportedTtsLanguage } from "./languages";
 
+export const NATIVE_LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  es: "Español",
+  fr: "Français",
+  de: "Deutsch",
+  pt: "Português",
+  it: "Italiano",
+  nl: "Nederlands",
+  hi: "हिन्दी",
+  ar: "العربية",
+  fa: "فارسی",
+  zh: "中文",
+  ja: "日本語",
+  ko: "한국어",
+  pl: "Polski",
+  ru: "Русский",
+  sv: "Svenska",
+  tr: "Türkçe",
+  tl: "Tagalog",
+  bg: "Български",
+  ro: "Română",
+  cs: "Čeština",
+  el: "Ελληνικά",
+  fi: "Suomi",
+  hr: "Hrvatski",
+  ms: "Bahasa Melayu",
+  sk: "Slovenčina",
+  da: "Dansk",
+  ta: "தமிழ்",
+  uk: "Українська",
+  hu: "Magyar",
+  no: "Norsk",
+  vi: "Tiếng Việt",
+  bn: "বাংলা",
+  th: "ไทย",
+  he: "עברית",
+  ka: "ქართული",
+  id: "Bahasa Indonesia",
+  te: "తెలుగు",
+  gu: "ગુજરાતી",
+  kn: "ಕನ್ನಡ",
+  ml: "മലയാളം",
+  mr: "मराठी",
+  pa: "ਪੰਜਾਬੀ",
+};
+
+export function getNativeLanguageName(code: string, fallbackName?: string): string {
+  const normalized = (code || "").trim().toLowerCase();
+  if (normalized && Object.prototype.hasOwnProperty.call(NATIVE_LANGUAGE_NAMES, normalized)) {
+    return NATIVE_LANGUAGE_NAMES[normalized];
+  }
+
+  const english = fallbackName ?? getSupportedTtsLanguage(code)?.name ?? code;
+  try {
+    if (typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function") {
+      const displayName = new Intl.DisplayNames([code], { type: "language" }).of(code);
+      if (displayName && displayName.trim()) {
+        return displayName;
+      }
+    }
+  } catch {
+    // Fallback to English name when runtime Intl lacks DisplayNames locale data
+  }
+
+  return english;
+}
+
 // Preserve web picker order and flag fallbacks; names come from the canonical catalog.
 const PICKER_FLAGS = [
   { code: "en", flag: "\uD83C\uDDFA\uD83C\uDDF8" },
@@ -47,8 +114,12 @@ const PICKER_FLAGS = [
   { code: "pa", flag: "IN" },
 ] as const;
 
-export const LANGUAGE_OPTIONS = PICKER_FLAGS.map(({ code, flag }) => ({
-  code,
-  englishName: getSupportedTtsLanguage(code)!.name,
-  flag,
-}));
+export const LANGUAGE_OPTIONS = PICKER_FLAGS.map(({ code, flag }) => {
+  const englishName = getSupportedTtsLanguage(code)!.name;
+  return {
+    code,
+    englishName,
+    nativeName: getNativeLanguageName(code, englishName),
+    flag,
+  };
+});

@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { getSupportedTtsLanguage, LANGUAGE_OPTIONS } from '../shared';
+import { getNativeLanguageName as resolveNativeLanguageName, getSupportedTtsLanguage, LANGUAGE_OPTIONS } from '../shared';
 
 export const LANGUAGE_FLAG_COUNTRY_CODES: Record<string, string> = {
   en: 'US',
@@ -91,18 +91,7 @@ export function getFlagCountryCode(languageCode: string, fallback = '') {
 }
 
 export function getNativeLanguageName(code: string, fallbackName?: string): string {
-  const english = fallbackName ?? getSupportedTtsLanguage(code)?.name ?? code;
-  try {
-    if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function') {
-      const displayName = new Intl.DisplayNames([code], { type: 'language' }).of(code);
-      if (displayName && displayName.trim()) {
-        return displayName;
-      }
-    }
-  } catch {
-    // Fallback to English name when runtime Intl lacks DisplayNames locale data
-  }
-  return english;
+  return resolveNativeLanguageName(code, fallbackName ?? getSupportedTtsLanguage(code)?.name ?? code);
 }
 
 export const MOBILE_LANGUAGE_CATALOG = LANGUAGE_OPTIONS.map(option => {

@@ -23,6 +23,8 @@ let currentTtsVoice: 'marin' | 'onyx' = 'marin';
 const ttsVoiceListeners = new Set<(voice: 'marin' | 'onyx') => void>();
 let currentTtsVoiceMode: TtsVoiceMode = 'voice_clone';
 const ttsVoiceModeListeners = new Set<(mode: TtsVoiceMode) => void>();
+let currentMyLanguage = 'en';
+const myLanguageListeners = new Set<(language: string) => void>();
 let activeController: ReturnType<typeof createTextChatController> | undefined;
 type ResolvedVoiceClone = {
   voiceId: string;
@@ -151,6 +153,18 @@ export async function ensureConversationVoiceClone(
 
   inFlightCloneRequests.set(inFlightKey, task);
   return task;
+}
+
+export function getActiveMyLanguage(): string {
+  return currentMyLanguage;
+}
+
+export function subscribeMyLanguage(listener: (language: string) => void) {
+  myLanguageListeners.add(listener);
+  listener(currentMyLanguage);
+  return () => {
+    myLanguageListeners.delete(listener);
+  };
 }
 
 export function getActiveTtsVoice(): 'marin' | 'onyx' {
@@ -356,11 +370,19 @@ export function getNativeTextChat() {
       const controller = createTextChatController(history, createSavedMessageFlow(history, audio), translateTextMessage, newId, undefined, deletion, voice, audio);
       await controller.initialize();
       const initial = controller.getState();
+      if (initial.myLanguage && initial.myLanguage !== currentMyLanguage) {
+        currentMyLanguage = initial.myLanguage;
+        myLanguageListeners.forEach(listener => listener(currentMyLanguage));
+      }
       if (initial.myLanguage && initial.theirLanguage) {
         prefetchBothTranscriptionSecrets(initial.myLanguage, initial.theirLanguage);
       }
       let lastPrefetched = `${initial.myLanguage}::${initial.theirLanguage}`;
       controller.subscribe(state => {
+        if (state.myLanguage && state.myLanguage !== currentMyLanguage) {
+          currentMyLanguage = state.myLanguage;
+          myLanguageListeners.forEach(listener => listener(currentMyLanguage));
+        }
         if (!state.myLanguage || !state.theirLanguage) return;
         const current = `${state.myLanguage}::${state.theirLanguage}`;
         if (current !== lastPrefetched) {

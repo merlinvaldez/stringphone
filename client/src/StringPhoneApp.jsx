@@ -1,4 +1,7 @@
-import { LANGUAGE_OPTIONS } from "../../shared/languageOptions.ts";
+import {
+  getNativeLanguageName as resolveNativeLanguageName,
+  LANGUAGE_OPTIONS,
+} from "../../shared/languageOptions.ts";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
@@ -118,21 +121,13 @@ const TTS_VOICE_MODE_CLONE = "voice_clone";
 
 
 function getNativeLanguageName(code, fallbackName) {
-  try {
-    const displayName = new Intl.DisplayNames([code], {
-      type: "language",
-    }).of(code);
-
-    return displayName ?? fallbackName;
-  } catch {
-    return fallbackName;
-  }
+  return resolveNativeLanguageName(code, fallbackName);
 }
 
 const LANGUAGES = LANGUAGE_OPTIONS.map((language) => ({
   code: language.code,
   englishName: language.englishName,
-  name: getNativeLanguageName(language.code, language.englishName),
+  name: language.nativeName ?? getNativeLanguageName(language.code, language.englishName),
   flag: getFlagCountryCode(language.code, language.flag),
 }));
 const VOICE_MODE_LANGUAGES = LANGUAGES;

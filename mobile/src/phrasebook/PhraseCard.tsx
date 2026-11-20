@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { ENGLISH_UI_STRINGS, type UiStrings } from '../../../shared/uiStrings';
 import { IconButton } from '../components/IconButton';
 import type { PhrasebookRow } from '../storage/phrasebook';
 import { languageName, messageDirection } from '../chat/presentation';
@@ -7,6 +8,7 @@ import type { PhraseAudioRole } from './usePhrasebookAudioPlayback';
 
 type Props = {
   phrase: PhrasebookRow;
+  strings?: UiStrings;
   disabled: boolean;
   onPlay: (id: string, role: PhraseAudioRole) => void;
   isPlaying: (id: string, role: PhraseAudioRole) => boolean;
@@ -15,7 +17,7 @@ type Props = {
   onDelete: (id: string) => void;
 };
 
-export function PhraseCard({ phrase, disabled, onPlay, isPlaying, isGenerating, onEdit, onDelete }: Props) {
+export function PhraseCard({ phrase, strings = ENGLISH_UI_STRINGS, disabled, onPlay, isPlaying, isGenerating, onEdit, onDelete }: Props) {
   const [isFlipped, setIsFlipped] = useState(false);
   const role: PhraseAudioRole = isFlipped ? 'translated' : 'source';
   const language = isFlipped ? phrase.target_language : phrase.source_language;
@@ -28,25 +30,25 @@ export function PhraseCard({ phrase, disabled, onPlay, isPlaying, isGenerating, 
   return <View style={styles.card}>
     <View style={styles.cardTopline}>
       <Text style={styles.pair}>{languageName(phrase.source_language)} → {languageName(phrase.target_language)}</Text>
-      <IconButton name="edit-2" accessibilityLabel="Edit phrase" disabled={disabled} onPress={() => onEdit(phrase)} size={15} />
-      <IconButton name="trash-2" accessibilityLabel="Delete phrase" disabled={disabled} onPress={() => onDelete(phrase.id)} tone="danger" size={15} />
+      <IconButton name="edit-2" accessibilityLabel={strings.editCard} disabled={disabled} onPress={() => onEdit(phrase)} size={15} />
+      <IconButton name="trash-2" accessibilityLabel={strings.deleteCard} disabled={disabled} onPress={() => onDelete(phrase.id)} tone="danger" size={15} />
     </View>
     <View style={[styles.face, isFlipped ? styles.back : styles.front]}>
       <Text style={[styles.sideLabel, isFlipped ? styles.backLabel : undefined]}>{isFlipped ? languageName(phrase.target_language) : languageName(phrase.source_language)}</Text>
-      <Text selectable accessibilityRole="header" accessibilityLabel={`${isFlipped ? 'Translation' : 'Phrase'}, ${languageName(language)}: ${text}`}
+      <Text selectable accessibilityRole="header" accessibilityLabel={`${isFlipped ? strings.translation : strings.phrase}, ${languageName(language)}: ${text}`}
         style={[styles.text, messageDirection(language), !hasText && styles.missing]}>
-        {hasText ? text : 'Add a translation when you edit this phrase.'}
+        {hasText ? text : strings.addTranslationWhenEditing}
       </Text>
       {!!pronunciation.trim() && <Text selectable style={[styles.pronunciation, isFlipped ? styles.backPronunciation : undefined, messageDirection(language)]}>{pronunciation}</Text>}
-      <Text style={[styles.flipHint, isFlipped ? styles.backLabel : undefined]}>Tap to flip</Text>
+      <Text style={[styles.flipHint, isFlipped ? styles.backLabel : undefined]}>{strings.tapCardToFlip}</Text>
     </View>
     <View style={styles.actions}>
       <IconButton name={playing ? 'square' : generating ? 'loader' : 'volume-2'}
-        accessibilityLabel={playing ? `Stop ${isFlipped ? 'translation' : 'phrase'} audio` : generating ? 'Generating speech' : `Play ${isFlipped ? 'translation' : 'phrase'}`}
+        accessibilityLabel={playing ? (isFlipped ? strings.stopTranslatedAudio : strings.stopOriginalAudio) : generating ? strings.generatingAudio : (isFlipped ? strings.playTranslation : strings.playPhrase)}
         disabled={disabled || generating || !hasText} active={playing} onPress={() => onPlay(phrase.id, role)} size={16} />
-      <Text style={styles.tapLabel}>{isFlipped ? 'Play translation' : 'Play phrase'}</Text>
+      <Text style={styles.tapLabel}>{isFlipped ? strings.playTranslation : strings.playPhrase}</Text>
       <View style={styles.actionSpacer} />
-      <IconButton name="repeat" accessibilityLabel={isFlipped ? 'Show phrase' : 'Show translation'} disabled={disabled}
+      <IconButton name="repeat" accessibilityLabel={isFlipped ? strings.phrase : strings.translation} disabled={disabled}
         active={isFlipped} onPress={() => setIsFlipped(current => !current)} size={15} />
     </View>
   </View>;

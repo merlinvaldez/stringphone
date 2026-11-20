@@ -12,9 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { interpolateTemplate, type UiStrings } from '../../../shared/uiStrings';
 import { ActionButton } from '../components/ActionButton';
 import { LanguageFlag, getNativeLanguageName } from '../components/LanguageFlag';
 import type { ChatState, createTextChatController } from './controller';
+import { useUiStrings } from './useUiStrings';
 import {
   listNativePhrasebookCollections,
   type PhrasebookCollectionSummary,
@@ -26,6 +28,7 @@ type Props = {
   onClose: () => void;
   state: ChatState;
   chat: ReturnType<typeof createTextChatController>;
+  strings?: UiStrings;
   onNewChat?: () => void;
   newLabel?: string;
   initialView?: 'chat' | 'phrasebook';
@@ -33,11 +36,19 @@ type Props = {
   onSelectPhrasebookLanguage?: (languageCode: string | null) => void;
 };
 
-function getDisplayTitle(title: string | null | undefined, myLanguage: string, theirLanguage: string) {
+function getDisplayTitle(
+  title: string | null | undefined,
+  myLanguage: string,
+  theirLanguage: string,
+  uiStrings: UiStrings,
+) {
   const trimmed = typeof title === 'string' ? title.trim() : '';
   if (!trimmed) {
     return `${getNativeLanguageName(myLanguage)} → ${getNativeLanguageName(theirLanguage)}`;
   }
+  if (trimmed === 'New chat') return uiStrings.newChat;
+  if (trimmed === 'Single session') return uiStrings.singleSession;
+  if (trimmed === 'Two-way conversation') return uiStrings.twoWayConversation;
   const colonIdx = trimmed.indexOf(':');
   if (colonIdx !== -1 && colonIdx < trimmed.length - 1 && trimmed.slice(0, colonIdx).includes('→')) {
     return trimmed.slice(colonIdx + 1).trim();
@@ -50,13 +61,17 @@ export function HistorySheet({
   onClose,
   state,
   chat,
+  strings,
   onNewChat,
-  newLabel = 'New Conversation',
+  newLabel,
   initialView = 'chat',
   activePhrasebookLanguageCode = null,
   onSelectPhrasebookLanguage,
 }: Props) {
   const router = useRouter();
+  const fallbackStrings = useUiStrings(state.myLanguage);
+  const uiStrings = strings ?? fallbackStrings;
+  const resolvedNewLabel = newLabel ?? uiStrings.newConversation;
   const [historyView, setHistoryView] = useState<'chat' | 'phrasebook'>(initialView);
   const [query, setQuery] = useState('');
   const [openActionConversationId, setOpenActionConversationId] = useState<string | null>(null);
@@ -135,7 +150,7 @@ export function HistorySheet({
       <View style={styles.overlayRoot}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close history backdrop"
+          accessibilityLabel={uiStrings.closeHistory}
           style={styles.backdrop}
           onPress={onClose}
         />
@@ -143,12 +158,12 @@ export function HistorySheet({
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text accessibilityRole="header" style={styles.title}>
-                History
+                {uiStrings.history}
               </Text>
               <View style={styles.tabGroup}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Chat history"
+                  accessibilityLabel={uiStrings.modeChat}
                   onPress={() => setHistoryView('chat')}
                   style={[styles.tabIconBtn, !isPhrasebookView && styles.tabIconBtnActive]}
                 >
@@ -160,7 +175,7 @@ export function HistorySheet({
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Phrasebook history"
+                  accessibilityLabel={uiStrings.modePhrasebook}
                   onPress={() => setHistoryView('phrasebook')}
                   style={[styles.tabIconBtn, isPhrasebookView && styles.tabIconBtnActive]}
                 >
@@ -174,7 +189,7 @@ export function HistorySheet({
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close history"
+              accessibilityLabel={uiStrings.closeHistory}
               onPress={onClose}
               style={styles.closeBtn}
             >
@@ -186,17 +201,17 @@ export function HistorySheet({
             {isPhrasebookView ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open phrasebook"
+                accessibilityLabel={uiStrings.openPhrasebook}
                 onPress={handleOpenPhrasebookRoot}
                 style={styles.emeraldActionBtn}
               >
                 <Feather name="bookmark" size={16} color="#09090B" />
-                <Text style={styles.emeraldActionBtnText}>Open phrasebook</Text>
+                <Text style={styles.emeraldActionBtnText}>{uiStrings.openPhrasebook}</Text>
               </Pressable>
             ) : (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={newLabel}
+                accessibilityLabel={resolvedNewLabel}
                 disabled={disabled}
                 onPress={() => {
                   if (onNewChat) {
@@ -208,15 +223,15 @@ export function HistorySheet({
                 style={[styles.emeraldActionBtn, disabled && styles.disabledBtn]}
               >
                 <Feather name="plus" size={16} color="#09090B" />
-                <Text style={styles.emeraldActionBtnText}>{newLabel}</Text>
+                <Text style={styles.emeraldActionBtnText}>{resolvedNewLabel}</Text>
               </Pressable>
             )}
 
             <View style={styles.searchWrap}>
               <Feather name="search" size={14} color={palette.textSubtle} />
               <TextInput
-                accessibilityLabel="Search history"
-                placeholder={isPhrasebookView ? 'Search phrasebook' : 'Search titles or messages'}
+                accessibilityLabel={uiStrings.searchHistory}
+                placeholder={isPhrasebookView ? uiStrings.searchPhrasebook : uiStrings.searchTitlesOrMessages}
                 placeholderTextColor={palette.textSubtle}
                 value={query}
                 onChangeText={handleSearchChange}
@@ -227,7 +242,7 @@ export function HistorySheet({
               {!!query && (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Clear search"
+                  accessibilityLabel={uiStrings.clearSearch}
                   onPress={() => handleSearchChange('')}
                 >
                   <Feather name="x" size={14} color={palette.textMuted} />
@@ -244,7 +259,7 @@ export function HistorySheet({
           {state.maintenancePending && (
             <View style={styles.maintenanceWrap}>
               <ActionButton
-                label="Retry storage cleanup"
+                label={uiStrings.retryStorageCleanup}
                 disabled={disabled}
                 onPress={() => {
                   void chat.retryStorageCleanup();
@@ -266,12 +281,15 @@ export function HistorySheet({
                 keyboardShouldPersistTaps="handled"
                 ListEmptyComponent={
                   <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyText}>No phrasebook cards yet</Text>
+                    <Text style={styles.emptyText}>{uiStrings.noPhrasebookCardsYet}</Text>
                   </View>
                 }
                 renderItem={({ item }) => {
                   const isActive = item.languageCode === activePhrasebookLanguageCode;
-                  const countLabel = `${item.entryCount} ${item.entryCount === 1 ? 'card' : 'cards'}`;
+                  const countLabel = interpolateTemplate(
+                    item.entryCount === 1 ? uiStrings.cardCountOne : uiStrings.cardCountMany,
+                    { count: item.entryCount },
+                  );
                   return (
                     <Pressable
                       accessibilityRole="button"
@@ -304,7 +322,7 @@ export function HistorySheet({
                 !state.historyBusy ? (
                   <View style={styles.emptyWrap}>
                     <Text style={styles.emptyText}>
-                      {state.historyQuery.trim() ? 'No conversations match your search' : 'No history yet'}
+                      {state.historyQuery.trim() ? uiStrings.noMatchingConversations : uiStrings.noHistoryYet}
                     </Text>
                   </View>
                 ) : null
@@ -312,7 +330,7 @@ export function HistorySheet({
               ListFooterComponent={
                 state.historyCursor ? (
                   <ActionButton
-                    label="Load more conversations"
+                    label={uiStrings.loadMoreConversations}
                     disabled={disabled}
                     onPress={() => {
                       void chat.loadMoreHistory();
@@ -323,12 +341,12 @@ export function HistorySheet({
               renderItem={({ item }) => {
                 const isActive = item.id === state.conversation?.id;
                 const isActionOpen = openActionConversationId === item.id;
-                const displayTitle = getDisplayTitle(item.title, item.my_language, item.their_language);
+                const displayTitle = getDisplayTitle(item.title, item.my_language, item.their_language, uiStrings);
                 return (
                   <View style={[styles.convRow, isActive && styles.rowActive]}>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Open ${displayTitle}`}
+                      accessibilityLabel={displayTitle}
                       accessibilityState={{ disabled, selected: isActive }}
                       disabled={disabled}
                       onPress={() => {
@@ -353,9 +371,9 @@ export function HistorySheet({
                       <Text style={styles.rowMeta}>
                         {new Date(item.created_at).toLocaleDateString()}
                         {item.origin_mode === 'single'
-                          ? ' · Single'
+                          ? ` · ${uiStrings.modeSingle}`
                           : item.origin_mode === 'conversation'
-                            ? ' · Conversation'
+                            ? ` · ${uiStrings.modeConversation}`
                             : ''}
                       </Text>
                     </Pressable>
@@ -364,7 +382,7 @@ export function HistorySheet({
                       {isActionOpen && (
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel={`Delete ${displayTitle}`}
+                          accessibilityLabel={`${uiStrings.deleteLabel}: ${displayTitle}`}
                           disabled={disabled}
                           onPress={() => {
                             setOpenActionConversationId(null);
@@ -377,7 +395,7 @@ export function HistorySheet({
                       )}
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Conversation actions"
+                        accessibilityLabel={uiStrings.conversationActions}
                         disabled={disabled}
                         onPress={() =>
                           setOpenActionConversationId(current => (current === item.id ? null : item.id))

@@ -1,6 +1,12 @@
+import { BUNDLED_UI_STRINGS } from "../../shared/bundledUiStrings.js";
 import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import { createOpenAiResponse } from "./openai.js";
-import { ENGLISH_UI_STRINGS, coerceUiStrings, type UiStrings } from "./uiStrings.js";
+import {
+  ENGLISH_UI_STRINGS,
+  coerceUiStrings,
+  isCompleteUiStringCatalog,
+  type UiStrings,
+} from "./uiStrings.js";
 
 type TranslationLanguagePayload = {
   code: string;
@@ -61,6 +67,20 @@ export async function runUiTranslations(
         label: targetLanguage.name,
       },
       strings: cachedStrings,
+    };
+  }
+
+  const bundledCatalog = BUNDLED_UI_STRINGS[targetLanguage.code];
+  if (isCompleteUiStringCatalog(bundledCatalog)) {
+    const strings = coerceUiStrings(bundledCatalog);
+    uiTranslationCache.set(targetLanguage.code, strings);
+    return {
+      ok: true,
+      targetLanguage: {
+        code: targetLanguage.code,
+        label: targetLanguage.name,
+      },
+      strings,
     };
   }
 

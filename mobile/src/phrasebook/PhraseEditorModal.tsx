@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ENGLISH_UI_STRINGS, type UiStrings } from '../../../shared/uiStrings';
 import { ActionButton } from '../components/ActionButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { messageDirection } from '../chat/presentation';
@@ -11,11 +12,12 @@ type Props = {
   visible: boolean;
   phrase: PhrasebookRow | null;
   busy: boolean;
+  strings?: UiStrings;
   onClose: () => void;
   onSubmit: (input: PhrasebookInput) => void;
 };
 
-export function PhraseEditorModal({ visible, phrase, busy, onClose, onSubmit }: Props) {
+export function PhraseEditorModal({ visible, phrase, busy, strings = ENGLISH_UI_STRINGS, onClose, onSubmit }: Props) {
   const [sourceLanguage, setSourceLanguage] = useState(() => phrase?.source_language ?? 'en');
   const [targetLanguage, setTargetLanguage] = useState(() => phrase?.target_language ?? 'es');
   const [originalText, setOriginalText] = useState(() => phrase?.original_text ?? '');
@@ -38,24 +40,24 @@ export function PhraseEditorModal({ visible, phrase, busy, onClose, onSubmit }: 
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-          <Text accessibilityRole="header" style={styles.title}>{phrase ? 'Edit phrase' : 'Add a phrase'}</Text>
-          <Text style={styles.note}>Phrase text is stored on this phone. Speech can be generated when you are online.</Text>
+          <Text accessibilityRole="header" style={styles.title}>{phrase ? strings.editPhrase : strings.addAPhrase}</Text>
+          <Text style={styles.note}>{strings.phraseEditorNote}</Text>
           <View style={styles.languages}>
-            <LanguagePicker label="Phrase language" value={sourceLanguage} disabled={busy} onSelect={setSourceLanguage} />
-            <LanguagePicker label="Translation language" value={targetLanguage} disabled={busy} onSelect={setTargetLanguage} />
+            <LanguagePicker strings={strings} label={strings.phraseLanguage} value={sourceLanguage} disabled={busy} onSelect={setSourceLanguage} />
+            <LanguagePicker strings={strings} label={strings.translationLanguage} value={targetLanguage} disabled={busy} onSelect={setTargetLanguage} />
           </View>
-          <TextInput accessibilityLabel="Phrase text" placeholder="Phrase" value={originalText} onChangeText={setOriginalText}
+          <TextInput accessibilityLabel={strings.phrase} placeholder={strings.phrase} placeholderTextColor={palette.textSubtle} value={originalText} onChangeText={setOriginalText}
             multiline textAlignVertical="top" maxLength={5000} style={[styles.input, messageDirection(sourceLanguage)]} />
-          <TextInput accessibilityLabel="Phrase pronunciation" placeholder="Pronunciation (optional)" value={originalPronunciation}
+          <TextInput accessibilityLabel={strings.pronunciationOptional} placeholder={strings.pronunciationOptional} placeholderTextColor={palette.textSubtle} value={originalPronunciation}
             onChangeText={setOriginalPronunciation} multiline textAlignVertical="top" maxLength={5000} style={[styles.input, messageDirection(sourceLanguage)]} />
-          <TextInput accessibilityLabel="Phrase translation" placeholder="Translation (optional)" value={translatedText} onChangeText={setTranslatedText}
+          <TextInput accessibilityLabel={strings.translationOptional} placeholder={strings.translationOptional} placeholderTextColor={palette.textSubtle} value={translatedText} onChangeText={setTranslatedText}
             multiline textAlignVertical="top" maxLength={5000} style={[styles.input, messageDirection(targetLanguage)]} />
-          <TextInput accessibilityLabel="Translation pronunciation" placeholder="Translation pronunciation (optional)" value={translatedPronunciation}
+          <TextInput accessibilityLabel={strings.translationPronunciationOptional} placeholder={strings.translationPronunciationOptional} placeholderTextColor={palette.textSubtle} value={translatedPronunciation}
             onChangeText={setTranslatedPronunciation} multiline textAlignVertical="top" maxLength={5000} style={[styles.input, messageDirection(targetLanguage)]} />
         </ScrollView>
         <View style={styles.actions}>
-          <ActionButton label="Cancel" tone="secondary" disabled={busy} onPress={onClose} />
-          <ActionButton label={busy ? 'Saving...' : 'Save phrase'} disabled={busy || !originalText.trim()} onPress={submit} />
+          <ActionButton label={strings.cancel} tone="secondary" disabled={busy} onPress={onClose} />
+          <ActionButton label={busy ? strings.saving : strings.savePhrase} disabled={busy || !originalText.trim()} onPress={submit} />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

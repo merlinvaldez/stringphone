@@ -34,6 +34,7 @@ jobs:
           java-version: 17
       - run: npm ci
       - run: npm run check:api-config
+      - run: npm run check:server-boundary
       - run: node ../scripts/verify-mobile-ui-strings.mjs
       - name: Check the deployed translation catalog
         run: node ../scripts/check-mobile-ui-catalog.mjs
