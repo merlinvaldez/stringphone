@@ -1,43 +1,11 @@
 import { useEffect, useState } from "react";
+import { ENGLISH_UI_STRINGS } from "../../shared/uiStrings.ts";
+export { interpolateTemplate } from "../../shared/uiStrings.ts";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
-export const DEFAULT_UI_STRINGS = {
-  searchLanguages: "Search languages",
-  you: "You",
-  partner: "Partner",
-  shareInviteMessage:
-    "Let's chat on StringPhone so that we can understand each other better.",
-  listening: "Listening",
-  liveTranslation: "Live translation",
-  liveTranslationFallback: "Fallback translation — phrase-based updates",
-  translating: "Translating",
-  speaking: "Speaking",
-  partnersTurn: "Partner's turn",
-  tap: "Tap",
-  speak: "Speak",
-  listen: "Listen",
-  messageIn: "Type message in {language}",
-  translatingVoiceNote: "Translating voice note...",
-  secondsLeft: "{seconds}s left",
-  recordVoiceNote: "Record voice note",
-  stopVoiceNote: "Stop voice note",
-  invertLanguages: "Invert languages",
-  sendTextMessage: "Send text message",
-  playAudio: "Play audio",
-  pauseAudio: "Pause audio",
-  audioUnavailable: "Audio unavailable.",
-  preparingAudio: "Preparing audio...",
-  translationFailed: "Translation failed.",
-  translatingShort: "Translating...",
-  retry: "Retry",
-  pending: "Pending",
-  transcribing: "Transcribing",
-  generatingAudio: "Generating audio",
-  ready: "Ready",
-  needsRetry: "Needs retry",
-};
+export const DEFAULT_UI_STRINGS = ENGLISH_UI_STRINGS;
 
 const SHARE_INVITE_MESSAGE_BY_LANGUAGE = {
   ar: "لنتحدث على StringPhone حتى نتمكن من فهم بعضنا بشكل أفضل.",
@@ -103,13 +71,6 @@ export function getShareInviteMessage(languageCode) {
 
 const uiStringCache = new Map([["en", DEFAULT_UI_STRINGS]]);
 const uiStringInflight = new Map();
-
-export function interpolateTemplate(template, variables) {
-  return Object.entries(variables).reduce(
-    (output, [key, value]) => output.replaceAll(`{${key}}`, String(value)),
-    template,
-  );
-}
 
 export async function loadUiStrings(languageCode) {
   if (uiStringCache.has(languageCode)) {

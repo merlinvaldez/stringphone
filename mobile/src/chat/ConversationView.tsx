@@ -1,3 +1,5 @@
+import { interpolateTemplate } from '../../../shared/uiStrings';
+import { useUiStrings } from './useUiStrings';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -40,6 +42,8 @@ export function ConversationView({ chat, state, loadError }: Props) {
   const [historyVisible, setHistoryVisible] = useState(false);
 
   const audioPlayback = useAudioPlayback();
+  const myStrings = useUiStrings(state.myLanguage);
+  const theirStrings = useUiStrings(state.theirLanguage);
   const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
   const locked = !chat || state.busy || state.historyBusy;
 
@@ -101,7 +105,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
           source_language: liveFlow.liveDraft.sourceLanguage,
           target_language: liveFlow.liveDraft.targetLanguage,
           original_text: liveFlow.liveDraft.transcript,
-          translated_text: liveFlow.liveDraft.translatedText || 'Translating...',
+          translated_text: liveFlow.liveDraft.translatedText,
           original_pronunciation: null,
           translated_pronunciation: null,
           status: 'pending',
@@ -141,17 +145,18 @@ export function ConversationView({ chat, state, loadError }: Props) {
     const isCurrentRecording = isActive && isRecording;
     const isCurrentProcessing = isActive && isProcessing;
     const currentLang = isTop ? state.theirLanguage : state.myLanguage;
+    const strings = isTop ? theirStrings : myStrings;
     const sectionSpeaker: 'me' | 'them' = isTop ? 'them' : 'me';
     const showWaveform = isCurrentRecording && !liveFlow.liveDraft?.transcript;
 
     const statusLabel = isCurrentRecording
-      ? 'LISTENING'
+      ? strings.listening
       : isCurrentStarting
-        ? 'CONNECTING...'
+        ? strings.connecting
         : isCurrentProcessing
-          ? 'TRANSLATING'
+          ? strings.translating
           : isOtherActive
-            ? "PARTNER'S TURN"
+            ? strings.partnersTurn
             : '';
 
     const statusColor = isCurrentRecording
@@ -171,6 +176,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
           <AudioWave active />
         ) : (
           <TranscriptCarousel
+            strings={strings}
             history={displayMessages}
             viewerLanguageCode={currentLang}
             playbackMode={msg => (msg.speaker === sectionSpeaker ? 'original' : 'translated')}
@@ -207,10 +213,10 @@ export function ConversationView({ chat, state, loadError }: Props) {
           accessibilityRole="button"
           accessibilityLabel={
             isCurrentRecording
-              ? `Stop ${getNativeLanguageName(currentLang)} recording`
+              ? strings.stopRecording
               : isCurrentStarting
-                ? `Connecting ${getNativeLanguageName(currentLang)} microphone`
-                : `Tap to speak (${getNativeLanguageName(currentLang)})`
+                ? strings.connectingMicrophone
+                : `${strings.tapToSpeak} (${getNativeLanguageName(currentLang)})`
           }
           disabled={isOtherActive || isProcessing || (!chat && !isCurrentRecording && !isCurrentStarting)}
           onPress={() => handleMicPress(side)}
@@ -228,7 +234,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
           ) : (
             <>
               <Feather name="mic" size={20} color={palette.text} />
-              <Text style={styles.micTapLabel}>TAP</Text>
+              <Text style={styles.micTapLabel}>{strings.tap}</Text>
             </>
           )}
         </Pressable>
@@ -252,7 +258,8 @@ export function ConversationView({ chat, state, loadError }: Props) {
         <View style={styles.sectionHeader}>
           <View style={styles.languagePickerWrap}>
             <LanguagePicker
-              label={isTop ? 'Partner language' : 'My language'}
+              strings={strings}
+              label={isTop ? strings.theirLanguage : strings.myLanguage}
               value={currentLang}
               disabled={locked || isStarting || isRecording || isProcessing}
               compact
@@ -269,7 +276,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
           {isCurrentRecording && (
             <View style={styles.timerPill}>
               <View style={styles.timerDot} />
-              <Text style={styles.timerText}>{liveFlow.recordingTimer}s</Text>
+              <Text style={styles.timerText}>{interpolateTemplate(strings.secondsLeft, { seconds: liveFlow.recordingTimer })}</Text>
             </View>
           )}
         </View>
@@ -284,7 +291,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
       <View style={styles.floatingToolbar} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Open history"
+          accessibilityLabel={myStrings.openHistory}
           disabled={!chat || isStarting || isRecording || isProcessing}
           onPress={() => setHistoryVisible(true)}
           style={styles.historyBtn}
@@ -300,7 +307,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
           <View style={[styles.dividerLine, isLandscape && styles.dividerLineLandscape]} />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Invert languages"
+            accessibilityLabel={myStrings.invertLanguages}
             disabled={languageControlsDisabled}
             onPress={handleInvertLanguages}
             style={({ pressed }) => [
@@ -345,7 +352,7 @@ export function ConversationView({ chat, state, loadError }: Props) {
       {liveFlow.denied && (
         <View style={styles.settingsRow}>
           <ActionButton
-            label="Open microphone settings"
+            label={myStrings.microphoneSettings}
             tone="secondary"
             onPress={() => {
               void Linking.openSettings();

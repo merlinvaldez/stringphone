@@ -1,0 +1,49 @@
+name: Android test APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/apk-ui-localization
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      APP_VARIANT: development
+      EXPO_PUBLIC_APP_ENV: preview
+      EXPO_PUBLIC_API_URL_PREVIEW: ${{ vars.ANDROID_TEST_API_URL || 'https://stringphone-orcin.vercel.app/api' }}
+      EXPO_NO_DOTENV: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npm run check:api-config
+      - run: node ../scripts/verify-mobile-ui-strings.mjs
+      - run: npx expo prebuild --platform android --no-install
+      - name: Assemble standalone APK
+        working-directory: mobile/android
+        run: ./gradlew app:assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a
+      - name: Prepare download
+        run: cp android/app/build/outputs/apk/release/app-release.apk StringPhone-Debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StringPhone-Debug
+          path: mobile/StringPhone-Debug.apk
+          if-no-files-found: error
+          retention-days: 7

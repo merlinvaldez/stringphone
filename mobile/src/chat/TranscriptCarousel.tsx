@@ -1,3 +1,4 @@
+import { ENGLISH_UI_STRINGS, type UiStrings } from '../../../shared/uiStrings';
 import { useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
@@ -17,6 +18,7 @@ export type PlaybackMode = 'original' | 'translated' | 'both';
 
 export type TranscriptCardProps = {
   message: MessageRow;
+  strings?: UiStrings;
   isActive?: boolean;
   playbackMode?: PlaybackMode | ((msg: MessageRow) => PlaybackMode);
   viewerLanguageCode?: string;
@@ -43,6 +45,7 @@ function formatPronunciationGuide(value: string | null | undefined) {
 
 export function TranscriptCard({
   message,
+  strings = ENGLISH_UI_STRINGS,
   isActive = true,
   playbackMode = 'both',
   viewerLanguageCode,
@@ -88,7 +91,7 @@ export function TranscriptCard({
   const translatedLine = {
     label: targetLanguageLabel,
     languageCode: message.target_language,
-    text: message.translated_text || (message.status === 'pending' ? 'Translating...' : ''),
+    text: message.translated_text || (message.status === 'pending' ? strings.translatingShort : ''),
     pronunciation: formatPronunciationGuide(message.translated_pronunciation),
   };
 
@@ -152,8 +155,8 @@ export function TranscriptCard({
               accessibilityRole="button"
               accessibilityLabel={
                 isPlayingSource
-                  ? `Stop ${sourceLanguageLabel} voice recording`
-                  : `Play ${sourceLanguageLabel} voice recording`
+                  ? strings.stopOriginalAudio
+                  : isGeneratingSourceSpeech ? strings.generatingAudio : strings.playOriginalAudio
               }
               disabled={disabled || isGeneratingSourceSpeech}
               onPress={() => {
@@ -182,8 +185,8 @@ export function TranscriptCard({
               accessibilityRole="button"
               accessibilityLabel={
                 isPlayingTranslated
-                  ? `Stop ${targetLanguageLabel} translation`
-                  : `Play ${targetLanguageLabel} translation`
+                  ? strings.stopTranslatedAudio
+                  : isGeneratingSpeech ? strings.generatingAudio : strings.playTranslatedAudio
               }
               disabled={disabled || isGeneratingSpeech}
               onPress={() => {
@@ -211,7 +214,7 @@ export function TranscriptCard({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                isSavedInPhrasebook ? 'Saved to Phrasebook' : 'Save to Phrasebook'
+                isSavedInPhrasebook ? strings.savedToPhrasebook : isSavingPhrase ? strings.savingPhrase : strings.saveToPhrasebook
               }
               disabled={disabled || isSavedInPhrasebook || isSavingPhrase}
               onPress={() => onSaveToPhrasebook?.(message.id)}
@@ -236,6 +239,7 @@ export function TranscriptCard({
 
 export function TranscriptCarousel({
   history,
+  strings = ENGLISH_UI_STRINGS,
   playbackMode = 'both',
   viewerLanguageCode,
   disabled = false,
@@ -251,6 +255,7 @@ export function TranscriptCarousel({
   compact = false,
 }: {
   history: MessageRow[];
+  strings?: UiStrings;
   playbackMode?: PlaybackMode | ((msg: MessageRow) => PlaybackMode);
   viewerLanguageCode?: string;
   disabled?: boolean;
@@ -292,6 +297,7 @@ export function TranscriptCarousel({
           <TranscriptCard
             key={msg.id}
             message={msg}
+            strings={strings}
             isActive={isLatest}
             playbackMode={playbackMode}
             viewerLanguageCode={viewerLanguageCode}

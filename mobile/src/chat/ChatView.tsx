@@ -1,3 +1,5 @@
+import { interpolateTemplate } from '../../../shared/uiStrings';
+import { useUiStrings } from './useUiStrings';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -67,7 +69,9 @@ export function ChatView({ chat, state, loadError }: Props) {
   const hasDraft = Boolean(draft.trim());
   const sendDisabled = locked || !id || !hasDraft || isStarting || isRecording || isProcessing;
   const languageControlsDisabled = locked || isStarting || isRecording || isProcessing;
+  const strings = useUiStrings(state.myLanguage);
   const myNativeLanguageName = getNativeLanguageName(state.myLanguage);
+  const composerLabel = interpolateTemplate(strings.messageIn, { language: myNativeLanguageName });
 
   useEffect(() => {
     if (isFocused && !state.busy && chat && !state.conversation) {
@@ -180,7 +184,7 @@ export function ChatView({ chat, state, loadError }: Props) {
         <View style={styles.chatHeader}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Open history"
+            accessibilityLabel={strings.openHistory}
             disabled={!chat}
             onPress={() => setHistoryVisible(true)}
             style={styles.headerIconBtn}
@@ -189,7 +193,8 @@ export function ChatView({ chat, state, loadError }: Props) {
           </Pressable>
           <View style={styles.languagePickerWrap}>
             <LanguagePicker
-              label="My language"
+              strings={strings}
+              label={strings.myLanguage}
               value={state.myLanguage}
               disabled={languageControlsDisabled}
               compact
@@ -200,7 +205,7 @@ export function ChatView({ chat, state, loadError }: Props) {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Invert languages"
+            accessibilityLabel={strings.invertLanguages}
             disabled={languageControlsDisabled || state.myLanguage === state.theirLanguage}
             onPress={() => {
               void chat?.swapLanguages();
@@ -214,7 +219,8 @@ export function ChatView({ chat, state, loadError }: Props) {
           </Pressable>
           <View style={styles.languagePickerWrap}>
             <LanguagePicker
-              label="Their language"
+              strings={strings}
+              label={strings.theirLanguage}
               value={state.theirLanguage}
               disabled={languageControlsDisabled}
               compact
@@ -242,10 +248,10 @@ export function ChatView({ chat, state, loadError }: Props) {
           }}
           ListHeaderComponent={
             <View style={styles.listHeader}>
-              {!chat && !loadError && <Text style={styles.note}>Opening local history...</Text>}
+              {!chat && !loadError && <Text style={styles.note}>{strings.openingHistory}</Text>}
               {state.messageCursor && (
                 <ActionButton
-                  label="Load older messages"
+                  label={strings.loadOlderMessages}
                   tone="secondary"
                   disabled={locked}
                   onPress={() => {
@@ -272,6 +278,7 @@ export function ChatView({ chat, state, loadError }: Props) {
           ListFooterComponent={
             liveFlow.liveDraft ? (
               <MessageCard
+                strings={strings}
                 message={{
                   id: liveFlow.liveDraft.id,
                   conversation_id: id,
@@ -282,7 +289,7 @@ export function ChatView({ chat, state, loadError }: Props) {
                   source_language: liveFlow.liveDraft.sourceLanguage,
                   target_language: liveFlow.liveDraft.targetLanguage,
                   original_text: liveFlow.liveDraft.transcript,
-                  translated_text: liveFlow.liveDraft.translatedText || 'Translating...',
+                  translated_text: liveFlow.liveDraft.translatedText,
                   original_pronunciation: null,
                   translated_pronunciation: null,
                   status: 'pending',
@@ -300,6 +307,7 @@ export function ChatView({ chat, state, loadError }: Props) {
           }
           renderItem={({ item }) => (
             <MessageCard
+              strings={strings}
               message={item}
               baseLanguageCode={state.myLanguage}
               disabled={locked}
@@ -348,7 +356,7 @@ export function ChatView({ chat, state, loadError }: Props) {
           )}
           {state.maintenancePending && (
             <ActionButton
-              label="Retry storage cleanup"
+              label={strings.retryStorageCleanup}
               disabled={locked}
               onPress={() => {
                 void chat?.retryStorageCleanup();
@@ -368,10 +376,10 @@ export function ChatView({ chat, state, loadError }: Props) {
                   />
                   <Text style={styles.recordingBannerText}>
                     {isStarting
-                      ? 'Connecting microphone...'
+                      ? strings.connectingMicrophone
                       : isRecording
-                        ? `Listening · ${liveFlow.secondsRemaining}s left`
-                        : 'Translating voice note...'}
+                        ? `${strings.listening} · ${interpolateTemplate(strings.secondsLeft, { seconds: liveFlow.secondsRemaining })}`
+                        : strings.translatingVoiceNote}
                   </Text>
                 </View>
                 {isRecording ? (
@@ -385,8 +393,8 @@ export function ChatView({ chat, state, loadError }: Props) {
             <View style={styles.composerRow}>
               <TextInput
                 ref={input}
-                accessibilityLabel={`Type message in ${myNativeLanguageName}`}
-                placeholder={id ? `Type message in ${myNativeLanguageName}` : 'Start a new chat first'}
+                accessibilityLabel={composerLabel}
+                placeholder={id ? composerLabel : strings.startChatFirst}
                 placeholderTextColor={palette.textSubtle}
                 value={draft}
                 onChangeText={text => {
@@ -408,12 +416,12 @@ export function ChatView({ chat, state, loadError }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel={
                   isRecording
-                    ? 'Stop voice recording'
+                    ? strings.stopVoiceNote
                     : isStarting
-                      ? 'Connecting microphone...'
+                      ? strings.connectingMicrophone
                       : hasDraft
-                        ? 'Send message'
-                        : 'Record voice message'
+                        ? strings.sendTextMessage
+                        : strings.recordVoiceNote
                 }
                 disabled={primaryDisabled}
                 onPress={handlePrimaryAction}

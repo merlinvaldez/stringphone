@@ -1,3 +1,4 @@
+import { ENGLISH_UI_STRINGS, type UiStrings } from '../../../shared/uiStrings';
 import { useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -7,13 +8,14 @@ import { palette } from '../theme';
 
 type Props = {
   label: string;
+  strings?: UiStrings;
   value: string;
   disabled: boolean;
   compact?: boolean;
   onSelect: (code: string) => void;
 };
 
-export function LanguagePicker({ label, value, disabled, compact = false, onSelect }: Props) {
+export function LanguagePicker({ label, strings = ENGLISH_UI_STRINGS, value, disabled, compact = false, onSelect }: Props) {
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState('');
   const close = () => setVisible(false);
@@ -41,8 +43,8 @@ export function LanguagePicker({ label, value, disabled, compact = false, onSele
     <View style={[styles.field, compact && styles.compactField]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label}: ${selectedOption.englishName}`}
-        accessibilityHint="Opens a searchable language list"
+        accessibilityLabel={`${label}: ${selectedOption.name}`}
+        accessibilityHint={strings.languagePickerHint}
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={() => {
@@ -76,8 +78,8 @@ export function LanguagePicker({ label, value, disabled, compact = false, onSele
                 <Feather name="search" size={14} color={palette.textSubtle} />
                 <TextInput
                   autoFocus
-                  accessibilityLabel={`Search ${label.toLowerCase()}`}
-                  placeholder="Search languages"
+                  accessibilityLabel={strings.searchLanguages}
+                  placeholder={strings.searchLanguages}
                   placeholderTextColor={palette.textSubtle}
                   value={query}
                   onChangeText={setQuery}
@@ -85,7 +87,7 @@ export function LanguagePicker({ label, value, disabled, compact = false, onSele
                   style={styles.searchInput}
                 />
                 {!!query && (
-                  <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery('')}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={strings.clearSearch} onPress={() => setQuery('')}>
                     <Feather name="x" size={14} color={palette.textMuted} />
                   </Pressable>
                 )}
@@ -98,7 +100,7 @@ export function LanguagePicker({ label, value, disabled, compact = false, onSele
               keyExtractor={option => option.code}
               style={styles.list}
               contentContainerStyle={styles.listContent}
-              ListEmptyComponent={<Text style={styles.empty}>No languages match your search.</Text>}
+              ListEmptyComponent={<Text style={styles.empty}>{strings.noLanguagesFound}</Text>}
               renderItem={({ item }) => {
                 const isSelected = item.code === value;
                 return (

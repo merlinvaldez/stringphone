@@ -1,3 +1,5 @@
+import { interpolateTemplate } from '../../../shared/uiStrings';
+import { useUiStrings } from './useUiStrings';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -67,6 +69,9 @@ export function SingleView({ chat, state, loadError }: Props) {
   const isRecording = liveFlow.status === 'recording';
   const isProcessing = liveFlow.status === 'processing';
   const activeAction = liveFlow.activeAction;
+  const myStrings = useUiStrings(state.myLanguage);
+  const theirStrings = useUiStrings(state.theirLanguage);
+  const strings = activeAction === 'listen' ? theirStrings : myStrings;
 
   const displayMessages: MessageRow[] = liveFlow.liveDraft
     ? [
@@ -81,7 +86,7 @@ export function SingleView({ chat, state, loadError }: Props) {
           source_language: liveFlow.liveDraft.sourceLanguage,
           target_language: liveFlow.liveDraft.targetLanguage,
           original_text: liveFlow.liveDraft.transcript,
-          translated_text: liveFlow.liveDraft.translatedText || 'Translating...',
+          translated_text: liveFlow.liveDraft.translatedText,
           original_pronunciation: null,
           translated_pronunciation: null,
           status: 'pending',
@@ -120,7 +125,7 @@ export function SingleView({ chat, state, loadError }: Props) {
       <View style={styles.historyRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Open history"
+          accessibilityLabel={strings.openHistory}
           disabled={!chat}
           onPress={() => setHistoryVisible(true)}
           style={styles.historyBtn}
@@ -132,7 +137,7 @@ export function SingleView({ chat, state, loadError }: Props) {
       <View style={styles.stage}>
         <View style={styles.topStatusSlot}>
           {isStarting && (
-            <Text style={styles.connectingStatusText}>CONNECTING...</Text>
+            <Text style={styles.connectingStatusText}>{strings.connecting}</Text>
           )}
           {isRecording && (
             <View style={styles.recordingPill}>
@@ -142,11 +147,11 @@ export function SingleView({ chat, state, loadError }: Props) {
                   activeAction === 'speak' ? styles.dotRose : styles.dotIndigo,
                 ]}
               />
-              <Text style={styles.recordingTimerText}>LISTENING · {liveFlow.recordingTimer}s</Text>
+              <Text style={styles.recordingTimerText}>{strings.listening} · {interpolateTemplate(strings.secondsLeft, { seconds: liveFlow.recordingTimer })}</Text>
             </View>
           )}
           {isProcessing && (
-            <Text style={styles.translatingStatusText}>TRANSLATING</Text>
+            <Text style={styles.translatingStatusText}>{strings.translating}</Text>
           )}
         </View>
 
@@ -169,6 +174,7 @@ export function SingleView({ chat, state, loadError }: Props) {
             </View>
           ) : (
             <TranscriptCarousel
+              strings={strings}
               history={displayMessages}
               playbackMode="translated"
               viewerLanguageCode={state.myLanguage}
@@ -211,7 +217,7 @@ export function SingleView({ chat, state, loadError }: Props) {
       {liveFlow.denied && (
         <View style={styles.settingsRow}>
           <ActionButton
-            label="Open microphone settings"
+            label={strings.microphoneSettings}
             tone="secondary"
             onPress={() => {
               void Linking.openSettings();
@@ -227,10 +233,10 @@ export function SingleView({ chat, state, loadError }: Props) {
               accessibilityRole="button"
               accessibilityLabel={
                 isRecording && activeAction === 'speak'
-                  ? 'Stop speak recording'
+                  ? strings.stopRecording
                   : isStarting && activeAction === 'speak'
-                    ? 'Connecting microphone...'
-                    : `Speak (${getNativeLanguageName(state.myLanguage)})`
+                    ? strings.connectingMicrophone
+                    : `${strings.speak} (${getNativeLanguageName(state.myLanguage)})`
               }
               disabled={activeAction === 'listen' || isProcessing || (!chat && !(isRecording && activeAction === 'speak') && !(isStarting && activeAction === 'speak'))}
               onPress={() => handleActionPress('speak')}
@@ -248,7 +254,7 @@ export function SingleView({ chat, state, loadError }: Props) {
               ) : (
                 <>
                   <Feather name="mic" size={24} color={palette.text} />
-                  <Text style={styles.actionLabel}>SPEAK</Text>
+                  <Text style={styles.actionLabel}>{strings.speak}</Text>
                 </>
               )}
             </Pressable>
@@ -261,10 +267,10 @@ export function SingleView({ chat, state, loadError }: Props) {
               accessibilityRole="button"
               accessibilityLabel={
                 isRecording && activeAction === 'listen'
-                  ? 'Stop listen recording'
+                  ? strings.stopRecording
                   : isStarting && activeAction === 'listen'
-                    ? 'Connecting microphone...'
-                    : `Listen (${getNativeLanguageName(state.theirLanguage)})`
+                    ? strings.connectingMicrophone
+                    : `${strings.listen} (${getNativeLanguageName(state.theirLanguage)})`
               }
               disabled={activeAction === 'speak' || isProcessing || (!chat && !(isRecording && activeAction === 'listen') && !(isStarting && activeAction === 'listen'))}
               onPress={() => handleActionPress('listen')}
@@ -282,7 +288,7 @@ export function SingleView({ chat, state, loadError }: Props) {
               ) : (
                 <>
                   <Feather name="headphones" size={24} color={palette.text} />
-                  <Text style={styles.actionLabel}>LISTEN</Text>
+                  <Text style={styles.actionLabel}>{strings.listen}</Text>
                 </>
               )}
             </Pressable>
@@ -292,7 +298,8 @@ export function SingleView({ chat, state, loadError }: Props) {
         <View style={styles.languageRow}>
           <View style={[styles.languagePickerWrap, activeAction === 'listen' && styles.actionButtonDimmed]}>
             <LanguagePicker
-              label="My language"
+              strings={strings}
+              label={strings.myLanguage}
               value={state.myLanguage}
               disabled={languageControlsDisabled}
               compact
@@ -304,7 +311,7 @@ export function SingleView({ chat, state, loadError }: Props) {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Invert languages"
+            accessibilityLabel={strings.invertLanguages}
             disabled={languageControlsDisabled || state.myLanguage === state.theirLanguage}
             onPress={() => {
               void chat?.swapLanguages('single');
@@ -319,7 +326,8 @@ export function SingleView({ chat, state, loadError }: Props) {
 
           <View style={[styles.languagePickerWrap, activeAction === 'speak' && styles.actionButtonDimmed]}>
             <LanguagePicker
-              label="Their language"
+              strings={strings}
+              label={strings.theirLanguage}
               value={state.theirLanguage}
               disabled={languageControlsDisabled}
               compact
@@ -578,6 +586,8 @@ const styles = StyleSheet.create({
     backgroundColor: palette.text,
   },
   actionLabel: {
+    maxWidth: 82,
+    textAlign: 'center',
     fontSize: 10,
     fontWeight: '700',
     color: palette.textMuted,

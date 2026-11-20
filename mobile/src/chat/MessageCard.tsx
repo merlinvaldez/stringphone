@@ -1,3 +1,4 @@
+import { ENGLISH_UI_STRINGS, type UiStrings } from '../../../shared/uiStrings';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { MessageRow } from '../storage/history';
@@ -6,6 +7,7 @@ import { palette } from '../theme';
 
 export type MessageCardProps = {
   message: MessageRow;
+  strings?: UiStrings;
   baseLanguageCode?: string;
   disabled: boolean;
   onRetry: (id: string) => void;
@@ -30,6 +32,7 @@ function formatPronunciationGuide(value: string | null | undefined) {
 
 export function MessageCard({
   message,
+  strings = ENGLISH_UI_STRINGS,
   baseLanguageCode,
   disabled,
   onRetry,
@@ -49,7 +52,9 @@ export function MessageCard({
     ? message.source_language === baseLanguageCode
     : isSelf;
   const retryable = ['draft', 'failed', 'interrupted'].includes(message.status);
-  const originalText = message.original_text || (message.input_kind === 'voice' ? 'Voice recording' : '');
+  const originalText = message.original_text || (message.input_kind === 'voice' ? strings.voiceRecording : '');
+  const translatedText = message.translated_text ||
+    (message.status === 'pending' ? strings.translatingShort : strings.translationFailed);
   const canPlaySourceVoice = message.input_kind === 'voice' && message.status !== 'pending';
   const canPlaySourceTts = message.input_kind === 'text' && Boolean(message.original_text.trim());
   const canPlaySource = (canPlaySourceVoice || canPlaySourceTts) && Boolean(onPlaySource);
@@ -63,9 +68,9 @@ export function MessageCard({
     Boolean(translatedPronunciation) && (isLanguageOne || message.target_language === 'zh');
 
   const statusText = message.status === 'pending'
-    ? 'Translating'
+    ? strings.translating
     : retryable
-      ? 'Needs retry'
+      ? strings.needsRetry
       : '';
 
   return (
@@ -79,7 +84,7 @@ export function MessageCard({
             {canSaveToPhrasebook && (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={isSavedInPhrasebook ? 'Saved to Phrasebook' : isSavingPhrase ? 'Saving phrase' : 'Save to Phrasebook'}
+                accessibilityLabel={isSavedInPhrasebook ? strings.savedToPhrasebook : isSavingPhrase ? strings.savingPhrase : strings.saveToPhrasebook}
                 disabled={disabled || isSavedInPhrasebook || isSavingPhrase}
                 onPress={() => onSaveToPhrasebook?.(message.id)}
                 style={[styles.bookmarkBtn, isSavedInPhrasebook && styles.bookmarkBtnSaved]}
@@ -99,7 +104,7 @@ export function MessageCard({
               <View style={[styles.statusBadge, retryable ? styles.statusFailed : styles.statusPending]}>
                 <Text
                   accessibilityLiveRegion="polite"
-                  accessibilityLabel={message.status === 'pending' ? 'Translating' : message.error_message || 'Translation needs attention'}
+                  accessibilityLabel={message.status === 'pending' ? strings.translating : message.error_message || strings.needsRetry}
                   style={[styles.statusText, retryable ? styles.statusTextFailed : styles.statusTextPending]}
                 >
                   {statusText}
@@ -114,7 +119,7 @@ export function MessageCard({
             <View style={styles.sectionTextWrap}>
               <Text
                 selectable
-                accessibilityLabel={`Original, ${languageName(message.source_language)}: ${originalText}`}
+                accessibilityLabel={`${strings.original}, ${languageName(message.source_language)}: ${originalText}`}
                 style={[styles.originalText, messageDirection(message.source_language)]}
               >
                 {originalText}
@@ -130,10 +135,10 @@ export function MessageCard({
                 accessibilityRole="button"
                 accessibilityLabel={
                   isPlayingSource
-                    ? 'Stop original audio'
-                    : canPlaySourceVoice
-                      ? 'Play original recording'
-                      : 'Play original text speech'
+                    ? strings.stopOriginalAudio
+                    : isGeneratingSourceSpeech
+                      ? strings.generatingAudio
+                      : strings.playOriginalAudio
                 }
                 disabled={disabled || isGeneratingSourceSpeech}
                 onPress={() => {
@@ -164,10 +169,10 @@ export function MessageCard({
             <View style={styles.sectionTextWrap}>
               <Text
                 selectable
-                accessibilityLabel={`Translation, ${languageName(message.target_language)}: ${message.translated_text || (message.status === 'pending' ? 'Translating...' : 'Translation failed.')}`}
+                accessibilityLabel={`${strings.translation}, ${languageName(message.target_language)}: ${translatedText}`}
                 style={[styles.translatedText, messageDirection(message.target_language)]}
               >
-                {message.translated_text || (message.status === 'pending' ? 'Translating...' : 'Translation failed.')}
+                {translatedText}
               </Text>
               {showTranslatedPronunciation && (
                 <Text style={[styles.pronunciationText, messageDirection(message.source_language)]}>
@@ -180,10 +185,10 @@ export function MessageCard({
                 accessibilityRole="button"
                 accessibilityLabel={
                   isPlayingTranslated
-                    ? 'Stop translated speech'
+                    ? strings.stopTranslatedAudio
                     : isGeneratingSpeech
-                      ? 'Generating translated speech'
-                      : 'Play translated speech'
+                      ? strings.generatingAudio
+                      : strings.playTranslatedAudio
                 }
                 disabled={disabled || isGeneratingSpeech}
                 onPress={() => {
@@ -214,18 +219,18 @@ export function MessageCard({
             <View style={styles.errorLabelRow}>
               <Feather name="alert-circle" size={13} color="#FDA4AF" />
               <Text style={styles.errorText} numberOfLines={2}>
-                {message.error_message || 'Translation failed.'}
+                {message.error_message || strings.translationFailed}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Retry saved message"
+              accessibilityLabel={strings.retry}
               disabled={disabled}
               onPress={() => onRetry(message.id)}
               style={styles.retryPill}
             >
               <Feather name="refresh-cw" size={11} color="#FFE4E6" />
-              <Text style={styles.retryPillText}>RETRY</Text>
+              <Text style={styles.retryPillText}>{strings.retry}</Text>
             </Pressable>
           </View>
         )}
