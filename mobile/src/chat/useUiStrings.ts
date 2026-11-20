@@ -8,9 +8,12 @@ const loadUiStrings = createUiStringLoader(async language => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ targetLanguage: language }),
   });
-  if (!response.ok) throw new Error('Failed to load UI strings.');
+  if (!response.ok) throw new Error(`UI translations returned HTTP ${response.status}.`);
   const payload = await response.json();
   return payload?.strings;
+}, (language, error) => {
+  const reason = error instanceof Error ? error.message : 'Unknown error.';
+  console.warn(`UI translations unavailable for ${language}. Using English. ${reason}`);
 });
 
 export function useUiStrings(language: string) {

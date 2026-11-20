@@ -87,7 +87,10 @@ export function coerceUiStrings(payload: unknown): UiStrings {
   return strings;
 }
 
-export function createUiStringLoader(requestStrings: (language: string) => Promise<unknown>) {
+export function createUiStringLoader(
+  requestStrings: (language: string) => Promise<unknown>,
+  onFailure?: (language: string, error: unknown) => void,
+) {
   const cache = new Map<string, UiStrings>([['en', ENGLISH_UI_STRINGS]]);
   const inflight = new Map<string, Promise<UiStrings>>();
 
@@ -102,13 +105,16 @@ export function createUiStringLoader(requestStrings: (language: string) => Promi
       .then(() => requestStrings(language))
       .then(payload => {
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-          return ENGLISH_UI_STRINGS;
+          throw new Error('Invalid UI translation catalog.');
         }
         const strings = coerceUiStrings(payload);
         cache.set(language, strings);
         return strings;
       })
-      .catch(() => ENGLISH_UI_STRINGS)
+      .catch(error => {
+        onFailure?.(language, error);
+        return ENGLISH_UI_STRINGS;
+      })
       .finally(() => inflight.delete(language));
 
     inflight.set(language, request);

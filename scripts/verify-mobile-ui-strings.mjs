@@ -3,13 +3,14 @@ import { createUiStringLoader, ENGLISH_UI_STRINGS, interpolateTemplate } from '.
 
 let calls = 0;
 let offline = false;
+const failures = [];
 const load = createUiStringLoader(async language => {
   calls++;
   if (offline) throw new Error('Offline');
   return language === 'es'
     ? { speak: ' Hablar ', listen: '', messageIn: 'Sin marcador', unknown: 'ignored' }
     : { speak: 'Parler' };
-});
+}, (language, error) => failures.push([language, error.message]));
 
 assert.equal(await load('en'), ENGLISH_UI_STRINGS);
 assert.equal(calls, 0);
@@ -26,5 +27,6 @@ assert.equal(await load('fr'), ENGLISH_UI_STRINGS);
 offline = false;
 assert.equal((await load('fr')).speak, 'Parler');
 assert.equal(calls, 3);
+assert.deepEqual(failures, [['fr', 'Offline']]);
 assert.equal(interpolateTemplate(first.messageIn, { language: 'Español' }), 'Type message in Español');
 console.log('UI string loader checks passed');

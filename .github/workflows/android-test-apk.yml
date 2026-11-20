@@ -35,6 +35,8 @@ jobs:
       - run: npm ci
       - run: npm run check:api-config
       - run: node ../scripts/verify-mobile-ui-strings.mjs
+      - name: Check the deployed translation catalog
+        run: node ../scripts/check-mobile-ui-catalog.mjs
       - run: npx expo prebuild --platform android --no-install
       - name: Assemble standalone APK
         working-directory: mobile/android
