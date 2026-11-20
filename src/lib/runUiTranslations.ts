@@ -1,6 +1,6 @@
 import { CANONICAL_TTS_LANGUAGES, getSupportedTtsLanguage } from "./languages.js";
 import { createOpenAiResponse } from "./openai.js";
-import { ENGLISH_UI_STRINGS, UI_STRING_KEYS, type UiStrings } from "./uiStrings.js";
+import { ENGLISH_UI_STRINGS, coerceUiStrings, type UiStrings } from "./uiStrings.js";
 
 type TranslationLanguagePayload = {
   code: string;
@@ -24,23 +24,6 @@ export type RunUiTranslationsResult =
     };
 
 const uiTranslationCache = new Map<string, UiStrings>();
-
-function coerceUiStrings(payload: unknown) {
-  const strings: Record<keyof UiStrings, string> = { ...ENGLISH_UI_STRINGS };
-
-  if (!payload || typeof payload !== "object") {
-    return strings;
-  }
-
-  for (const key of UI_STRING_KEYS) {
-    const value = (payload as Record<string, unknown>)[key];
-    if (typeof value === "string" && value.trim()) {
-      strings[key] = value.trim();
-    }
-  }
-
-  return strings as UiStrings;
-}
 
 export async function runUiTranslations(
   input: RunUiTranslationsInput,
