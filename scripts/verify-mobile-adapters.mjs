@@ -46,7 +46,10 @@ function checkDirectory(directory) {
     if (!/\.tsx?$/.test(entry.name)) continue;
     const source = readFileSync(path, 'utf8');
     assert.doesNotMatch(source, /(?:from\s+|import\s*\()["'][^"']*(?:client\/|src\/(?:lib|services|db)\/|\.css["'])/);
-    assert.doesNotMatch(source, /\b(?:localStorage|sessionStorage|MediaRecorder|RTCPeerConnection|document\.querySelector|window\.)\b/);
+    assert.doesNotMatch(source, /\b(?:localStorage|sessionStorage|MediaRecorder|document\.querySelector|window\.)\b/);
+    if (!/from\s+['"]react-native-webrtc['"]/.test(source)) {
+      assert.doesNotMatch(source, /\bRTCPeerConnection\b/);
+    }
   }
 }
 checkDirectory(new URL('../mobile/src/', import.meta.url));
