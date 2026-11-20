@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/apk-ui-localization
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  web-and-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Build web client (Vercel buildCommand)
+        run: |
+          npm run build
+          test -f client/dist/index.html
+      - name: Run shared, API, mobile-logic, and web verification scripts
+        run: |
+          npx tsx scripts/verify-shared-mobile-logic.mjs
+          node scripts/verify-mobile-ui-strings.mjs
+          npx tsx scripts/verify-mobile-api-contract.mjs
+          npx tsx scripts/verify-mobile-adapters.mjs
+          npx tsx scripts/verify-mobile-chat-controller.mjs
+          npx tsx scripts/verify-mobile-chat-history.mjs
+          npx tsx scripts/verify-mobile-history.mjs
+          npx tsx scripts/verify-mobile-local-history.mjs
+          npx tsx scripts/verify-mobile-phrasebook.mjs
+          npx tsx scripts/verify-mobile-text-chat.mjs
+          npx tsx scripts/verify-mobile-mic-listening-state.mjs
+          npx tsx scripts/verify-collection-update-validation.mjs
+          npx tsx scripts/verify-web-local-store.mjs
+          npx tsx scripts/verify-web-shell-parity.mjs
+          npx tsx scripts/verify-web-chat-parity.mjs
+          npx tsx scripts/verify-web-phrasebook-parity.mjs
+      - name: Verify /api/ui/translations bundled fast-path
+        run: |
+          npx tsx -e '
+            import assert from "node:assert/strict";
+            import handler from "./api/ui/translations.ts";
+            for (const lang of ["en", "es", "ar", "ja"]) {
+              const res = await handler.fetch(
+                new Request("https://stringphone.test/api/ui/translations", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ targetLanguage: lang }),
+                }),
+              );
+              assert.equal(res.status, 200, `${lang} status`);
+              assert.match(res.headers.get("cache-control") ?? "", /max-age=3600/, `${lang} cache-control`);
+              const payload = await res.json();
+              assert.equal(payload.targetLanguage?.code, lang, `${lang} code`);
+              assert.equal(Object.keys(payload.strings ?? {}).length, 128, `${lang} key count`);
+              if (lang === "en") {
+                assert.equal(payload.strings.modePhrasebook, "Phrasebook");
+              } else {
+                assert.notEqual(payload.strings.modePhrasebook, "Phrasebook", `${lang} translated`);
+              }
+            }
+            console.log("Verified /api/ui/translations bundled fast-path (en, es, ar, ja).");
+          '
+
+  mobile-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run test:api-config
+      - name: Check production API configuration
+        env:
+          EXPO_PUBLIC_APP_ENV: production
+          EXPO_PUBLIC_API_URL_PRODUCTION: https://stringphone-orcin.vercel.app/api
+          EXPO_NO_DOTENV: '1'
+        run: npm run check:api-config
+      - run: npm run check:server-boundary
+      - run: node ../scripts/verify-mobile-ui-strings.mjs

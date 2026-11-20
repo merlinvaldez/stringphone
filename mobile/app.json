@@ -2,7 +2,7 @@
   "expo": {
     "name": "StringPhone",
     "slug": "stringphone-mobile",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "default",
     "scheme": "stringphone",
     "plugins": [
@@ -31,12 +31,12 @@
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "ai.stringphone.mobile",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "supportsTablet": true
     },
     "android": {
       "package": "ai.stringphone.mobile",
-      "versionCode": 7,
+      "versionCode": 8,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",

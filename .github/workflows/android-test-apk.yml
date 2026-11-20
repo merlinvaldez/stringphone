@@ -2,9 +2,6 @@ name: Android test APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/apk-ui-localization
 
 permissions:
   contents: read
