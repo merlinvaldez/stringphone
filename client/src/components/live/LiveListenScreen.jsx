@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Ear, Loader2, Menu, Volume2, VolumeX } from "lucide-react";
+import { Ear, Loader2, Menu } from "lucide-react";
 import { ChatThread } from "../chat/ChatThread.jsx";
 import { useVoxtralLiveListen } from "./useVoxtralLiveListen.js";
 import { useLiveAudioQueue } from "./useLiveAudioQueue.js";
@@ -152,10 +152,6 @@ export function LiveListenScreen({
     onAudioPlay?.(audioElement);
   };
 
-  const autoPlayLabel = liveAudioQueue.autoPlayEnabled
-    ? screenUiStrings.liveAutoPlayOn
-    : screenUiStrings.liveAutoPlayOff;
-
   return (
     <div
       className="relative flex h-full w-full flex-col overflow-visible px-4"
@@ -212,7 +208,7 @@ export function LiveListenScreen({
         />
       </div>
 
-      <div className="mt-4 flex items-center justify-center gap-3 pb-1">
+      <div className="mt-4 flex items-center justify-center pb-1">
         <button
           type="button"
           onClick={handleToggleListen}
@@ -232,25 +228,6 @@ export function LiveListenScreen({
             <Ear size={18} />
           )}
           <span>{listenButtonLabel}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => liveAudioQueue.toggleAutoPlay()}
-          className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition ${
-            liveAudioQueue.autoPlayEnabled
-              ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 hover:text-emerald-100"
-              : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"
-          }`}
-          title={autoPlayLabel}
-          aria-label={autoPlayLabel}
-          aria-pressed={liveAudioQueue.autoPlayEnabled}
-        >
-          {liveAudioQueue.autoPlayEnabled ? (
-            <Volume2 size={18} />
-          ) : (
-            <VolumeX size={18} />
-          )}
         </button>
       </div>
 

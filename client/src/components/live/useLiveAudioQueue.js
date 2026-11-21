@@ -190,7 +190,7 @@ export function useLiveAudioQueue({
   chatId = null,
 } = {}) {
   const [queueState, setQueueState] = useState(() => ({
-    autoPlayEnabled: readInitialAutoPlay(),
+    autoPlayEnabled: true,
     activePlayingMessageId: null,
     isPlaying: false,
     queueLength: 0,
@@ -233,7 +233,7 @@ export function useLiveAudioQueue({
   const controllerRef = useRef(null);
   if (!controllerRef.current) {
     controllerRef.current = createLivePlaybackQueue({
-      initialAutoPlay: readInitialAutoPlay(),
+      initialAutoPlay: true,
       prefetchItem: (item) =>
         prefetchRef.current?.({
           messageId: item.messageId,

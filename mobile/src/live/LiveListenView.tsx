@@ -72,9 +72,6 @@ export function LiveListenView({ chat, state, loadError }: Props) {
 
   const activeError = loadError || liveListen.error || audioPlayback.errorNotice || phrasebook.error;
   const activeNotice = phrasebook.notice || liveListen.notice || state.notice;
-  const autoPlayLabel = liveAudioQueue.autoPlayEnabled
-    ? strings.liveAutoPlayOn
-    : strings.liveAutoPlayOff;
   const listenButtonLabel = isListening ? strings.liveListening : strings.listen;
 
   function handleToggleListen() {
@@ -226,23 +223,6 @@ export function LiveListenView({ chat, state, loadError }: Props) {
             )}
             <Text style={styles.listenBtnText}>{listenButtonLabel}</Text>
           </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={autoPlayLabel}
-            accessibilityState={{ selected: liveAudioQueue.autoPlayEnabled }}
-            onPress={liveAudioQueue.toggleAutoPlay}
-            style={[
-              styles.autoPlayBtn,
-              liveAudioQueue.autoPlayEnabled && styles.autoPlayBtnActive,
-            ]}
-          >
-            <Feather
-              name={liveAudioQueue.autoPlayEnabled ? 'volume-2' : 'volume-x'}
-              size={18}
-              color={liveAudioQueue.autoPlayEnabled ? '#A7F3D0' : palette.textMuted}
-            />
-          </Pressable>
         </View>
       </View>
 
@@ -344,7 +324,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
   },
   listenBtn: {
     height: 54,
@@ -370,19 +349,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.6,
     textTransform: 'uppercase',
-  },
-  autoPlayBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  autoPlayBtnActive: {
-    borderColor: 'rgba(52,211,153,0.40)',
-    backgroundColor: 'rgba(16,185,129,0.20)',
   },
 });

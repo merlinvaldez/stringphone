@@ -258,6 +258,7 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   assert.doesNotMatch(liveViewSrc, /strings\.theirLanguage/, 'LiveListenView must omit lang 2 picker');
   assert.match(liveViewSrc, /label=\{strings\.myLanguage\}/);
   assert.match(liveViewSrc, /name="headphones"/);
+  assert.doesNotMatch(liveViewSrc, /volume-2|volume-x/, 'LiveListenView must omit speaker toggle next to Listen');
 }
 
 console.log(

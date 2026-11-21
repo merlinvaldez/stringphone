@@ -191,8 +191,7 @@ const ROOT_DIR = resolve(import.meta.dirname, "..");
   assert.doesNotMatch(liveScreenSrc, /\bAudioWave\b/, "LiveListenScreen must omit waveform animation");
   assert.match(liveScreenSrc, /aria-pressed=\{isToggledOn\}/, "Listen button must expose toggled aria-pressed state");
   assert.match(liveScreenSrc, /Ear/);
-  assert.match(liveScreenSrc, /Volume2/);
-  assert.match(liveScreenSrc, /VolumeX/);
+  assert.doesNotMatch(liveScreenSrc, /\bVolume2\b|\bVolumeX\b/, "LiveListenScreen must omit speaker toggle next to Listen");
 }
 
 console.log(
