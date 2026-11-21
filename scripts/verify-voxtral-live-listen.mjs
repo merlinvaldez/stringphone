@@ -336,6 +336,66 @@ import liveListenHandler from "../api/chat/messages/live-listen.ts";
   });
   assert.equal(unauthRes.ok, false);
   assert.equal(unauthRes.status, 401);
+
+  // OpenAI input always includes literal "JSON" for Responses API json_object requirement
+  assert.ok(
+    openAiCalls.every((call) => /\bjson\b/i.test(call.input)),
+    "Every jsonObject OpenAI call must include the word JSON in input",
+  );
+
+  // Voxtral optional providerOptions rejection falls back to minimal request cleanly
+  let fallbackAttempts = 0;
+  const fallbackRes = await transcribeWithVoxtral(
+    { audioBuffer: Buffer.from("wav-bytes"), filename: "chunk.wav", mimeType: "audio/wav" },
+    {
+      gatewayApiKey: "test-gw-key",
+      transcribeImpl: async (options) => {
+        fallbackAttempts += 1;
+        if (options.providerOptions?.mistral) {
+          throw new Error("Unsupported provider option");
+        }
+        return { text: "Hola amigo", language: "es", durationInSeconds: 1.5 };
+      },
+    },
+  );
+  assert.equal(fallbackAttempts, 3);
+  assert.equal(fallbackRes.text, "Hola amigo");
+  assert.equal(fallbackRes.detectedLanguage, "es");
+
+  // Stage-specific non-sensitive errors for missing credentials or upstream failures
+  const missingGwRes = await runLiveListenChunk(
+    { listenerLanguage: "en", sourceAudioFile: audioFile },
+    {
+      transcribeWithVoxtralImpl: async () => {
+        throw new Error("Vercel AI Gateway is not configured.");
+      },
+    },
+  );
+  assert.equal(missingGwRes.ok, false);
+  assert.equal(missingGwRes.status, 503);
+  assert.equal(missingGwRes.body.stage, "transcription");
+
+  const openAiFailRes = await runLiveListenChunk(
+    { listenerLanguage: "en", sourceAudioFile: audioFile },
+    {
+      transcribeWithVoxtralImpl: async () => ({
+        text: "Hola",
+        detectedLanguage: "es",
+        distinctSpeakerCount: 1,
+        durationInSeconds: 1.0,
+        model: MISTRAL_VOXTRAL_DEFAULT_TRANSCRIBE_MODEL,
+        segments: [
+          { speakerId: "speaker_0", text: "Hola", languageCode: "es", startSecond: 0, endSecond: 1.0 },
+        ],
+      }),
+      createOpenAiResponseImpl: async () => {
+        throw new Error("Sensitive upstream error");
+      },
+    },
+  );
+  assert.equal(openAiFailRes.ok, false);
+  assert.equal(openAiFailRes.status, 502);
+  assert.equal(openAiFailRes.body.stage, "translation");
 }
 
 // 3. Vercel handler OPTIONS / GET / POST validation checks

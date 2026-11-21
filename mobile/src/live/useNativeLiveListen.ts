@@ -167,7 +167,6 @@ export function useNativeLiveListen({
         mimeType: 'audio/mp4',
         filename,
         listenerLanguage: context.myLanguage,
-        theirLanguage: context.theirLanguage,
         chunkId,
         isPreview: false,
       });
@@ -508,7 +507,6 @@ export function useNativeLiveListen({
           mimeType: resolved.mime_type || 'audio/mp4',
           filename: resolved.file_name || 'retry_live_chunk.m4a',
           listenerLanguage: stateRef.current.myLanguage,
-          theirLanguage: stateRef.current.theirLanguage,
           isPreview: false,
         });
 

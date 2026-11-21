@@ -360,7 +360,26 @@ export async function runLiveListenChunk(
         body: { error: "No speech was detected" },
       };
     }
-    throw error;
+    if (/gateway is not configured/i.test(message)) {
+      console.error("Live listen AI Gateway not configured");
+      return {
+        ok: false,
+        status: 503,
+        body: {
+          error: "Vercel AI Gateway is not configured for live transcription.",
+          stage: "transcription",
+        },
+      };
+    }
+    console.error("Live listen Voxtral transcription failed");
+    return {
+      ok: false,
+      status: 502,
+      body: {
+        error: "Live transcription failed.",
+        stage: "transcription",
+      },
+    };
   }
 
   if (!transcription.segments.length) {
@@ -425,28 +444,54 @@ export async function runLiveListenChunk(
         runtimeEnv?.OPENAI_TRANSLATION_MODEL?.trim() ||
         "gpt-4o-mini";
 
-      const rawOpenAiOutput = await createOpenAiResponseFn({
-        model: openAiModel,
-        jsonObject: true,
-        instructions: [
-          "You inspect live spoken utterance segments for a multilingual conversation listener.",
-          "Determine the actual language spoken in the segment (it may be ANY language, not only the hint).",
-          "Return a JSON object with exact keys: detectedLanguageCode (ISO 639-1 lowercase code when known), detectedLanguageName (English language name), isListenerLanguage (boolean: true ONLY if spoken in the listener language), translatedText (natural translation into the listener language, or empty string \"\" if isListenerLanguage is true).",
-          "Preserve meaning cleanly without commentary or quotes.",
-        ].join(" "),
-        input: [
-          `Listener language: ${listenerLanguage.name} (${listenerLanguage.code})`,
-          theirLanguageHint
-            ? `Optional conversation partner language hint (only for very short/ambiguous utterances): ${theirLanguageHint.name} (${theirLanguageHint.code})`
-            : "",
-          initialLangHint.code && initialLangHint.code !== "und"
-            ? `ASR detected language hint: ${initialLangHint.label} (${initialLangHint.code})`
-            : "",
-          `Spoken transcript:\n${rawSegment.text}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      });
+      let rawOpenAiOutput = "";
+      try {
+        rawOpenAiOutput = await createOpenAiResponseFn({
+          model: openAiModel,
+          jsonObject: true,
+          instructions: [
+            "You inspect live spoken utterance segments for a multilingual conversation listener.",
+            "Determine the actual language spoken in the segment (it may be ANY language, not only the hint).",
+            "Return a JSON object with exact keys: detectedLanguageCode (ISO 639-1 lowercase code when known), detectedLanguageName (English language name), isListenerLanguage (boolean: true ONLY if spoken in the listener language), translatedText (natural translation into the listener language, or empty string \"\" if isListenerLanguage is true).",
+            "Preserve meaning cleanly without commentary or quotes.",
+          ].join(" "),
+          input: [
+            "Return your answer as a JSON object.",
+            `Listener language: ${listenerLanguage.name} (${listenerLanguage.code})`,
+            theirLanguageHint
+              ? `Optional conversation partner language hint (only for very short/ambiguous utterances): ${theirLanguageHint.name} (${theirLanguageHint.code})`
+              : "",
+            initialLangHint.code && initialLangHint.code !== "und"
+              ? `ASR detected language hint: ${initialLangHint.label} (${initialLangHint.code})`
+              : "",
+            `Spoken transcript:\n${rawSegment.text}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (/openai is not configured/i.test(message)) {
+          console.error("Live listen OpenAI not configured");
+          return {
+            ok: false,
+            status: 503,
+            body: {
+              error: "OpenAI is not configured for live translation.",
+              stage: "translation",
+            },
+          };
+        }
+        console.error("Live listen OpenAI translation failed");
+        return {
+          ok: false,
+          status: 502,
+          body: {
+            error: "Live translation failed.",
+            stage: "translation",
+          },
+        };
+      }
 
       const parsed = parseOpenAiLiveSegmentResponse(rawOpenAiOutput);
       if (!parsed) {

@@ -252,6 +252,12 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   assert.match(appShellSrc, /route:\s*'\/live'[\s\S]*labelKey:\s*'modeLive'[\s\S]*icon:\s*'radio'/);
   assert.match(messageCardSrc, /isSameLanguageReady/);
   assert.match(liveViewSrc, /useUiStrings/);
+  assert.doesNotMatch(liveViewSrc, /\bTextInput\b/, 'LiveListenView must omit text input');
+  assert.doesNotMatch(liveViewSrc, /\bAudioWave\b/, 'LiveListenView must omit waveform animation');
+  assert.doesNotMatch(liveViewSrc, /invertLanguages/, 'LiveListenView must omit language switch button');
+  assert.doesNotMatch(liveViewSrc, /strings\.theirLanguage/, 'LiveListenView must omit lang 2 picker');
+  assert.match(liveViewSrc, /label=\{strings\.myLanguage\}/);
+  assert.match(liveViewSrc, /name="headphones"/);
 }
 
 console.log(

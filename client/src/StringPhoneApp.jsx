@@ -5438,7 +5438,9 @@ export default function StringPhoneApp() {
       await submitLiveListenChunk({
         audioBlob: retryPayload.recordingBlob,
         listenerLanguage: getLanguageOption(retryPayload.sourceLanguageCode),
-        theirLanguage: getLanguageOption(retryPayload.targetLanguageCode),
+        theirLanguage: retryPayload.targetLanguageCode
+          ? getLanguageOption(retryPayload.targetLanguageCode)
+          : null,
         chunkId: retryPayload.chunkId || "",
         isPreview: false,
         existingMessageId: message.id,
@@ -5478,7 +5480,7 @@ export default function StringPhoneApp() {
     const listenerSnapshot = buildLanguageSnapshot(listenerLanguage);
     const theirSnapshot = theirLanguage
       ? buildLanguageSnapshot(theirLanguage)
-      : listenerSnapshot;
+      : null;
 
     const retryPayload = {
       kind: "live-listen",
@@ -5486,16 +5488,17 @@ export default function StringPhoneApp() {
       sender: "partner",
       messageOrigin: "human",
       sourceLanguageCode: listenerSnapshot.code,
-      targetLanguageCode: theirSnapshot.code,
+      targetLanguageCode: theirSnapshot ? theirSnapshot.code : "",
       recordingBlob: audioBlob,
       chunkId,
     };
 
     try {
+      const conversationTargetLanguage = theirLanguage || theirLang || listenerLanguage;
       const conversationId = !isPreview
         ? (await ensurePersistedConversationId({
             sourceLanguage: listenerLanguage,
-            targetLanguage: theirLanguage || listenerLanguage,
+            targetLanguage: conversationTargetLanguage,
           }).catch(() => null)) ?? currentConversationId
         : null;
 
@@ -5533,7 +5536,8 @@ export default function StringPhoneApp() {
             const createdConv = await localStore.createConversation({
               originMode: "chat",
               myLanguageCode: listenerSnapshot.code,
-              theirLanguageCode: theirSnapshot.code,
+              theirLanguageCode:
+                theirSnapshot?.code || theirLang?.code || listenerSnapshot.code,
             });
             localConvId = createdConv.id;
             setActiveLocalConversationId(createdConv.id);
@@ -5697,9 +5701,9 @@ export default function StringPhoneApp() {
         transcript: "",
         audioUrl: "",
         errorMessage: message,
-        sourceLanguageCode: theirSnapshot.code,
-        sourceLanguageLabel: theirSnapshot.label,
-        sourceLanguageFlag: theirSnapshot.flag,
+        sourceLanguageCode: theirSnapshot ? theirSnapshot.code : "",
+        sourceLanguageLabel: theirSnapshot ? theirSnapshot.label : "",
+        sourceLanguageFlag: theirSnapshot ? theirSnapshot.flag : "",
         targetLanguageCode: listenerSnapshot.code,
         targetLanguageLabel: listenerSnapshot.label,
         targetLanguageFlag: listenerSnapshot.flag,
@@ -6599,11 +6603,7 @@ export default function StringPhoneApp() {
         <LiveListenScreen
           myLang={myLang}
           setMyLang={handleSelectChatMyLanguage}
-          theirLang={theirLang}
-          setTheirLang={handleSelectChatTheirLanguage}
-          onInvertLanguages={handleInvertChatLanguages}
           messages={messages}
-          submitTextMessage={submitChatTextMessage}
           onProcessLiveListenChunk={submitLiveListenChunk}
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}

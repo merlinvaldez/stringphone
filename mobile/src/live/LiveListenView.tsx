@@ -6,20 +6,15 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import { interpolateTemplate } from '../../../shared/uiStrings';
-import { AudioWave } from '../components/AudioWave';
-import { getNativeLanguageName } from '../components/LanguageFlag';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { HistorySheet } from '../chat/HistorySheet';
 import { MessageCard } from '../chat/MessageCard';
 import type { ChatState, createTextChatController } from '../chat/controller';
-import { compactLabelStyle, languageName, messageDirection } from '../chat/presentation';
 import { useAudioPlayback } from '../chat/useAudioPlayback';
 import { useUiStrings } from '../chat/useUiStrings';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
@@ -34,18 +29,10 @@ type Props = {
   loadError: string | null;
 };
 
-function formatElapsedTime(totalSeconds: number): string {
-  const safe = Math.max(0, Math.floor(totalSeconds));
-  const mins = Math.floor(safe / 60);
-  const secs = safe % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
 export function LiveListenView({ chat, state, loadError }: Props) {
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const [historyVisible, setHistoryVisible] = useState(false);
-  const [composerText, setComposerText] = useState('');
   const list = useRef<FlatList<MessageRow>>(null);
   const scrollAfterUpdate = useRef(false);
 
@@ -82,35 +69,18 @@ export function LiveListenView({ chat, state, loadError }: Props) {
   const isStopping = liveListen.status === 'stopping';
   const isLiveActive = isStarting || isListening || isStopping;
   const languageControlsDisabled = locked || isLiveActive;
-  const hasDraft = Boolean(composerText.trim());
-  const composerLabel = interpolateTemplate(strings.messageIn, {
-    language: getNativeLanguageName(state.myLanguage),
-  });
 
   const activeError = loadError || liveListen.error || audioPlayback.errorNotice || phrasebook.error;
   const activeNotice = phrasebook.notice || liveListen.notice || state.notice;
   const autoPlayLabel = liveAudioQueue.autoPlayEnabled
     ? strings.liveAutoPlayOn
     : strings.liveAutoPlayOff;
+  const listenButtonLabel = isListening ? strings.liveListening : strings.listen;
 
-  async function handleSendText() {
-    if (!chat || !id || !hasDraft || isLiveActive || locked) return;
-    const text = composerText;
-    scrollAfterUpdate.current = true;
-    setComposerText('');
-    const ok = await chat.send(text);
-    if (!ok) {
-      setComposerText(current => (current ? current : text));
-    }
-  }
-
-  function handlePrimaryAction() {
-    if (isListening || isStarting) {
+  function handleToggleListen() {
+    if (isStarting || isStopping) return;
+    if (isListening) {
       void liveListen.stopListening();
-      return;
-    }
-    if (hasDraft) {
-      void handleSendText();
       return;
     }
     scrollAfterUpdate.current = true;
@@ -153,32 +123,7 @@ export function LiveListenView({ chat, state, loadError }: Props) {
             }}
           />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={strings.invertLanguages}
-          disabled={languageControlsDisabled || state.myLanguage === state.theirLanguage}
-          onPress={() => {
-            void chat?.swapLanguages();
-          }}
-          style={[
-            styles.headerIconBtn,
-            (languageControlsDisabled || state.myLanguage === state.theirLanguage) && styles.disabledBtn,
-          ]}
-        >
-          <Feather name="repeat" size={16} color="#E4E4E7" />
-        </Pressable>
-        <View style={styles.languagePickerWrap}>
-          <LanguagePicker
-            strings={strings}
-            label={strings.theirLanguage}
-            value={state.theirLanguage}
-            disabled={languageControlsDisabled}
-            compact
-            onSelect={code => {
-              void chat?.setLanguages(state.myLanguage, code);
-            }}
-          />
-        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       <FlatList
@@ -239,26 +184,7 @@ export function LiveListenView({ chat, state, loadError }: Props) {
         )}
       />
 
-      {liveListen.previewDraft && (
-        <View style={styles.previewWrap}>
-          <View style={styles.previewCard}>
-            <View style={styles.previewHeader}>
-              <Feather name="radio" size={14} color="#FB7185" />
-              <Text style={styles.previewTitle}>{strings.liveListening}</Text>
-            </View>
-            <Text style={styles.previewLang}>{liveListen.previewDraft.sourceLanguageLabel || languageName(liveListen.previewDraft.sourceLanguageCode)}</Text>
-            <Text selectable style={styles.previewText}>{liveListen.previewDraft.transcript}</Text>
-            {liveListen.previewDraft.translatedText ? (
-              <>
-                <Text style={styles.previewLang}>{liveListen.previewDraft.targetLanguageLabel || languageName(liveListen.previewDraft.targetLanguageCode)}</Text>
-                <Text selectable style={styles.previewTranslation}>{liveListen.previewDraft.translatedText}</Text>
-              </>
-            ) : null}
-          </View>
-        </View>
-      )}
-
-      <View style={[styles.composerArea, { paddingBottom: Math.max(8, insets.bottom) }]}>
+      <View style={[styles.composerArea, { paddingBottom: Math.max(12, insets.bottom) }]}>
         {!!activeError && (
           <Pressable
             accessibilityRole="alert"
@@ -281,98 +207,42 @@ export function LiveListenView({ chat, state, loadError }: Props) {
           </Pressable>
         )}
 
-        <View style={styles.composerCard}>
-          {isLiveActive && (
-            <View style={styles.recordingBanner}>
-              <View style={styles.recordingBannerLeft}>
-                <View
-                  style={[
-                    styles.statusDot,
-                    isListening ? styles.dotRose : isStarting ? styles.dotSky : styles.dotAmber,
-                  ]}
-                />
-                <Text style={[styles.recordingBannerText, compactLabelStyle(state.myLanguage)]}>
-                  {isStarting
-                    ? strings.connectingMicrophone
-                    : isListening
-                      ? `${strings.liveListening} · ${formatElapsedTime(liveListen.elapsedSeconds)}`
-                      : strings.livePaused}
-                </Text>
-              </View>
-              {isListening ? (
-                <AudioWave active color="#FB7185" style={styles.bannerWave} />
-              ) : (
-                <ActivityIndicator size="small" color={isStarting ? '#38BDF8' : '#FBBF24'} />
-              )}
-            </View>
-          )}
+        <View style={styles.controlsRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={listenButtonLabel}
+            accessibilityState={{ selected: isListening }}
+            disabled={!isListening && (!chat || !id || isStarting || isStopping || locked)}
+            onPress={handleToggleListen}
+            style={[
+              styles.listenBtn,
+              isListening ? styles.listenBtnActive : styles.listenBtnIdle,
+            ]}
+          >
+            {isStarting || isStopping ? (
+              <ActivityIndicator size="small" color={palette.text} />
+            ) : (
+              <Feather name="headphones" size={18} color={palette.text} />
+            )}
+            <Text style={styles.listenBtnText}>{listenButtonLabel}</Text>
+          </Pressable>
 
-          <View style={styles.composerRow}>
-            <TextInput
-              accessibilityLabel={composerLabel}
-              placeholder={id ? composerLabel : strings.startChatFirst}
-              placeholderTextColor={palette.textSubtle}
-              value={composerText}
-              onChangeText={setComposerText}
-              editable={!!chat && !!id && !isLiveActive}
-              multiline={false}
-              returnKeyType="send"
-              onSubmitEditing={() => {
-                void handleSendText();
-              }}
-              style={[styles.input, messageDirection(state.myLanguage)]}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={autoPlayLabel}
+            accessibilityState={{ selected: liveAudioQueue.autoPlayEnabled }}
+            onPress={liveAudioQueue.toggleAutoPlay}
+            style={[
+              styles.autoPlayBtn,
+              liveAudioQueue.autoPlayEnabled && styles.autoPlayBtnActive,
+            ]}
+          >
+            <Feather
+              name={liveAudioQueue.autoPlayEnabled ? 'volume-2' : 'volume-x'}
+              size={18}
+              color={liveAudioQueue.autoPlayEnabled ? '#A7F3D0' : palette.textMuted}
             />
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={autoPlayLabel}
-              accessibilityState={{ selected: liveAudioQueue.autoPlayEnabled }}
-              onPress={liveAudioQueue.toggleAutoPlay}
-              style={[
-                styles.autoPlayBtn,
-                liveAudioQueue.autoPlayEnabled && styles.autoPlayBtnActive,
-              ]}
-            >
-              <Feather
-                name={liveAudioQueue.autoPlayEnabled ? 'volume-2' : 'volume-x'}
-                size={18}
-                color={liveAudioQueue.autoPlayEnabled ? '#A7F3D0' : palette.textMuted}
-              />
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                isListening
-                  ? strings.stopRecording
-                  : isStarting
-                    ? strings.connectingMicrophone
-                    : hasDraft
-                      ? strings.sendTextMessage
-                      : strings.liveListening
-              }
-              disabled={!isListening && !isStarting && (!chat || !id || isStopping || (locked && !hasDraft))}
-              onPress={handlePrimaryAction}
-              style={[
-                styles.primaryBtn,
-                isListening
-                  ? styles.primaryBtnRecording
-                  : hasDraft
-                    ? styles.primaryBtnSend
-                    : styles.primaryBtnMic,
-              ]}
-            >
-              {isStarting || isStopping ? (
-                <ActivityIndicator size="small" color={palette.text} />
-              ) : isListening ? (
-                <Feather name="square" size={18} color={palette.text} />
-              ) : hasDraft ? (
-                <Feather name="send" size={18} color="#09090B" />
-              ) : (
-                <Feather name="mic" size={18} color={palette.text} />
-              )}
-            </Pressable>
-          </View>
+          </Pressable>
         </View>
       </View>
 
@@ -397,7 +267,8 @@ const styles = StyleSheet.create({
   chatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    gap: 12,
     paddingHorizontal: 16,
     paddingTop: 2,
     paddingBottom: 10,
@@ -412,7 +283,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  languagePickerWrap: { flex: 1, minWidth: 0 },
+  headerSpacer: { width: 44, height: 44 },
+  languagePickerWrap: { flex: 1, maxWidth: 220 },
   list: { flex: 1, minHeight: 0 },
   messages: {
     flexGrow: 1,
@@ -446,34 +318,7 @@ const styles = StyleSheet.create({
   },
   emptyLogo: { width: 78, height: 78, tintColor: palette.text },
   emptyBrand: { color: palette.text, fontSize: 23, fontWeight: '600', letterSpacing: 4 },
-  previewWrap: { paddingHorizontal: 16, paddingBottom: 6 },
-  previewCard: {
-    gap: 4,
-    padding: 12,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: 'rgba(24,24,27,0.88)',
-  },
-  previewHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  previewTitle: {
-    color: palette.text,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-  },
-  previewLang: {
-    marginTop: 4,
-    color: palette.textSubtle,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-  },
-  previewText: { color: palette.text, fontSize: 14, lineHeight: 20 },
-  previewTranslation: { color: '#E4E4E7', fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  composerArea: { paddingHorizontal: 16, paddingTop: 4, gap: 6 },
+  composerArea: { paddingHorizontal: 16, paddingTop: 8, gap: 10, alignItems: 'center' },
   errorPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -495,51 +340,36 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(24,24,27,0.85)',
   },
   noticePillText: { color: palette.textMuted, fontSize: 12 },
-  composerCard: {
-    padding: 8,
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    backgroundColor: 'rgba(24,24,27,0.84)',
-  },
-  recordingBanner: {
-    marginBottom: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+  controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  listenBtn: {
+    height: 54,
+    paddingHorizontal: 28,
+    borderRadius: 27,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
   },
-  recordingBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  dotRose: { backgroundColor: '#FB7185' },
-  dotSky: { backgroundColor: '#38BDF8' },
-  dotAmber: { backgroundColor: '#FBBF24' },
-  recordingBannerText: {
-    color: '#E4E4E7',
+  listenBtnIdle: {
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(39,39,42,0.92)',
+  },
+  listenBtnActive: {
+    borderColor: 'rgba(251,113,133,0.55)',
+    backgroundColor: '#E11D48',
+  },
+  listenBtnText: {
+    color: palette.text,
     fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 1.4,
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
-  },
-  bannerWave: { height: 24 },
-  composerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  input: {
-    flex: 1,
-    minHeight: 48,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 24,
-    fontSize: 14,
-    color: palette.text,
-    backgroundColor: 'rgba(0,0,0,0.22)',
   },
   autoPlayBtn: {
     width: 48,
@@ -555,13 +385,4 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(52,211,153,0.40)',
     backgroundColor: 'rgba(16,185,129,0.20)',
   },
-  primaryBtn: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
-  primaryBtnRecording: { backgroundColor: '#E11D48' },
-  primaryBtnSend: { backgroundColor: '#10B981' },
-  primaryBtnMic: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  disabledBtn: { opacity: 0.4 },
 });

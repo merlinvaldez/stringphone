@@ -185,6 +185,12 @@ const ROOT_DIR = resolve(import.meta.dirname, "..");
     false,
     "TextToSpeechButton.jsx must keep verify-mobile-mic-listening-state invariant",
   );
+  assert.doesNotMatch(liveScreenSrc, /\bChatHeader\b/, "LiveListenScreen must omit lang 2 / invert ChatHeader");
+  assert.doesNotMatch(liveScreenSrc, /\bChatComposer\b/, "LiveListenScreen must omit text input composer");
+  assert.doesNotMatch(liveScreenSrc, /\bLiveTranslationDock\b/, "LiveListenScreen must omit preview dock animation");
+  assert.doesNotMatch(liveScreenSrc, /\bAudioWave\b/, "LiveListenScreen must omit waveform animation");
+  assert.match(liveScreenSrc, /aria-pressed=\{isToggledOn\}/, "Listen button must expose toggled aria-pressed state");
+  assert.match(liveScreenSrc, /Ear/);
   assert.match(liveScreenSrc, /Volume2/);
   assert.match(liveScreenSrc, /VolumeX/);
 }

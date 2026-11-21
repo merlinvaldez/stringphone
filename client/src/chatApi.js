@@ -262,10 +262,16 @@ export async function processLiveListenChunk({
     typeof theirLanguage === "string"
       ? theirLanguage
       : theirLanguage?.code || "";
-  const extension = audioBlob?.type?.includes("mp4") ? "m4a" : "webm";
+  const uploadBlob = await convertAudioBlobToWavIfPossible(audioBlob);
+  const mimeType = uploadBlob?.type || audioBlob?.type || "";
+  const extension = mimeType.includes("wav")
+    ? "wav"
+    : mimeType.includes("mp4")
+      ? "m4a"
+      : "webm";
 
   formData.append("listenerLanguage", listenerCode);
-  formData.append("sourceAudio", audioBlob, `stringphone-live-listen.${extension}`);
+  formData.append("sourceAudio", uploadBlob, `stringphone-live-listen.${extension}`);
 
   if (theirCode) {
     formData.append("theirLanguage", theirCode);

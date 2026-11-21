@@ -250,6 +250,47 @@ function normalizeAndMergeSegments(
   return merged;
 }
 
+function isNonRetryableTranscriptionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /no speech|empty|did not contain text|not configured|unauthorized|forbidden|invalid api key|authentication|401|403/i.test(
+    message,
+  );
+}
+
+async function maybeNormalizeAudioForVoxtral(
+  input: TranscribeVoxtralInput,
+  deps: TranscribeVoxtralDeps,
+): Promise<Buffer> {
+  if (deps.transcribeImpl) {
+    return input.audioBuffer;
+  }
+
+  const lowerMime = input.mimeType?.toLowerCase() ?? "";
+  const looksLikeMp4OrM4a =
+    lowerMime.includes("mp4") ||
+    lowerMime.includes("m4a") ||
+    /\.(m4a|mp4)$/i.test(input.filename);
+  if (!looksLikeMp4OrM4a) {
+    return input.audioBuffer;
+  }
+
+  try {
+    const { prepareVoiceReference } = await import("./prepareVoiceReference.js");
+    const prepared = await prepareVoiceReference({
+      audioBuffer: input.audioBuffer,
+      originalFilename: input.filename || "live-listen.m4a",
+      mimeType: input.mimeType,
+    });
+    if (Buffer.isBuffer(prepared.buffer) && prepared.buffer.length > 0) {
+      return prepared.buffer;
+    }
+  } catch {
+    console.error("Live listen WAV normalization skipped");
+  }
+
+  return input.audioBuffer;
+}
+
 export async function transcribeWithVoxtral(
   input: TranscribeVoxtralInput,
   deps: TranscribeVoxtralDeps = {},
@@ -275,6 +316,7 @@ export async function transcribeWithVoxtral(
       TranscribeVoxtralDeps["transcribeImpl"]
     >);
 
+  const audioPayload = await maybeNormalizeAudioForVoxtral(input, deps);
   const contextBias = sanitizeContextBias(input.contextBias);
   // Explicitly omit `language` in providerOptions.mistral so Voxtral Transcribe 3
   // auto-detects across 50+ languages in open multilingual conversations.
@@ -290,13 +332,45 @@ export async function transcribeWithVoxtral(
     ...(contextBias.length > 0 ? { contextBias } : {}),
   };
 
-  const result = await transcribeFn({
-    model: gateway.transcriptionModel(modelSlug),
-    audio: input.audioBuffer,
-    providerOptions: {
-      mistral: mistralOptions,
-    },
-  });
+  let result: RawTranscriptionResult;
+  try {
+    result = await transcribeFn({
+      model: gateway.transcriptionModel(modelSlug),
+      audio: audioPayload,
+      providerOptions: {
+        mistral: mistralOptions,
+      },
+    });
+  } catch (firstError) {
+    if (isNonRetryableTranscriptionError(firstError)) {
+      throw firstError;
+    }
+
+    try {
+      const fallbackMistralOptions = {
+        diarize: true,
+        timestampGranularities: ["segment"] as ["segment"],
+        ...(contextBias.length > 0 ? { contextBias } : {}),
+      };
+      result = await transcribeFn({
+        model: gateway.transcriptionModel(modelSlug),
+        audio: audioPayload,
+        providerOptions: {
+          mistral: fallbackMistralOptions,
+        },
+      });
+    } catch (secondError) {
+      if (isNonRetryableTranscriptionError(secondError)) {
+        throw secondError;
+      }
+
+      console.error("Voxtral transcription options rejected, retrying minimal request");
+      result = await transcribeFn({
+        model: gateway.transcriptionModel(modelSlug),
+        audio: audioPayload,
+      });
+    }
+  }
 
   const segments = normalizeAndMergeSegments(result);
   const fullText =
