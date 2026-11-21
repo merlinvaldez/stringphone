@@ -206,6 +206,21 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   const prefetched = [];
   const played = [];
   const resolvers = new Map();
+  const defaultPlays = [];
+  const defaultQueue = createNativeLivePlaybackQueue({
+    prefetchAudio: async () => 'file:///default.wav',
+    playItem: async item => {
+      defaultPlays.push(item.messageId);
+    },
+  });
+  assert.equal(defaultQueue.getState().autoPlayEnabled, false);
+  assert.deepEqual(
+    defaultQueue.enqueue({ messageId: 'no-auto', text: 'Hola', languageCode: 'en', needsPlayback: true }),
+    { queued: false, prefetched: true },
+  );
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(defaultPlays, []);
+
   const queue = createNativeLivePlaybackQueue({
     initialAutoPlay: true,
     prefetchAudio: item => {
@@ -243,22 +258,30 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   );
 }
 
-// 5. Source contracts on AppShell.tsx, MessageCard.tsx & LiveListenView.tsx
+// 5. Source contracts on AppShell.tsx, MessageCard.tsx, LiveListenView.tsx & useNativeLiveListen.ts
 {
   const appShellSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/components/AppShell.tsx'), 'utf8');
   const messageCardSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/chat/MessageCard.tsx'), 'utf8');
   const liveViewSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/live/LiveListenView.tsx'), 'utf8');
+  const liveHookSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/live/useNativeLiveListen.ts'), 'utf8');
 
-  assert.match(appShellSrc, /route:\s*'\/live'[\s\S]*labelKey:\s*'modeLive'[\s\S]*icon:\s*'ear-outline'/);
+  assert.match(appShellSrc, /route:\s*'\/conversation'[\s\S]*route:\s*'\/live'[\s\S]*labelKey:\s*'modeLive'[\s\S]*icon:\s*'ear-outline'[\s\S]*route:\s*'\/phrasebook'/);
   assert.match(messageCardSrc, /isSameLanguageReady/);
   assert.match(liveViewSrc, /useUiStrings/);
   assert.doesNotMatch(liveViewSrc, /\bTextInput\b/, 'LiveListenView must omit text input');
   assert.doesNotMatch(liveViewSrc, /\bAudioWave\b/, 'LiveListenView must omit waveform animation');
   assert.doesNotMatch(liveViewSrc, /invertLanguages/, 'LiveListenView must omit language switch button');
   assert.doesNotMatch(liveViewSrc, /strings\.theirLanguage/, 'LiveListenView must omit lang 2 picker');
+  assert.doesNotMatch(liveViewSrc, /\buseNativeLiveAudioQueue\b/, 'LiveListenView must not auto-play via useNativeLiveAudioQueue');
+  assert.doesNotMatch(liveViewSrc, /\bonEnqueuePlayback\b/, 'LiveListenView must not enqueue live segments for auto-play');
+  assert.match(liveViewSrc, /isPlaybackActive:\s*Boolean\(audioPlayback\.activeAudio\)/);
+  assert.match(liveViewSrc, /onPlaySource=\{audioPlayback\.playSource\}/);
+  assert.match(liveViewSrc, /onPlayTranslated=\{audioPlayback\.playTranslated\}/);
   assert.match(liveViewSrc, /label=\{strings\.myLanguage\}/);
   assert.match(liveViewSrc, /name="headphones"/);
   assert.doesNotMatch(liveViewSrc, /volume-2|volume-x/, 'LiveListenView must omit speaker toggle next to Listen');
+  assert.doesNotMatch(liveHookSrc, /\bonEnqueuePlayback\b/, 'useNativeLiveListen must not enqueue auto-playback');
+  assert.doesNotMatch(liveHookSrc, /\buseNativeLiveAudioQueue\b/, 'useNativeLiveListen must not reference useNativeLiveAudioQueue');
 }
 
 console.log(

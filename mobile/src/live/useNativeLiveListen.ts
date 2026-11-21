@@ -13,7 +13,6 @@ import { nativeLiveApi } from '../adapters/live';
 import { ProcessingApiError } from '../adapters/processingTransport';
 import type { ChatState, createTextChatController } from '../chat/controller';
 import { ensureConversationVoiceClone, getNativeAudioStorage } from '../chat/native';
-import type { LiveQueueItem } from './livePlaybackQueue';
 import {
   IDLE_ROLLOVER_MS,
   MAX_CHUNK_MS,
@@ -43,13 +42,13 @@ export function useNativeLiveListen({
   chat,
   state,
   isPlaybackActive = false,
-  onEnqueuePlayback,
+  onSegmentSaved,
   onBeforeStart,
 }: {
   chat: Chat | null;
   state: ChatState;
   isPlaybackActive?: boolean;
-  onEnqueuePlayback?: (item: LiveQueueItem) => void;
+  onSegmentSaved?: () => void;
   onBeforeStart?: () => void;
 }) {
   const isFocused = useIsFocused();
@@ -62,13 +61,13 @@ export function useNativeLiveListen({
   const chatRef = useRef(chat);
   const stateRef = useRef(state);
   const playbackActiveRef = useRef(isPlaybackActive);
-  const onEnqueueRef = useRef(onEnqueuePlayback);
+  const onSegmentSavedRef = useRef(onSegmentSaved);
   const onBeforeStartRef = useRef(onBeforeStart);
 
   useEffect(() => { chatRef.current = chat; }, [chat]);
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { playbackActiveRef.current = isPlaybackActive; }, [isPlaybackActive]);
-  useEffect(() => { onEnqueueRef.current = onEnqueuePlayback; }, [onEnqueuePlayback]);
+  useEffect(() => { onSegmentSavedRef.current = onSegmentSaved; }, [onSegmentSaved]);
   useEffect(() => { onBeforeStartRef.current = onBeforeStart; }, [onBeforeStart]);
 
   const leaseRef = useRef<LiveLease | null>(null);
@@ -248,17 +247,9 @@ export function useNativeLiveListen({
         if (attachedRecording && segment.detectedLanguage.isSupportedTts) {
           void ensureConversationVoiceClone(context.conversationId, segment.sourceLanguage.code);
         }
-
-        if (segment.needsPlayback && segment.translatedText.trim()) {
-          onEnqueueRef.current?.({
-            messageId: msgId,
-            text: segment.translatedText,
-            languageCode: segment.targetLanguage.code,
-            sourceLanguageCode: segment.sourceLanguage.code,
-            needsPlayback: true,
-          });
-        }
       }
+
+      onSegmentSavedRef.current?.();
     } catch (uploadError) {
       if (uploadError instanceof ProcessingApiError && uploadError.status === 422) {
         return;
@@ -522,16 +513,6 @@ export function useNativeLiveListen({
           translatedPronunciation: first.translatedPronunciation,
         });
 
-        if (first.needsPlayback && first.translatedText.trim()) {
-          onEnqueueRef.current?.({
-            messageId,
-            text: first.translatedText,
-            languageCode: first.targetLanguage.code,
-            sourceLanguageCode: first.sourceLanguage.code,
-            needsPlayback: true,
-          });
-        }
-
         for (let i = 1; i < res.segments.length; i += 1) {
           const extra = res.segments[i];
           const extraId = `${messageId}_seg_${i}`.slice(0, 120);
@@ -548,17 +529,9 @@ export function useNativeLiveListen({
             originalPronunciation: extra.originalPronunciation,
             translatedPronunciation: extra.translatedPronunciation,
           });
-          if (extra.needsPlayback && extra.translatedText.trim()) {
-            onEnqueueRef.current?.({
-              messageId: extraId,
-              text: extra.translatedText,
-              languageCode: extra.targetLanguage.code,
-              sourceLanguageCode: extra.sourceLanguage.code,
-              needsPlayback: true,
-            });
-          }
         }
 
+        onSegmentSavedRef.current?.();
         return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Retry failed.');

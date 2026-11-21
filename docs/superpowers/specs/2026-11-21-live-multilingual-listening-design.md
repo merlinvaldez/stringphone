@@ -7,12 +7,12 @@
 
 StringPhone's existing live capture workflow ([docs/live-transcription-mode-feature-spec.md](../../live-transcription-mode-feature-spec.md)) is designed for short, turn-taking voice inputs: it opens an OpenAI WebRTC session (`gpt-live-transcribe`) locked to a single 2-language pair, cuts off at 30 seconds (`MAX_RECORDING_TIME = 30`), never auto-plays translated speech, and cannot cleanly separate multiple speakers or arbitrary third languages.
 
-Users also want to **listen to a live multilingual conversation as it is happening**—in person, across a room, or with 2+ speakers switching across languages without tapping turn buttons—so they can **read the conversation in real time and play/hear translations sequentially as it happens** using StringPhone's existing UI elements.
+Users also want to **listen to a live multilingual conversation as it is happening**—in person, across a room, or with 2+ speakers switching across languages without tapping turn buttons—so they can **read the conversation in real time and manually play back source or translated audio on demand** using StringPhone's existing UI elements.
 
 **Confirmed Provider & Infrastructure Split:**
 1. **Speech-to-Text & Diarization — Voxtral Transcribe 3 via Vercel AI Gateway:** Use Vercel AI SDK (`ai` `transcribe`) + `@ai-sdk/gateway` (`createGateway().transcriptionModel(...)`) targeting `mistral/voxtral-mini-transcribe-3` (configurable via `MISTRAL_TRANSCRIBE_MODEL` to e.g. `mistral/voxtral-small-transcribe-3`), with `diarize: true`, `timestampGranularities: ['segment']`, and `language` omitted for open multilingual auto-detection across 50+ languages.
 2. **Language Confirmation, Translation & Pronunciation — Existing Direct OpenAI Endpoint (Not Gateway):** Route translation and cross-script pronunciation exclusively through StringPhone's existing direct OpenAI helpers (`createOpenAiResponse` in `src/lib/openai.ts` and `generatePronunciationGuidance` in `src/services/generatePronunciationGuidance.ts` using `OPENAI_API_KEY`), keeping text translation off the Vercel AI Gateway.
-3. **Speech Synthesis (Live Playback) — Existing `POST /speech/output`:** Reuse `runOutputTextToSpeech` (`src/lib/runOutputTextToSpeech.ts`) -> `generateSpeech` (`src/services/generateSpeech.ts`), which already synthesizes with `mistral/voxtral-mini-tts-3` via Vercel AI Gateway when a chat-scoped 10-second voice clone is unlocked (`src/services/mistralVoiceCloning.ts`) and falls back to `generateOpenAiSpeech` (`marin` / `onyx`).
+3. **Manual On-Demand Speech Synthesis (`POST /speech/output`) — Existing Message Playback Buttons:** Translations and transcripts appear silently while listening (never auto-played or automatically prefetched). Pressing any message card's playback button uses `runOutputTextToSpeech` (`src/lib/runOutputTextToSpeech.ts`) -> `generateSpeech` (`src/services/generateSpeech.ts`), which synthesizes with `mistral/voxtral-mini-tts-3` via Vercel AI Gateway when a chat-scoped 10-second voice clone is unlocked (`src/services/mistralVoiceCloning.ts`) or falls back to `generateOpenAiSpeech` (`marin` / `onyx`).
 
 **Why VAD-Chunked HTTP with `mistral/voxtral-mini-transcribe-3` / `small` instead of WebSocket `voxtral-mini-transcribe-realtime-3`:**
 - Vercel AI Gateway does not route Mistral's WebSocket realtime transcription endpoint (`gateway.experimental_transcription.getToken()` supports OpenAI/ElevenLabs/Google/xAI/Microsoft, not Mistral).
@@ -22,22 +22,21 @@ Users also want to **listen to a live multilingual conversation as it is happeni
 ## Goals, Non-Goals & Anti-Goals
 
 ### Goals
-1. **Unhide Existing `Live` (`Radio`) Tab Across Web & Mobile:**
-   - Remove `"live"` from `HIDDEN_MODE_IDS` in `client/src/StringPhoneApp.jsx` so the existing `Radio` tab appears in `ModeSwitcher`.
-   - Add the `{ route: '/live', labelKey: 'modeLive', icon: 'radio' }` tab in `mobile/src/components/AppShell.tsx` alongside Chat, Single, Conversation, and Phrasebook.
-   - Reuse existing UI building blocks: single `myLang` selector (`LanguageSelector` / `LanguagePicker`), `ChatThread` + `MessageBubble` (Web) / `FlatList` + `MessageCard` (Mobile), `HistorySheet` / `ChatHistorySidebar`, and `FloatingAuthControls` / voice settings popover, paired with a single toggled Listen button (without a second language picker, language-switch button, text composer, or waveform animation) and a compact auto-play mute toggle.
+1. **Unhide Existing `Live` (`Ear`) Tab Between Conversation & Phrasebook Across Web & Mobile:**
+   - Remove `"live"` from `HIDDEN_MODE_IDS` in `client/src/StringPhoneApp.jsx` so the `Ear` tab renders in `ModeSwitcher` between Conversation and Phrasebook.
+   - Add `{ route: '/live', labelKey: 'modeLive', icon: 'ear-outline' }` in `mobile/src/components/AppShell.tsx` between Conversation and Phrasebook.
+   - Reuse existing UI building blocks: single `myLang` selector (`LanguageSelector` / `LanguagePicker`), `ChatThread` + `MessageBubble` (Web) / `FlatList` + `MessageCard` (Mobile), `HistorySheet` / `ChatHistorySidebar`, and `FloatingAuthControls` / voice settings popover, paired with a single toggled Listen button (without a second language picker, language-switch button, text composer, speaker toggle, or waveform animation).
 2. **Open Multilingual Auto-Detection into `myLang`:**
    - Voxtral Transcribe 3 runs without a forced `language` parameter so speakers can switch across any of Voxtral's 50+ supported languages freely.
-   - Foreign-language utterances (`detectedLanguage !== myLang`) translate into `myLang` via the existing direct OpenAI endpoint and render as partner (`sky`) bubbles with `needsPlayback: true`.
-   - Listener-language utterances (`detectedLanguage === myLang`) render as self (`emerald`) bubbles as-is (`translatedText: ""`, `needsPlayback: false`) without wasteful translation or audio echo.
+   - Foreign-language utterances (`detectedLanguage !== myLang`) translate into `myLang` via the existing direct OpenAI endpoint and render as partner (`sky`) bubbles.
+   - Listener-language utterances (`detectedLanguage === myLang`) render as self (`emerald`) bubbles as-is (`translatedText: ""`, `needsPlayback: false`) without wasteful translation.
 3. **Continuous VAD-Chunked Capture (No 30s Limit):**
    - Keep microphone capture running continuously until the user taps Stop (or navigates away / backgrounds the app).
-   - Slice audio automatically on natural pauses (~750ms silence after >= 550ms speech) and force a rolling cut at `MAX_CHUNK_MS = 6000` during uninterrupted speech so live captions and audio never stall during long turns.
-   - Optionally send rolling mid-utterance preview snapshots (~2,500ms) while a speaker talks continuously to update the `LiveTranslationDock` / preview card before the final cut lands.
-4. **Sequential FIFO Live Audio Playback Queue + Echo-Safe Toggle:**
-   - Prefetch translated audio in parallel via existing `POST /speech/output` as soon as a foreign-language segment finalizes.
-   - Play translated clips strictly sequentially in FIFO order (never overlapping voices), reflecting active playback state on the corresponding bubble's existing `TextToSpeechButton` / `MessageCard` speaker button.
-   - Provide a one-tap live auto-play toggle (`Volume2` / `VolumeX` / `volume-2` / `volume-x`) styled with existing circular audio icon button styles, and automatically gate/pause VAD energy monitoring during local playback in speaker-safe mode to prevent mic feedback loops.
+   - Slice audio automatically on natural pauses (~750ms silence after >= 550ms speech) and force a rolling cut at `MAX_CHUNK_MS = 6000` during uninterrupted speech so live captions never stall during long turns.
+4. **Silent Live Listening & Manual Playback Only (+ Echo-Safe VAD Gating):**
+   - Never auto-play audio or automatically prefetch TTS while listening; messages appear silently as transcripts and translations arrive.
+   - Play source or translated audio **only** when the user explicitly presses a message's playback button (`VoiceMessagePlayer` / `TextToSpeechButton` on Web; `MessageCard` source/translated buttons via `useAudioPlayback` on Mobile).
+   - Pause/gate VAD energy monitoring while manual playback is active (`isManualAudioPlaying` on Web, `Boolean(audioPlayback.activeAudio)` on Mobile) to prevent speaker feedback loops.
 5. **Full History Persistence, Voice Cloning Safety & Cross-Platform Parity:**
    - Share the active conversation with `Chat`, `Single`, and `Conversation` modes (`localStore.js` IndexedDB / Postgres on Web; SQLite `origin_mode: 'chat'` on Mobile).
    - Preserve `Save to Phrasebook`, RTL direction (`ar`, `fa`, `he`), cross-script pronunciation guidance (`requiresPhoneticGuide`), and retryable failed chunks.
@@ -173,32 +172,26 @@ Users also want to **listen to a live multilingual conversation as it is happeni
 ### 3. Web App Live Mode (`client/`)
 
 - **Navigation & Mode Switcher (`client/src/StringPhoneApp.jsx`):**
-  - Remove `"live"` from `HIDDEN_MODE_IDS` (`new Set()`) so `{ id: "live", label: "Live", Icon: Radio }` renders in `ModeSwitcher`. Keep `sharedChatLocked` blocking `"live"` when a `?join=` shared room is active.
+  - Remove `"live"` from `HIDDEN_MODE_IDS` (`new Set()`) so `{ id: "live", label: "Live", Icon: Ear }` renders in `ModeSwitcher` between Conversation and Phrasebook. Keep `sharedChatLocked` blocking `"live"` when a `?join=` shared room session is active.
 - **API Client (`client/src/chatApi.js`):**
   - Add `processLiveListenChunk({ audioBlob, listenerLanguage, theirLanguage, chunkId, isPreview = false, contextBias = [], conversationId = null, authFetch, signal })` posting `FormData` to `${API_BASE_URL}/chat/messages/live-listen`.
 - **Continuous VAD Capture Hook (`client/src/components/live/useVoxtralLiveListen.js`):**
   - Requests microphone with `{ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }`.
   - Uses `AudioContext` + `AnalyserNode` (`SPEECH_RMS_THRESHOLD = 0.018`, `MIN_SPEECH_MS = 550`, `SILENCE_FINALIZE_MS = 750`, `MAX_CHUNK_MS = 6000`).
-  - **Echo-safe VAD gating:** When `isLocalAudioPlaying && !headphoneMode`, suppresses new speech-start detection so the device speaker does not trigger self-transcription.
+  - **Echo-safe VAD gating:** When `isLocalAudioPlaying && !headphoneMode`, suppresses new speech-start detection so manual playback from device speakers does not trigger self-transcription.
   - **Zero-gap rollover:** When silence triggers or `speechDuration >= MAX_CHUNK_MS`, stops the current `MediaRecorder`, immediately starts the next `MediaRecorder` if still listening, attaches `audioBlob.durationMs`, and hands the blob to `onChunkReady`.
-  - **Rolling preview (`PREVIEW_INTERVAL_MS = 2500`):** While a single turn stays continuously active past 2.5s without pausing, collects a temporary snapshot blob (`isPreview: true`) to update `LiveTranslationDock` without creating permanent messages.
-- **Sequential FIFO Audio Playback Queue (`client/src/components/live/useLiveAudioQueue.js`):**
-  - Persists `autoPlayEnabled` preference (`localStorage`, default `true` in Live mode).
-  - Maintains a FIFO queue of `{ messageId, text, languageCode, sourceLanguageCode }`.
-  - Immediately invokes `prefetchMessageTranslatedSpeech` in parallel when segments arrive (`needsPlayback === true && autoPlayEnabled`).
-  - Plays queued items strictly sequentially via `playGeneratedSpeech`, exposes `activePlayingMessageId` and `isLocalAudioPlaying`, and pauses/yields cleanly if the user taps Mute, Stop, or manually plays another bubble.
-- **Live Screen UI (`client/src/components/live/LiveListenScreen.jsx`, `client/src/components/chat/MessageBubble.jsx`):**
-  - **`LiveListenScreen.jsx`** composes existing UI components:
+- **Live Screen UI & Manual Playback Only (`client/src/components/live/LiveListenScreen.jsx`, `client/src/components/chat/MessageBubble.jsx`):**
+  - **`LiveListenScreen.jsx`** composes existing UI components without auto-playing or automatically prefetching TTS audio while listening:
     1. Minimal top header with History `Menu` button and a single centered `LanguageSelector` for `myLang` (no `theirLang` / lang 2 button and no language-invert button).
-    2. `ChatThread` rendering `MessageBubble`s from the shared active conversation (`baseLanguageCode={myLang.code}` so `myLang` utterances tint emerald on the right and foreign utterances tint sky on the left; `MessageBubble` skips the empty translation block when `message.sourceLanguageCode === message.targetLanguageCode && !message.translatedText`).
-    3. Clean bottom dock without text input, wave animation, speaker button, or recording banner — containing ONLY the centered toggled Listen button (`Ear`, toggled off vs active Listen state via `aria-pressed`).
+    2. `ChatThread` rendering `MessageBubble`s from the shared active conversation (`baseLanguageCode={myLang.code}` so `myLang` utterances tint emerald on the right and foreign utterances tint sky on the left; `MessageBubble` skips the empty translation block when `message.sourceLanguageCode === message.targetLanguageCode && !message.translatedText`). Audio plays **only** when the user explicitly presses a message's playback button (`VoiceMessagePlayer` or `TextToSpeechButton`), and `LiveListenScreen` tracks that active manual audio element to pass `isLocalAudioPlaying` for VAD echo-gating.
+    3. Clean bottom dock without text input, wave animation, speaker toggle button, or recording banner — containing ONLY the centered toggled Listen button (`Ear`, toggled off vs active Listen state via `aria-pressed`).
   - **Browser Audio Normalization & Error Hardening:** `processLiveListenChunk` converts browser `MediaRecorder` blobs into mono PCM WAV (`convertAudioBlobToWavIfPossible`) before upload; `src/services/transcribeVoxtral.ts` lazily normalizes native `.m4a`/`.mp4` uploads and retries minimal `transcribe` payloads if optional `providerOptions` are rejected; `src/lib/runLiveListenChunk.ts` includes literal `"JSON"` in OpenAI `json_object` `input` and emits stage-specific (`transcription` / `translation`) fixed-literal diagnostics.
   - **Voice Cloning & Local Persistence:** Finalized single-speaker segments (`singleSpeakerAudioEligible && segment.sourceLanguage.code`) save `audioBlob` (`durationMs`) via `localStore.saveAudioAsset` and trigger `ensureChatLanguageVoiceClone(activeChatId, segment.sourceLanguage.code)` when `isSupportedTts` is true. Failed chunks retain their `audioBlob` in a retryable error `MessageBubble` (`onRetry`).
 
 ### 4. Android APK Live Mode (`mobile/`)
 
 - **App Shell Tab (`mobile/src/components/AppShell.tsx`):**
-  - Add `{ route: '/live', labelKey: 'modeLive', icon: 'radio' }` right after Chat in `MODES` (`width: 34, height: 36` responsive `modeButton` sizing so all 5 tabs fit cleanly on 360dp viewports without overflow).
+  - Add `{ route: '/live', labelKey: 'modeLive', icon: 'ear-outline' }` (`Ionicons`) between Conversation and Phrasebook in `MODES` (`width: 34, height: 36` responsive `modeButton` sizing so all 5 tabs fit cleanly on 360dp viewports without overflow).
 - **Transport & Live Adapter (`mobile/src/adapters/processingTransport.ts`, `mobile/src/adapters/live.ts`):**
   - Add `postLiveListenChunk(input: { uri, mimeType, filename, listenerLanguage, theirLanguage?, chunkId?, isPreview?, contextBias?, onResponse? }, signal?)` using `openUploadFile(input.uri).upload(endpointUrl('/chat/messages/live-listen'), ...)` with the `3_000_000` byte guard and zero `conversationId`/`userId` leakage.
   - Add `processLiveListenChunk` in `mobile/src/adapters/live.ts` validating and returning typed segments.
@@ -206,12 +199,12 @@ Users also want to **listen to a live multilingual conversation as it is happeni
   - Keep `HISTORY_SCHEMA_VERSION = 4` unchanged (`mobile/src/storage/migrations.ts`); persist live-listen messages with `origin_mode: 'chat'`.
   - Allow empty `translatedText` in `saveReadyLiveMessage` and `finishLiveDraft` **only** when `input.sourceLanguage === input.targetLanguage` (storing `translated_text = null`).
   - Update `MessageCard.tsx` so when `message.status === 'ready' && message.source_language === message.target_language && !message.translated_text`, the `translationBlock` is omitted instead of rendering `strings.translationFailed`.
-- **Native Playback & Audio Session Coordination (`mobile/src/adapters/playbackCoordinator.ts`, `mobile/src/chat/useAudioPlayback.ts`, `mobile/src/live/useNativeLiveAudioQueue.ts`):**
-  - Extend `AudioPlaybackCoordinator` with `setLiveListenActive(active: boolean)` and `startLivePlayback(id, stopCallback)` (allowing queued live TTS playback while live listening is active, while keeping `startPlayback` strictly blocked during single-turn `isRecording()`).
-  - Add `useNativeLiveAudioQueue` wrapping `ensureTranslatedSpeech`, `configureNativeAudioSession(false)` / `configureNativeAudioSession(true)`, and `useNativeAudioPlayer` to play translated speech sequentially in FIFO order, exposing `isPlaying` to pause recorder VAD metering while device audio is playing.
+- **Native Playback & Audio Session Coordination (`mobile/src/adapters/playbackCoordinator.ts`, `mobile/src/chat/useAudioPlayback.ts`):**
+  - Extend `AudioPlaybackCoordinator` with `setLiveListenActive(active: boolean)` and `startLivePlayback(id, stopCallback)` (allowing manual button playback during live listening while keeping `startPlayback` strictly blocked during single-turn `isRecording()`).
+  - Live mode uses `useAudioPlayback()` strictly for manual playback when the user presses a card's source or translated playback button (never auto-playing or prefetching new segments during listening), passing `isPlaybackActive: Boolean(audioPlayback.activeAudio)` to pause recorder VAD metering while manual playback is active.
 - **Native Continuous VAD Capture & Screen (`mobile/src/live/useNativeLiveListen.ts`, `mobile/src/live/LiveListenView.tsx`, `mobile/src/app/live.tsx`):**
-  - `useNativeLiveListen.ts`: uses `useNativeAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, directory: 'document', isMeteringEnabled: true })` (`SPEECH_DBFS_THRESHOLD = -46`, `SILENCE_FINALIZE_MS = 750`, `MAX_CHUNK_MS = 6000`). When VAD triggers a segment (and while `!liveAudioQueue.isPlaying`), uploads directly via `nativeLiveApi.processLiveListenChunk` (omitting `theirLanguage` for open auto-detection into `myLanguage`), saves ready segment(s) into SQLite via `saveLiveMessage` (attaching source audio only when `singleSpeakerAudioEligible`), or preserves failed uploads as retryable SQLite voice drafts via `saveLiveAudioDraft`. Stops cleanly on `isFocused === false`, `AppState !== 'active'`, or user stop tap.
-  - `LiveListenView.tsx` + `mobile/src/app/live.tsx`: shows History menu + single `myLanguage` `LanguagePicker` in the header (no `theirLanguage` or invert controls), `FlatList` of `MessageCard`s, and a simple bottom bar with ONLY the centered toggled Listen button (`headphones`, no `TextInput`, no speaker button, no wave/banner animation).
+  - `useNativeLiveListen.ts`: uses `useNativeAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, directory: 'document', isMeteringEnabled: true })` (`SPEECH_DBFS_THRESHOLD = -46`, `SILENCE_FINALIZE_MS = 750`, `MAX_CHUNK_MS = 6000`). When VAD triggers a segment (and while `!playbackActiveRef.current`), uploads directly via `nativeLiveApi.processLiveListenChunk` (omitting `theirLanguage` for open auto-detection into `myLanguage`), saves ready segment(s) into SQLite via `saveLiveMessage` (attaching source audio only when `singleSpeakerAudioEligible`), notifies `onSegmentSaved`, or preserves failed uploads as retryable SQLite voice drafts via `saveLiveAudioDraft`. Stops cleanly on `isFocused === false`, `AppState !== 'active'`, or user stop tap.
+  - `LiveListenView.tsx` + `mobile/src/app/live.tsx`: shows History menu + single `myLanguage` `LanguagePicker` in the header (no `theirLanguage` or invert controls), `FlatList` of `MessageCard`s with manual-only `playSource`/`playTranslated` buttons, and a simple bottom bar with ONLY the centered toggled Listen button (`headphones`, no `TextInput`, no speaker toggle button, no wave/banner animation).
 
 ### 5. Shared UI Strings (`shared/uiStrings.ts`, `shared/bundledUiStrings.ts`)
 

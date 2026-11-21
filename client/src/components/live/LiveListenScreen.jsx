@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Ear, Loader2, Menu } from "lucide-react";
 import { ChatThread } from "../chat/ChatThread.jsx";
 import { useVoxtralLiveListen } from "./useVoxtralLiveListen.js";
-import { useLiveAudioQueue } from "./useLiveAudioQueue.js";
 import { ErrorNotice, LanguageSelector } from "../../StringPhoneApp.jsx";
 import { useUiStrings } from "../../uiStrings.js";
 
@@ -14,49 +13,81 @@ export function LiveListenScreen({
   retryMessage,
   onAudioPlay,
   onPlayTranslatedSpeech,
-  prefetchMessageTranslatedSpeech,
-  pauseActiveAudio,
   onSaveToCollection,
   savedSourceMessageIds = null,
   savingMessageId = null,
   onOpenSidebar,
   onBeforeCapture,
-  activeChatId = null,
 }) {
   const mountedRef = useRef(true);
   const [error, setError] = useState("");
+  const [isManualAudioPlaying, setIsManualAudioPlaying] = useState(false);
 
   const listenerLangRef = useRef(myLang);
-  const activeChatIdRef = useRef(activeChatId);
-  const queueEnqueueRef = useRef(null);
+  const manualAudioCleanupRef = useRef(null);
 
   useEffect(() => {
     listenerLangRef.current = myLang;
   }, [myLang]);
 
-  useEffect(() => {
-    activeChatIdRef.current = activeChatId;
-  }, [activeChatId]);
+  const clearManualAudioTracking = useCallback(() => {
+    const cleanup = manualAudioCleanupRef.current;
+    manualAudioCleanupRef.current = null;
+    cleanup?.();
+    if (mountedRef.current) {
+      setIsManualAudioPlaying(false);
+    }
+  }, []);
+
+  const trackManualAudioElement = useCallback(
+    (audioElement) => {
+      clearManualAudioTracking();
+      if (
+        !audioElement ||
+        typeof audioElement !== "object" ||
+        typeof audioElement.addEventListener !== "function"
+      ) {
+        return;
+      }
+
+      const handlePlaying = () => {
+        if (mountedRef.current) {
+          setIsManualAudioPlaying(true);
+        }
+      };
+      const handleStopped = () => {
+        clearManualAudioTracking();
+      };
+
+      audioElement.addEventListener("playing", handlePlaying);
+      audioElement.addEventListener("pause", handleStopped);
+      audioElement.addEventListener("ended", handleStopped);
+      audioElement.addEventListener("error", handleStopped);
+
+      manualAudioCleanupRef.current = () => {
+        audioElement.removeEventListener("playing", handlePlaying);
+        audioElement.removeEventListener("pause", handleStopped);
+        audioElement.removeEventListener("ended", handleStopped);
+        audioElement.removeEventListener("error", handleStopped);
+      };
+
+      if (!audioElement.paused && !audioElement.ended && mountedRef.current) {
+        setIsManualAudioPlaying(true);
+      }
+    },
+    [clearManualAudioTracking],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      manualAudioCleanupRef.current?.();
+      manualAudioCleanupRef.current = null;
     };
   }, []);
 
   const screenUiStrings = useUiStrings(myLang);
-
-  const liveAudioQueue = useLiveAudioQueue({
-    prefetchTranslatedSpeech: prefetchMessageTranslatedSpeech,
-    playTranslatedSpeech: onPlayTranslatedSpeech,
-    pauseActiveAudio,
-    chatId: activeChatId,
-  });
-
-  useEffect(() => {
-    queueEnqueueRef.current = liveAudioQueue.enqueue;
-  }, [liveAudioQueue.enqueue]);
 
   const handleChunkReady = async (audioBlob) => {
     if (!mountedRef.current || !audioBlob || audioBlob.size <= 0) {
@@ -76,25 +107,6 @@ export function LiveListenScreen({
 
       if (result && result.ok === false && result.error) {
         setError(result.error);
-        return;
-      }
-
-      if (!result?.items?.length) {
-        return;
-      }
-
-      for (const { message, segment } of result.items) {
-        if (segment?.needsPlayback && message?.translatedText) {
-          queueEnqueueRef.current?.({
-            messageId: message.id,
-            chatId: activeChatIdRef.current,
-            text: message.translatedText,
-            translatedPronunciation: message.translatedPronunciation ?? "",
-            languageCode: message.targetLanguageCode,
-            sourceLanguageCode: message.sourceLanguageCode,
-            needsPlayback: true,
-          });
-        }
       }
     } catch (chunkError) {
       if (mountedRef.current) {
@@ -108,9 +120,10 @@ export function LiveListenScreen({
   };
 
   const liveListen = useVoxtralLiveListen({
-    isLocalAudioPlaying: liveAudioQueue.isLocalAudioPlaying,
+    isLocalAudioPlaying: isManualAudioPlaying,
     onBeforeStart: () => {
       setError("");
+      clearManualAudioTracking();
       onBeforeCapture?.();
     },
     onChunkReady: (blob) => {
@@ -142,13 +155,14 @@ export function LiveListenScreen({
     }
   };
 
-  const handleManualPlayTranslatedSpeech = (input) => {
-    liveAudioQueue.yieldToManualPlayback();
-    return onPlayTranslatedSpeech?.(input);
+  const handleManualPlayTranslatedSpeech = async (input) => {
+    const player = await onPlayTranslatedSpeech?.(input);
+    trackManualAudioElement(player);
+    return player;
   };
 
   const handleManualAudioPlay = (audioElement) => {
-    liveAudioQueue.yieldToManualPlayback();
+    trackManualAudioElement(audioElement);
     onAudioPlay?.(audioElement);
   };
 
@@ -203,8 +217,6 @@ export function LiveListenScreen({
           baseLanguageCode={myLang.code}
           savedSourceMessageIds={savedSourceMessageIds}
           savingMessageId={savingMessageId}
-          activePlayingMessageId={liveAudioQueue.activePlayingMessageId}
-          onStopLivePlayback={liveAudioQueue.pauseAll}
         />
       </div>
 

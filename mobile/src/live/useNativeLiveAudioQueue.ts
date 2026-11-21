@@ -27,7 +27,7 @@ export function useNativeLiveAudioQueue(speechVoice?: 'marin' | 'onyx') {
   const player = useNativeAudioPlayer(null);
   const playback = useNativeAudioPlayerStatus(player);
   const [queueState, setQueueState] = useState<LiveQueueState>({
-    autoPlayEnabled: true,
+    autoPlayEnabled: false,
     activePlayingMessageId: null,
     isPlaying: false,
     queueLength: 0,
@@ -82,7 +82,7 @@ export function useNativeLiveAudioQueue(speechVoice?: 'marin' | 'onyx') {
   const controllerRef = useRef<ReturnType<typeof createNativeLivePlaybackQueue> | null>(null);
   useLayoutEffect(() => {
     const controller = createNativeLivePlaybackQueue({
-      initialAutoPlay: true,
+      initialAutoPlay: false,
       prefetchAudio: async item => {
         const existing = await resolveNativeTranslatedAudio(item.messageId);
         if (existing?.uri && existing.availability === 'available') {

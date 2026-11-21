@@ -68,6 +68,26 @@ const ROOT_DIR = resolve(import.meta.dirname, "..");
   const resolvers = new Map();
   const playResolvers = new Map();
 
+  const defaultStoppedCalls = [];
+  const defaultQueue = createLivePlaybackQueue({
+    prefetchItem: async () => "audio",
+    playItem: (item) => {
+      defaultStoppedCalls.push(item.messageId);
+    },
+  });
+  assert.equal(defaultQueue.getState().autoPlayEnabled, false);
+  assert.deepEqual(
+    defaultQueue.enqueue({
+      messageId: "no-auto",
+      text: "Hello",
+      languageCode: "en",
+      needsPlayback: true,
+    }),
+    { queued: false, prefetched: true },
+  );
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(defaultStoppedCalls, []);
+
   const queue = createLivePlaybackQueue({
     initialAutoPlay: true,
     prefetchItem: (item) => {
@@ -169,6 +189,11 @@ const ROOT_DIR = resolve(import.meta.dirname, "..");
     /["']live["']/,
     "Live mode must be unhidden in StringPhoneApp.jsx",
   );
+  assert.match(
+    appSrc,
+    /id:\s*"conversation"[\s\S]*id:\s*"live",\s*label:\s*"Live",\s*Icon:\s*Ear[\s\S]*id:\s*"lesson"/,
+    "StringPhoneApp.jsx MODE_OPTIONS must place Live (Ear icon) between Conversation and Phrasebook",
+  );
   assert.match(appSrc, /<LiveListenScreen/, "StringPhoneApp.jsx must render LiveListenScreen");
   assert.match(
     appSrc,
@@ -189,6 +214,23 @@ const ROOT_DIR = resolve(import.meta.dirname, "..");
   assert.doesNotMatch(liveScreenSrc, /\bChatComposer\b/, "LiveListenScreen must omit text input composer");
   assert.doesNotMatch(liveScreenSrc, /\bLiveTranslationDock\b/, "LiveListenScreen must omit preview dock animation");
   assert.doesNotMatch(liveScreenSrc, /\bAudioWave\b/, "LiveListenScreen must omit waveform animation");
+  assert.doesNotMatch(liveScreenSrc, /\buseLiveAudioQueue\b/, "LiveListenScreen must not auto-play via useLiveAudioQueue");
+  assert.doesNotMatch(liveScreenSrc, /\bqueueEnqueueRef\b/, "LiveListenScreen must not enqueue live segments for auto-play");
+  assert.doesNotMatch(
+    liveScreenSrc,
+    /\bprefetchMessageTranslatedSpeech\b/,
+    "LiveListenScreen must not automatically prefetch TTS audio during live listening",
+  );
+  assert.match(
+    liveScreenSrc,
+    /onAudioPlay=\{handleManualAudioPlay\}/,
+    "LiveListenScreen must wire manual source playback tracking into ChatThread",
+  );
+  assert.match(
+    liveScreenSrc,
+    /onPlayTranslatedSpeech=\{handleManualPlayTranslatedSpeech\}/,
+    "LiveListenScreen must wire manual translated speech playback into ChatThread",
+  );
   assert.match(liveScreenSrc, /aria-pressed=\{isToggledOn\}/, "Listen button must expose toggled aria-pressed state");
   assert.match(liveScreenSrc, /Ear/);
   assert.doesNotMatch(liveScreenSrc, /\bVolume2\b|\bVolumeX\b/, "LiveListenScreen must omit speaker toggle next to Listen");

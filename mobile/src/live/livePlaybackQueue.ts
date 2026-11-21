@@ -17,7 +17,7 @@ export function createNativeLivePlaybackQueue({
   prefetchAudio,
   playItem,
   stopPlayback,
-  initialAutoPlay = true,
+  initialAutoPlay = false,
   onStateChange,
 }: {
   prefetchAudio: (item: LiveQueueItem) => Promise<string | null>;

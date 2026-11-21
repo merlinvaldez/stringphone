@@ -20,7 +20,6 @@ import { useUiStrings } from '../chat/useUiStrings';
 import { useSaveToPhrasebook } from '../phrasebook/useSaveToPhrasebook';
 import type { MessageRow } from '../storage/history';
 import { palette } from '../theme';
-import { useNativeLiveAudioQueue } from './useNativeLiveAudioQueue';
 import { useNativeLiveListen } from './useNativeLiveListen';
 
 type Props = {
@@ -36,18 +35,14 @@ export function LiveListenView({ chat, state, loadError }: Props) {
   const list = useRef<FlatList<MessageRow>>(null);
   const scrollAfterUpdate = useRef(false);
 
-  const liveAudioQueue = useNativeLiveAudioQueue();
-  const audioPlayback = useAudioPlayback(undefined, {
-    onBeforeManualPlay: liveAudioQueue.yieldToManualPlayback,
-  });
+  const audioPlayback = useAudioPlayback();
   const phrasebook = useSaveToPhrasebook(state.messages.map(message => message.id));
 
   const liveListen = useNativeLiveListen({
     chat,
     state,
-    isPlaybackActive: liveAudioQueue.isPlaying,
-    onEnqueuePlayback: item => {
-      liveAudioQueue.enqueue(item);
+    isPlaybackActive: Boolean(audioPlayback.activeAudio),
+    onSegmentSaved: () => {
       requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
     },
     onBeforeStart: () => {
@@ -167,16 +162,12 @@ export function LiveListenView({ chat, state, loadError }: Props) {
               audioPlayback.activeAudio?.messageId === item.id && audioPlayback.activeAudio.role === 'source'
             }
             isPlayingTranslated={
-              (audioPlayback.activeAudio?.messageId === item.id &&
-                audioPlayback.activeAudio.role === 'translated') ||
-              liveAudioQueue.activePlayingMessageId === item.id
+              audioPlayback.activeAudio?.messageId === item.id &&
+              audioPlayback.activeAudio.role === 'translated'
             }
             isGeneratingSourceSpeech={audioPlayback.generatingSourceId === item.id}
             isGeneratingSpeech={audioPlayback.generatingId === item.id}
-            onStopPlayback={() => {
-              liveAudioQueue.yieldToManualPlayback();
-              audioPlayback.stop();
-            }}
+            onStopPlayback={audioPlayback.stop}
           />
         )}
       />

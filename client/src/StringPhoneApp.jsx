@@ -6607,14 +6607,11 @@ export default function StringPhoneApp() {
           retryMessage={retryChatMessage}
           onAudioPlay={handleThreadAudioPlay}
           onPlayTranslatedSpeech={playTranslatedSpeech}
-          prefetchMessageTranslatedSpeech={prefetchMessageTranslatedSpeech}
-          pauseActiveAudio={pauseActiveAudio}
           onSaveToCollection={handleSaveMessageToCollection}
           savedSourceMessageIds={savedSourceMessageIds}
           savingMessageId={savingMessageId}
           onOpenSidebar={() => setIsSidebarOpen(true)}
           onBeforeCapture={stopAllPlayback}
-          activeChatId={activeVoiceCloneChatId}
         />
       ) : null}
 
