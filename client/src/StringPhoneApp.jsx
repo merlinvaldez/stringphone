@@ -20,7 +20,6 @@ import {
   Pause,
   Phone,
   Play,
-  Radio,
   RotateCcw,
   Search,
   Send,
@@ -142,9 +141,9 @@ const MAX_RECORDING_TIME = 30;
 
 const MODE_OPTIONS = [
   { id: "chat", label: "Chat", Icon: MessageSquare },
-  { id: "live", label: "Live", Icon: Radio },
   { id: "single", label: "Single", Icon: User },
   { id: "conversation", label: "Conversation", Icon: Users },
+  { id: "live", label: "Live", Icon: Ear },
   { id: "lesson", label: "Phrasebook", Icon: Bookmark },
 ];
 // Live listening and the turn-taking modes are exposed in ModeSwitcher.

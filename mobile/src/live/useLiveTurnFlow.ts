@@ -467,7 +467,7 @@ export function useLiveTurnFlow({
           for (const msgId of completedIds) {
             await currentChat.attachSourceAudio(msgId, recordedAudio).catch(() => undefined);
           }
-          if (completedIds.length > 0) {
+          if (completedIds.length > 0 && currentContext) {
             void ensureConversationVoiceClone(currentContext.conversationId, currentContext.sourceLanguage)
               .then(() => {
                 for (const msgId of completedIds) {

@@ -249,7 +249,7 @@ const ROOT_DIR = resolve(import.meta.dirname, '..');
   const messageCardSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/chat/MessageCard.tsx'), 'utf8');
   const liveViewSrc = readFileSync(resolve(ROOT_DIR, 'mobile/src/live/LiveListenView.tsx'), 'utf8');
 
-  assert.match(appShellSrc, /route:\s*'\/live'[\s\S]*labelKey:\s*'modeLive'[\s\S]*icon:\s*'radio'/);
+  assert.match(appShellSrc, /route:\s*'\/live'[\s\S]*labelKey:\s*'modeLive'[\s\S]*icon:\s*'ear-outline'/);
   assert.match(messageCardSrc, /isSameLanguageReady/);
   assert.match(liveViewSrc, /useUiStrings/);
   assert.doesNotMatch(liveViewSrc, /\bTextInput\b/, 'LiveListenView must omit text input');

@@ -96,13 +96,13 @@ export async function ensureConversationVoiceClone(
 
   const task = (async (): Promise<ResolvedVoiceClone | null> => {
     try {
-      const samplePayloads: Array<{
+      const samplePayloads: {
         base64: string;
         mimeType: string;
         filename: string;
         durationMs: number;
         transcript?: string;
-      }> = [];
+      }[] = [];
 
       for (const sample of eligible.samples) {
         const audioData = await audioSession!.readBytes({

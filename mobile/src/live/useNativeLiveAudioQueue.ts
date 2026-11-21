@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -80,8 +80,8 @@ export function useNativeLiveAudioQueue(speechVoice?: 'marin' | 'onyx') {
   }, [finishCurrentPlayWait, player]);
 
   const controllerRef = useRef<ReturnType<typeof createNativeLivePlaybackQueue> | null>(null);
-  if (!controllerRef.current) {
-    controllerRef.current = createNativeLivePlaybackQueue({
+  useLayoutEffect(() => {
+    const controller = createNativeLivePlaybackQueue({
       initialAutoPlay: true,
       prefetchAudio: async item => {
         const existing = await resolveNativeTranslatedAudio(item.messageId);
@@ -128,7 +128,12 @@ export function useNativeLiveAudioQueue(speechVoice?: 'marin' | 'onyx') {
         setQueueState(next);
       },
     });
-  }
+    controllerRef.current = controller;
+    return () => {
+      controllerRef.current = null;
+      controller.pauseAll();
+    };
+  }, [finishCurrentPlayWait, player, stopPlayerAndRelease]);
 
   useFocusEffect(
     useCallback(() => {
@@ -145,15 +150,15 @@ export function useNativeLiveAudioQueue(speechVoice?: 'marin' | 'onyx') {
   );
 
   const enqueue = useCallback((item: LiveQueueItem) => {
-    return controllerRef.current!.enqueue(item);
+    return controllerRef.current?.enqueue(item);
   }, []);
 
   const toggleAutoPlay = useCallback(() => {
-    return controllerRef.current!.toggleAutoPlay();
+    return controllerRef.current?.toggleAutoPlay();
   }, []);
 
   const pauseAll = useCallback(() => {
-    controllerRef.current!.pauseAll();
+    controllerRef.current?.pauseAll();
   }, []);
 
   return useMemo(

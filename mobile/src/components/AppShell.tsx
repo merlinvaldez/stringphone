@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { router, Slot, usePathname } from 'expo-router';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -25,9 +25,9 @@ import { palette } from '../theme';
 
 const MODES = [
   { route: '/', labelKey: 'modeChat', icon: 'message-square' },
-  { route: '/live', labelKey: 'modeLive', icon: 'radio' },
   { route: '/single', labelKey: 'modeSingle', icon: 'user' },
   { route: '/conversation', labelKey: 'modeConversation', icon: 'users' },
+  { route: '/live', labelKey: 'modeLive', icon: 'ear-outline' },
   { route: '/phrasebook', labelKey: 'modePhrasebook', icon: 'bookmark' },
 ] as const;
 
@@ -66,7 +66,6 @@ export function AppShell() {
 
   useEffect(() => {
     if (!voiceMenuOpen) return;
-    setJustClearedClones(false);
     let active = true;
     void getActiveConversationVoiceCloneStatus()
       .then(status => {
@@ -102,6 +101,7 @@ export function AppShell() {
           <View accessibilityRole="tablist" accessibilityLabel={strings.stringPhoneModes} style={styles.modeSwitcher}>
             {MODES.map(({ route, labelKey, icon }) => {
               const selected = activeRoute === route;
+              const iconColor = selected ? palette.text : palette.textSubtle;
               return (
                 <Pressable
                   key={route}
@@ -113,7 +113,11 @@ export function AppShell() {
                   }}
                   style={[styles.modeButton, selected && styles.modeButtonSelected]}
                 >
-                  <Feather name={icon} size={17} color={selected ? palette.text : palette.textSubtle} strokeWidth={2} />
+                  {icon === 'ear-outline' ? (
+                    <Ionicons name={icon} size={17} color={iconColor} />
+                  ) : (
+                    <Feather name={icon} size={17} color={iconColor} strokeWidth={2} />
+                  )}
                 </Pressable>
               );
             })}
@@ -121,7 +125,10 @@ export function AppShell() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={strings.voiceSettings}
-            onPress={() => setVoiceMenuOpen(true)}
+            onPress={() => {
+              setJustClearedClones(false);
+              setVoiceMenuOpen(true);
+            }}
             style={styles.voiceMenuTrigger}
           >
             <Feather name="settings" size={16} color={palette.textMuted} strokeWidth={1.8} />

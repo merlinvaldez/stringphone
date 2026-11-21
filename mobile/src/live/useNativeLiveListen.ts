@@ -9,7 +9,7 @@ import {
   useNativeAudioRecorder,
   useNativeAudioRecorderState,
 } from '../adapters/audio';
-import { nativeLiveApi, type LiveListenSegment } from '../adapters/live';
+import { nativeLiveApi } from '../adapters/live';
 import { ProcessingApiError } from '../adapters/processingTransport';
 import type { ChatState, createTextChatController } from '../chat/controller';
 import { ensureConversationVoiceClone, getNativeAudioStorage } from '../chat/native';
@@ -59,21 +59,6 @@ export function useNativeLiveListen({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const recorder = useNativeAudioRecorder(
-    {
-      ...RecordingPresets.HIGH_QUALITY,
-      directory: 'document',
-      isMeteringEnabled: true,
-    },
-    recStatus => {
-      if (recStatus.hasError || recStatus.mediaServicesDidReset) {
-        setError(recStatus.error || 'The microphone was interrupted.');
-        void stopRef.current('interruption');
-      }
-    },
-  );
-  const recorderState = useNativeAudioRecorderState(recorder, 100);
-
   const chatRef = useRef(chat);
   const stateRef = useRef(state);
   const playbackActiveRef = useRef(isPlaybackActive);
@@ -105,15 +90,80 @@ export function useNativeLiveListen({
     sessionId: string;
   } | null>(null);
   const pendingUploadsRef = useRef(new Set<Promise<void>>());
-  const stopRef = useRef<(reason: 'user' | 'navigation' | 'interruption') => Promise<void>>(async () => {});
+  const rotateChunkRef = useRef<(options: { discard?: boolean; restart?: boolean }) => Promise<void>>(async () => {});
+
+  const setUiStatus = useCallback((next: NativeLiveListenStatus) => {
+    statusRef.current = next;
+    if (mountedRef.current) setStatus(next);
+  }, []);
+
+  const stopListening = useCallback(
+    async () => {
+      if (stopPromiseRef.current) return stopPromiseRef.current;
+      if (statusRef.current === 'idle') return;
+
+      const task = (async () => {
+        cancelledRef.current = true;
+        activeRef.current = false;
+        setUiStatus('stopping');
+
+        const hasActiveSpeech = speechStartedAtRef.current > 0;
+        await rotateChunkRef.current({ discard: !hasActiveSpeech, restart: false });
+
+        const inFlight = [...pendingUploadsRef.current];
+        if (inFlight.length > 0) {
+          await Promise.race([
+            Promise.allSettled(inFlight),
+            new Promise<void>(resolve => setTimeout(resolve, 4_000)),
+          ]);
+        }
+
+        AudioPlaybackCoordinator.setLiveListenActive(false);
+        await configureNativeAudioSession(false).catch(() => undefined);
+        leaseRef.current?.release();
+        leaseRef.current = null;
+        contextRef.current = null;
+        speechStartedAtRef.current = 0;
+        lastSpeechAtRef.current = 0;
+        chunkStartedAtRef.current = 0;
+        sessionStartedAtRef.current = 0;
+
+        if (mountedRef.current) {
+          setElapsedSeconds(0);
+          setPreviewDraft(null);
+          setUiStatus('idle');
+        }
+        stopPromiseRef.current = null;
+      })();
+
+      stopPromiseRef.current = task;
+      return task;
+    },
+    [setUiStatus],
+  );
+
+  const recorder = useNativeAudioRecorder(
+    {
+      ...RecordingPresets.HIGH_QUALITY,
+      directory: 'document',
+      isMeteringEnabled: true,
+    },
+    recStatus => {
+      if (recStatus.hasError || recStatus.mediaServicesDidReset) {
+        setError(recStatus.error || 'The microphone was interrupted.');
+        void stopListening();
+      }
+    },
+  );
+  const recorderState = useNativeAudioRecorderState(recorder, 100);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      void stopRef.current('navigation');
+      void stopListening();
     };
-  }, []);
+  }, [stopListening]);
 
   useEffect(() => {
     if (status !== 'listening') return;
@@ -125,12 +175,7 @@ export function useNativeLiveListen({
     return () => clearInterval(timer);
   }, [status]);
 
-  function setUiStatus(next: NativeLiveListenStatus) {
-    statusRef.current = next;
-    if (mountedRef.current) setStatus(next);
-  }
-
-  function safeRecorderUri(): string | null {
+  const safeRecorderUri = useCallback((): string | null => {
     try {
       const raw = recorder.uri || recorder.getStatus()?.url || null;
       if (!raw) return null;
@@ -138,9 +183,9 @@ export function useNativeLiveListen({
     } catch {
       return null;
     }
-  }
+  }, [recorder]);
 
-  function safeRecorderDurationMs(): number {
+  const safeRecorderDurationMs = useCallback((): number => {
     try {
       const statusDuration = Number(recorder.getStatus()?.durationMillis) || 0;
       const wallElapsed = chunkStartedAtRef.current > 0 ? Date.now() - chunkStartedAtRef.current : 0;
@@ -148,14 +193,14 @@ export function useNativeLiveListen({
     } catch {
       return recorderState.durationMillis || 0;
     }
-  }
+  }, [recorder, recorderState.durationMillis]);
 
-  async function processFinalizedRecording(
+  const processFinalizedRecording = useCallback(async (
     uri: string,
     durationMs: number,
     context: NonNullable<typeof contextRef.current>,
     chunkId: string,
-  ) {
+  ) => {
     const currentChat = chatRef.current;
     if (!currentChat) return;
 
@@ -244,7 +289,7 @@ export function useNativeLiveListen({
         );
       }
     }
-  }
+  }, []);
 
   const rotateChunk = useCallback(
     async ({ discard = false, restart = true }: { discard?: boolean; restart?: boolean } = {}) => {
@@ -280,62 +325,12 @@ export function useNativeLiveListen({
         chunkRotatingRef.current = false;
       }
     },
-    [recorder, recorderState.durationMillis],
+    [recorder, safeRecorderDurationMs, safeRecorderUri, processFinalizedRecording],
   );
 
-  const rotateChunkRef = useRef(rotateChunk);
   useEffect(() => {
     rotateChunkRef.current = rotateChunk;
   }, [rotateChunk]);
-
-  const stopListening = useCallback(
-    async (_reason: 'user' | 'navigation' | 'interruption' = 'user') => {
-      if (stopPromiseRef.current) return stopPromiseRef.current;
-      if (statusRef.current === 'idle') return;
-
-      const task = (async () => {
-        cancelledRef.current = true;
-        activeRef.current = false;
-        setUiStatus('stopping');
-
-        const hasActiveSpeech = speechStartedAtRef.current > 0;
-        await rotateChunkRef.current({ discard: !hasActiveSpeech, restart: false });
-
-        const inFlight = [...pendingUploadsRef.current];
-        if (inFlight.length > 0) {
-          await Promise.race([
-            Promise.allSettled(inFlight),
-            new Promise<void>(resolve => setTimeout(resolve, 4_000)),
-          ]);
-        }
-
-        AudioPlaybackCoordinator.setLiveListenActive(false);
-        await configureNativeAudioSession(false).catch(() => undefined);
-        leaseRef.current?.release();
-        leaseRef.current = null;
-        contextRef.current = null;
-        speechStartedAtRef.current = 0;
-        lastSpeechAtRef.current = 0;
-        chunkStartedAtRef.current = 0;
-        sessionStartedAtRef.current = 0;
-
-        if (mountedRef.current) {
-          setElapsedSeconds(0);
-          setPreviewDraft(null);
-          setUiStatus('idle');
-        }
-        stopPromiseRef.current = null;
-      })();
-
-      stopPromiseRef.current = task;
-      return task;
-    },
-    [],
-  );
-
-  useEffect(() => {
-    stopRef.current = stopListening;
-  }, [stopListening]);
 
   const startListening = useCallback(async () => {
     const currentChat = chatRef.current;
@@ -416,7 +411,7 @@ export function useNativeLiveListen({
       );
       return false;
     }
-  }, [isFocused, recorder]);
+  }, [isFocused, recorder, setUiStatus]);
 
   useEffect(() => {
     if (status !== 'listening' || !activeRef.current || chunkRotatingRef.current) {
@@ -472,9 +467,9 @@ export function useNativeLiveListen({
 
   useEffect(() => {
     if (!isFocused && (statusRef.current === 'starting' || statusRef.current === 'listening')) {
-      void stopRef.current('navigation');
+      void stopListening();
     }
-  }, [isFocused]);
+  }, [isFocused, stopListening]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -482,11 +477,11 @@ export function useNativeLiveListen({
         nextState !== 'active' &&
         (statusRef.current === 'starting' || statusRef.current === 'listening')
       ) {
-        void stopRef.current('interruption');
+        void stopListening();
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [stopListening]);
 
   const retryDraft = useCallback(
     async (messageId: string): Promise<boolean> => {
@@ -585,9 +580,9 @@ export function useNativeLiveListen({
         setNotice('');
       },
       startListening,
-      stopListening: () => stopRef.current('user'),
+      stopListening,
       retryDraft,
     }),
-    [status, elapsedSeconds, previewDraft, error, notice, startListening, retryDraft],
+    [status, elapsedSeconds, previewDraft, error, notice, startListening, stopListening, retryDraft],
   );
 }

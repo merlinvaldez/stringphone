@@ -167,13 +167,13 @@ export function createProcessingTransport(
     async postVoiceClone(
       input: {
         language: string;
-        samples: Array<{
+        samples: {
           base64: string;
           mimeType: string;
           filename?: string;
           durationMs?: number;
           transcript?: string;
-        }>;
+        }[];
       },
       signal?: AbortSignal,
     ): Promise<Response> {
