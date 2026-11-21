@@ -51,6 +51,10 @@ export function MessageCard({
   const isLanguageOne = baseLanguageCode
     ? message.source_language === baseLanguageCode
     : isSelf;
+  const isSameLanguageReady =
+    message.status === 'ready' &&
+    message.source_language === message.target_language &&
+    !message.translated_text?.trim();
   const retryable = ['draft', 'failed', 'interrupted'].includes(message.status);
   const originalText = message.original_text || (message.input_kind === 'voice' ? strings.voiceRecording : '');
   const translatedText = message.translated_text ||
@@ -164,55 +168,57 @@ export function MessageCard({
           </View>
         </View>
 
-        <View style={styles.translationBlock}>
-          <View style={styles.sectionRow}>
-            <View style={styles.sectionTextWrap}>
-              <Text
-                selectable
-                accessibilityLabel={`${strings.translation}, ${languageName(message.target_language)}: ${translatedText}`}
-                style={[styles.translatedText, messageDirection(message.target_language)]}
-              >
-                {translatedText}
-              </Text>
-              {showTranslatedPronunciation && (
-                <Text style={[styles.pronunciationText, messageDirection(message.source_language)]}>
-                  {translatedPronunciation}
+        {!isSameLanguageReady && (
+          <View style={styles.translationBlock}>
+            <View style={styles.sectionRow}>
+              <View style={styles.sectionTextWrap}>
+                <Text
+                  selectable
+                  accessibilityLabel={`${strings.translation}, ${languageName(message.target_language)}: ${translatedText}`}
+                  style={[styles.translatedText, messageDirection(message.target_language)]}
+                >
+                  {translatedText}
                 </Text>
+                {showTranslatedPronunciation && (
+                  <Text style={[styles.pronunciationText, messageDirection(message.source_language)]}>
+                    {translatedPronunciation}
+                  </Text>
+                )}
+              </View>
+              {canPlayTranslated && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isPlayingTranslated
+                      ? strings.stopTranslatedAudio
+                      : isGeneratingSpeech
+                        ? strings.generatingAudio
+                        : strings.playTranslatedAudio
+                  }
+                  disabled={disabled || isGeneratingSpeech}
+                  onPress={() => {
+                    if (isPlayingTranslated) {
+                      onStopPlayback?.();
+                    } else {
+                      onPlayTranslated?.(message.id);
+                    }
+                  }}
+                  style={[styles.audioBtn, isPlayingTranslated && styles.audioBtnActive]}
+                >
+                  {isGeneratingSpeech ? (
+                    <ActivityIndicator size={13} color={palette.text} />
+                  ) : (
+                    <Feather
+                      name={isPlayingTranslated ? 'square' : 'volume-2'}
+                      size={14}
+                      color={isPlayingTranslated ? '#A7F3D0' : '#E4E4E7'}
+                    />
+                  )}
+                </Pressable>
               )}
             </View>
-            {canPlayTranslated && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isPlayingTranslated
-                    ? strings.stopTranslatedAudio
-                    : isGeneratingSpeech
-                      ? strings.generatingAudio
-                      : strings.playTranslatedAudio
-                }
-                disabled={disabled || isGeneratingSpeech}
-                onPress={() => {
-                  if (isPlayingTranslated) {
-                    onStopPlayback?.();
-                  } else {
-                    onPlayTranslated?.(message.id);
-                  }
-                }}
-                style={[styles.audioBtn, isPlayingTranslated && styles.audioBtnActive]}
-              >
-                {isGeneratingSpeech ? (
-                  <ActivityIndicator size={13} color={palette.text} />
-                ) : (
-                  <Feather
-                    name={isPlayingTranslated ? 'square' : 'volume-2'}
-                    size={14}
-                    color={isPlayingTranslated ? '#A7F3D0' : '#E4E4E7'}
-                  />
-                )}
-              </Pressable>
-            )}
           </View>
-        </View>
+        )}
 
         {retryable && (
           <View style={styles.errorBar}>

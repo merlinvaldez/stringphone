@@ -10,6 +10,7 @@ const handlers = baseUrl ? null : {
   '/chat/messages/voice': (await import('../api/chat/messages/voice.ts')).default,
   '/speech/output': (await import('../api/speech/output.ts')).default,
   '/chat/messages/live-translation': (await import('../api/chat/messages/live-translation.ts')).default,
+  '/chat/messages/live-listen': (await import('../api/chat/messages/live-listen.ts')).default,
 };
 const pair = { sourceLanguage: 'en', targetLanguage: 'es' };
 const cases = [
@@ -24,9 +25,11 @@ const cases = [
   ['missing utterance ID', '/chat/messages/live-translation', pair, 400, 'utteranceId is required'],
   ['invalid revision', '/chat/messages/live-translation', { ...pair, utteranceId: 'audit', revision: 0 }, 400, 'revision must be a positive integer'],
   ['no live speech', '/chat/messages/live-translation', { ...pair, utteranceId: 'audit', revision: 1, transcript: '' }, 422, 'No speech was detected'],
+  ['unsupported live-listen listener language', '/chat/messages/live-listen', { listenerLanguage: 'invalid' }, 400, 'listenerLanguage is not supported'],
+  ['missing live-listen audio', '/chat/messages/live-listen', { listenerLanguage: 'en' }, 400, 'sourceAudio file is required'],
 ];
 for (const [name, path, input, status, error] of cases) {
-  const multipart = path.endsWith('/voice');
+  const multipart = path.endsWith('/voice') || path.endsWith('/live-listen');
   const form = new FormData();
   if (multipart) for (const [key, value] of Object.entries(input)) form.append(key, value);
   const request = new Request(`${(baseUrl ?? 'https://audit.invalid').replace(/\/$/, '')}${path}`, {

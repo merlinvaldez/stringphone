@@ -129,7 +129,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Lire la phrase",
     "playTranslation": "Lire la traduction",
     "addTranslationWhenEditing": "Ajoutez une traduction en modifiant cette phrase.",
-    "close": "Fermer"
+    "close": "Fermer",
+    "modeLive": "En direct",
+    "liveAutoPlayOn": "Lecture auto des traductions activée",
+    "liveAutoPlayOff": "Lecture auto des traductions coupée",
+    "liveListening": "Écoute en direct",
+    "livePaused": "Direct en pause"
   },
   "es": {
     "searchLanguages": "Buscar idiomas",
@@ -259,7 +264,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Reproducir frase",
     "playTranslation": "Reproducir traducción",
     "addTranslationWhenEditing": "Añade una traducción al editar esta frase.",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "modeLive": "En vivo",
+    "liveAutoPlayOn": "Reproducción automática activada",
+    "liveAutoPlayOff": "Reproducción automática silenciada",
+    "liveListening": "Escuchando en vivo",
+    "livePaused": "En vivo en pausa"
   },
   "pt": {
     "searchLanguages": "Pesquisar idiomas",
@@ -389,7 +399,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Reproduzir frase",
     "playTranslation": "Reproduzir tradução",
     "addTranslationWhenEditing": "Adicione uma tradução ao editar esta frase.",
-    "close": "Fechar"
+    "close": "Fechar",
+    "modeLive": "Ao vivo",
+    "liveAutoPlayOn": "Reprodução automática ativada",
+    "liveAutoPlayOff": "Reprodução automática silenciada",
+    "liveListening": "Ouvindo ao vivo",
+    "livePaused": "Ao vivo em pausa"
   },
   "it": {
     "searchLanguages": "Cerca lingue",
@@ -519,7 +534,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Riproduci frase",
     "playTranslation": "Riproduci traduzione",
     "addTranslationWhenEditing": "Aggiungi una traduzione modificando questa frase.",
-    "close": "Chiudi"
+    "close": "Chiudi",
+    "modeLive": "Dal vivo",
+    "liveAutoPlayOn": "Riproduzione automatica attiva",
+    "liveAutoPlayOff": "Riproduzione automatica disattiva",
+    "liveListening": "Ascolto dal vivo",
+    "livePaused": "Live in pausa"
   },
   "nl": {
     "searchLanguages": "Zoek talen",
@@ -649,7 +669,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Zin afspelen",
     "playTranslation": "Vertaling afspelen",
     "addTranslationWhenEditing": "Voeg een vertaling toe bij het bewerken.",
-    "close": "Sluiten"
+    "close": "Sluiten",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Automatisch afspelen aan",
+    "liveAutoPlayOff": "Automatisch afspelen gedempt",
+    "liveListening": "Live luisteren",
+    "livePaused": "Live gepauzeerd"
   },
   "de": {
     "searchLanguages": "Sprachen suchen",
@@ -779,7 +804,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Ausdruck abspielen",
     "playTranslation": "Übersetzung abspielen",
     "addTranslationWhenEditing": "Füge beim Bearbeiten eine Übersetzung hinzu.",
-    "close": "Schließen"
+    "close": "Schließen",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Automatische Wiedergabe an",
+    "liveAutoPlayOff": "Automatische Wiedergabe stumm",
+    "liveListening": "Live-Zuhören",
+    "livePaused": "Live pausiert"
   },
   "hi": {
     "searchLanguages": "भाषाएँ खोजें",
@@ -909,7 +939,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "वाक्यांश सुनें",
     "playTranslation": "अनुवाद सुनें",
     "addTranslationWhenEditing": "संपादित करते समय अनुवाद जोड़ें।",
-    "close": "बंद करें"
+    "close": "बंद करें",
+    "modeLive": "लाइव",
+    "liveAutoPlayOn": "अनुवाद स्वतः चलाना चालू",
+    "liveAutoPlayOff": "अनुवाद स्वतः चलाना बंद",
+    "liveListening": "लाइव सुनना",
+    "livePaused": "लाइव रुका हुआ"
   },
   "ar": {
     "searchLanguages": "ابحث عن اللغات",
@@ -1039,7 +1074,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "تشغيل العبارة",
     "playTranslation": "تشغيل الترجمة",
     "addTranslationWhenEditing": "أضف ترجمة عند تعديل هذه العبارة.",
-    "close": "إغلاق"
+    "close": "إغلاق",
+    "modeLive": "مباشر",
+    "liveAutoPlayOn": "التشغيل التلقائي للترجمات مُفعّل",
+    "liveAutoPlayOff": "التشغيل التلقائي للترجمات مكتوم",
+    "liveListening": "استماع مباشر",
+    "livePaused": "البث المباشر متوقف مؤقتًا"
   },
   "fa": {
     "searchLanguages": "جستجوی زبان‌ها",
@@ -1169,7 +1209,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "پخش عبارت",
     "playTranslation": "پخش ترجمه",
     "addTranslationWhenEditing": "هنگام ویرایش، ترجمه اضافه کنید.",
-    "close": "بستن"
+    "close": "بستن",
+    "modeLive": "زنده",
+    "liveAutoPlayOn": "پخش خودکار ترجمه‌ها روشن",
+    "liveAutoPlayOff": "پخش خودکار ترجمه‌ها بی‌صدا",
+    "liveListening": "در حال گوش دادن زنده",
+    "livePaused": "پخش زنده متوقف شد"
   },
   "zh": {
     "searchLanguages": "搜索语言",
@@ -1299,7 +1344,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "播放短语",
     "playTranslation": "播放翻译",
     "addTranslationWhenEditing": "编辑此短语时添加翻译。",
-    "close": "关闭"
+    "close": "关闭",
+    "modeLive": "实时",
+    "liveAutoPlayOn": "已开启自动播放译文",
+    "liveAutoPlayOff": "已静音自动播放译文",
+    "liveListening": "正在实时聆听",
+    "livePaused": "实时监听已暂停"
   },
   "ja": {
     "searchLanguages": "言語を検索",
@@ -1429,7 +1479,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "フレーズを再生",
     "playTranslation": "翻訳を再生",
     "addTranslationWhenEditing": "編集時に翻訳を追加してください。",
-    "close": "閉じる"
+    "close": "閉じる",
+    "modeLive": "ライブ",
+    "liveAutoPlayOn": "翻訳の自動再生オン",
+    "liveAutoPlayOff": "翻訳の自動再生ミュート",
+    "liveListening": "ライブで聴取中",
+    "livePaused": "ライブ一時停止"
   },
   "ko": {
     "searchLanguages": "언어 검색",
@@ -1559,7 +1614,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "문장 재생",
     "playTranslation": "번역 재생",
     "addTranslationWhenEditing": "수정할 때 번역을 추가하세요.",
-    "close": "닫기"
+    "close": "닫기",
+    "modeLive": "라이브",
+    "liveAutoPlayOn": "번역 자동 재생 켜짐",
+    "liveAutoPlayOff": "번역 자동 재생 음소거",
+    "liveListening": "실시간 듣기 중",
+    "livePaused": "라이브 일시중지"
   },
   "pl": {
     "searchLanguages": "Szukaj języków",
@@ -1689,7 +1749,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Odtwórz zwrot",
     "playTranslation": "Odtwórz tłumaczenie",
     "addTranslationWhenEditing": "Dodaj tłumaczenie podczas edycji.",
-    "close": "Zamknij"
+    "close": "Zamknij",
+    "modeLive": "Na żywo",
+    "liveAutoPlayOn": "Autoodtwarzanie tłumaczeń włączone",
+    "liveAutoPlayOff": "Autoodtwarzanie tłumaczeń wyciszone",
+    "liveListening": "Słuchanie na żywo",
+    "livePaused": "Wstrzymano na żywo"
   },
   "ru": {
     "searchLanguages": "Поиск языков",
@@ -1819,7 +1884,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Озвучить фразу",
     "playTranslation": "Озвучить перевод",
     "addTranslationWhenEditing": "Добавьте перевод при редактировании.",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "modeLive": "Вживую",
+    "liveAutoPlayOn": "Автовоспроизведение переводов включено",
+    "liveAutoPlayOff": "Автовоспроизведение переводов выключено",
+    "liveListening": "Слушаю в реальном времени",
+    "livePaused": "Эфир приостановлен"
   },
   "sv": {
     "searchLanguages": "Sök språk",
@@ -1949,7 +2019,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Spela fras",
     "playTranslation": "Spela översättning",
     "addTranslationWhenEditing": "Lägg till en översättning när du redigerar.",
-    "close": "Stäng"
+    "close": "Stäng",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Automatisk uppspelning på",
+    "liveAutoPlayOff": "Automatisk uppspelning ljudlös",
+    "liveListening": "Lyssnar live",
+    "livePaused": "Live pausad"
   },
   "tr": {
     "searchLanguages": "Dilleri Ara",
@@ -2079,7 +2154,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "İfadeyi çal",
     "playTranslation": "Çeviriyi çal",
     "addTranslationWhenEditing": "Düzenlerken bir çeviri ekleyin.",
-    "close": "Kapat"
+    "close": "Kapat",
+    "modeLive": "Canlı",
+    "liveAutoPlayOn": "Çevirileri otomatik oynatma açık",
+    "liveAutoPlayOff": "Çevirileri otomatik oynatma sessiz",
+    "liveListening": "Canlı dinleniyor",
+    "livePaused": "Canlı duraklatıldı"
   },
   "tl": {
     "searchLanguages": "Maghanap ng mga wika",
@@ -2209,7 +2289,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "I-play ang parirala",
     "playTranslation": "I-play ang salin",
     "addTranslationWhenEditing": "Magdagdag ng salin kapag ine-edit ito.",
-    "close": "Isara"
+    "close": "Isara",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Naka-on ang auto-play ng salin",
+    "liveAutoPlayOff": "Naka-mute ang auto-play ng salin",
+    "liveListening": "Nakikinig nang live",
+    "livePaused": "Naka-pause ang live"
   },
   "bg": {
     "searchLanguages": "Търсене на езици",
@@ -2339,7 +2424,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Пусни фразата",
     "playTranslation": "Пусни превода",
     "addTranslationWhenEditing": "Добавете превод при редакция.",
-    "close": "Затвори"
+    "close": "Затвори",
+    "modeLive": "На живо",
+    "liveAutoPlayOn": "Автоматичното пускане на преводи е включено",
+    "liveAutoPlayOff": "Автоматичното пускане на преводи е заглушено",
+    "liveListening": "Слушане на живо",
+    "livePaused": "На живо на пауза"
   },
   "ro": {
     "searchLanguages": "Caută limbi",
@@ -2469,7 +2559,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Redă expresia",
     "playTranslation": "Redă traducerea",
     "addTranslationWhenEditing": "Adaugă o traducere când editezi.",
-    "close": "Închide"
+    "close": "Închide",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Redare automată a traducerilor pornită",
+    "liveAutoPlayOff": "Redare automată a traducerilor oprită",
+    "liveListening": "Ascultare live",
+    "livePaused": "Live în pauză"
   },
   "cs": {
     "searchLanguages": "Hledat jazyky",
@@ -2599,7 +2694,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Přehrát frázi",
     "playTranslation": "Přehrát překlad",
     "addTranslationWhenEditing": "Při úpravě přidejte překlad.",
-    "close": "Zavřít"
+    "close": "Zavřít",
+    "modeLive": "Živě",
+    "liveAutoPlayOn": "Automatické přehrávání překladů zapnuto",
+    "liveAutoPlayOff": "Automatické přehrávání překladů ztlumeno",
+    "liveListening": "Živý poslech",
+    "livePaused": "Živě pozastaveno"
   },
   "el": {
     "searchLanguages": "Αναζήτηση γλωσσών",
@@ -2729,7 +2829,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Αναπαραγωγή φράσης",
     "playTranslation": "Αναπαραγωγή μετάφρασης",
     "addTranslationWhenEditing": "Προσθέστε μετάφραση κατά την επεξεργασία.",
-    "close": "Κλείσιμο"
+    "close": "Κλείσιμο",
+    "modeLive": "Ζωντανά",
+    "liveAutoPlayOn": "Αυτόματη αναπαραγωγή μεταφράσεων ενεργή",
+    "liveAutoPlayOff": "Αυτόματη αναπαραγωγή μεταφράσεων σε σίγαση",
+    "liveListening": "Ζωντανή ακρόαση",
+    "livePaused": "Ζωντανή παύση"
   },
   "fi": {
     "searchLanguages": "Etsi kielet",
@@ -2859,7 +2964,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Toista fraasi",
     "playTranslation": "Toista käännös",
     "addTranslationWhenEditing": "Lisää käännös muokattaessa.",
-    "close": "Sulje"
+    "close": "Sulje",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Käännösten automaattinen toisto päällä",
+    "liveAutoPlayOff": "Käännösten automaattinen toisto mykistetty",
+    "liveListening": "Kuunnellaan livenä",
+    "livePaused": "Live keskeytetty"
   },
   "hr": {
     "searchLanguages": "Pretraži jezike",
@@ -2989,7 +3099,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Reproduciraj frazu",
     "playTranslation": "Reproduciraj prijevod",
     "addTranslationWhenEditing": "Dodajte prijevod pri uređivanju.",
-    "close": "Zatvori"
+    "close": "Zatvori",
+    "modeLive": "Uživo",
+    "liveAutoPlayOn": "Automatska reprodukcija prijevoda uključena",
+    "liveAutoPlayOff": "Automatska reprodukcija prijevoda utišana",
+    "liveListening": "Slušanje uživo",
+    "livePaused": "Uživo pauzirano"
   },
   "ms": {
     "searchLanguages": "Cari bahasa",
@@ -3119,7 +3234,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Mainkan frasa",
     "playTranslation": "Mainkan terjemahan",
     "addTranslationWhenEditing": "Tambah terjemahan semasa menyunting.",
-    "close": "Tutup"
+    "close": "Tutup",
+    "modeLive": "Langsung",
+    "liveAutoPlayOn": "Main automatik terjemahan dihidupkan",
+    "liveAutoPlayOff": "Main automatik terjemahan disenyapkan",
+    "liveListening": "Mendengar secara langsung",
+    "livePaused": "Siaran langsung dijeda"
   },
   "sk": {
     "searchLanguages": "Hľadať jazyky",
@@ -3249,7 +3369,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Prehrať frázu",
     "playTranslation": "Prehrať preklad",
     "addTranslationWhenEditing": "Pri úprave pridajte preklad.",
-    "close": "Zavrieť"
+    "close": "Zavrieť",
+    "modeLive": "Naživo",
+    "liveAutoPlayOn": "Automatické prehrávanie prekladov zapnuté",
+    "liveAutoPlayOff": "Automatické prehrávanie prekladov stlmené",
+    "liveListening": "Živé počúvanie",
+    "livePaused": "Naživo pozastavené"
   },
   "da": {
     "searchLanguages": "Søg sprog",
@@ -3379,7 +3504,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Afspil sætning",
     "playTranslation": "Afspil oversættelse",
     "addTranslationWhenEditing": "Tilføj en oversættelse ved redigering.",
-    "close": "Luk"
+    "close": "Luk",
+    "modeLive": "Live",
+    "liveAutoPlayOn": "Automatisk afspilning af oversættelser til",
+    "liveAutoPlayOff": "Automatisk afspilning af oversættelser slået fra",
+    "liveListening": "Lytter live",
+    "livePaused": "Live sat på pause"
   },
   "ta": {
     "searchLanguages": "மொழிகளை தேடு",
@@ -3509,7 +3639,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "தொடரை இயக்கு",
     "playTranslation": "மொழிபெயர்ப்பை இயக்கு",
     "addTranslationWhenEditing": "திருத்தும்போது மொழிபெயர்ப்பைச் சேர்க்கவும்.",
-    "close": "மூடு"
+    "close": "மூடு",
+    "modeLive": "நேரலை",
+    "liveAutoPlayOn": "மொழிபெயர்ப்பு தானியங்கி ஒலி இயக்கப்பட்டது",
+    "liveAutoPlayOff": "மொழிபெயர்ப்பு தானியங்கி ஒலி நிறுத்தப்பட்டது",
+    "liveListening": "நேரலையில் கேட்கிறது",
+    "livePaused": "நேரலை இடைநிறுத்தப்பட்டது"
   },
   "uk": {
     "searchLanguages": "Пошук мов",
@@ -3639,7 +3774,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Відтворити фразу",
     "playTranslation": "Відтворити переклад",
     "addTranslationWhenEditing": "Додайте переклад під час редагування.",
-    "close": "Закрити"
+    "close": "Закрити",
+    "modeLive": "Наживо",
+    "liveAutoPlayOn": "Автовідтворення перекладів увімкнено",
+    "liveAutoPlayOff": "Автовідтворення перекладів вимкнено",
+    "liveListening": "Слухання наживо",
+    "livePaused": "Наживо призупинено"
   },
   "hu": {
     "searchLanguages": "Nyelvek keresése",
@@ -3769,7 +3909,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Kifejezés lejátszása",
     "playTranslation": "Fordítás lejátszása",
     "addTranslationWhenEditing": "Adjon hozzá fordítást szerkesztéskor.",
-    "close": "Bezárás"
+    "close": "Bezárás",
+    "modeLive": "Élő",
+    "liveAutoPlayOn": "Fordítások automatikus lejátszása bekapcsolva",
+    "liveAutoPlayOff": "Fordítások automatikus lejátszása némítva",
+    "liveListening": "Élő hallgatás",
+    "livePaused": "Élő szüneteltetve"
   },
   "no": {
     "searchLanguages": "Søk etter språk",
@@ -3899,7 +4044,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Spill av uttrykk",
     "playTranslation": "Spill av oversettelse",
     "addTranslationWhenEditing": "Legg til en oversettelse når du redigerer.",
-    "close": "Lukk"
+    "close": "Lukk",
+    "modeLive": "Direkte",
+    "liveAutoPlayOn": "Automatisk avspilling av oversettelser på",
+    "liveAutoPlayOff": "Automatisk avspilling av oversettelser dempet",
+    "liveListening": "Lytter direkte",
+    "livePaused": "Direkte satt på pause"
   },
   "vi": {
     "searchLanguages": "Tìm ngôn ngữ",
@@ -4029,7 +4179,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Phát cụm từ",
     "playTranslation": "Phát bản dịch",
     "addTranslationWhenEditing": "Thêm bản dịch khi chỉnh sửa.",
-    "close": "Đóng"
+    "close": "Đóng",
+    "modeLive": "Trực tiếp",
+    "liveAutoPlayOn": "Tự động phát bản dịch đang bật",
+    "liveAutoPlayOff": "Tự động phát bản dịch đã tắt tiếng",
+    "liveListening": "Đang nghe trực tiếp",
+    "livePaused": "Đã tạm dừng trực tiếp"
   },
   "bn": {
     "searchLanguages": "ভাষা খুঁজুন",
@@ -4159,7 +4314,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "বাক্যাংশ শুনুন",
     "playTranslation": "অনুবাদ শুনুন",
     "addTranslationWhenEditing": "সম্পাদনার সময় অনুবাদ যোগ করুন।",
-    "close": "বন্ধ করুন"
+    "close": "বন্ধ করুন",
+    "modeLive": "লাইভ",
+    "liveAutoPlayOn": "অনুবাদ স্বয়ংক্রিয় চালানো চালু",
+    "liveAutoPlayOff": "অনুবাদ স্বয়ংক্রিয় চালানো নিঃশব্দ",
+    "liveListening": "লাইভ শোনা হচ্ছে",
+    "livePaused": "লাইভ বিরতি দেওয়া হয়েছে"
   },
   "th": {
     "searchLanguages": "ค้นหาภาษา",
@@ -4289,7 +4449,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "เล่นวลี",
     "playTranslation": "เล่นคำแปล",
     "addTranslationWhenEditing": "เพิ่มคำแปลเมื่อแก้ไขวลีนี้",
-    "close": "ปิด"
+    "close": "ปิด",
+    "modeLive": "สด",
+    "liveAutoPlayOn": "เปิดการเล่นคำแปลอัตโนมัติ",
+    "liveAutoPlayOff": "ปิดเสียงการเล่นคำแปลอัตโนมัติ",
+    "liveListening": "กำลังฟังสด",
+    "livePaused": "หยุดการฟังสดชั่วคราว"
   },
   "he": {
     "searchLanguages": "חפש שפות",
@@ -4419,7 +4584,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "השמעת ביטוי",
     "playTranslation": "השמעת תרגום",
     "addTranslationWhenEditing": "הוסיפו תרגום בעת עריכה.",
-    "close": "סגירה"
+    "close": "סגירה",
+    "modeLive": "חי",
+    "liveAutoPlayOn": "הפעלה אוטומטית של תרגומים פועלת",
+    "liveAutoPlayOff": "הפעלה אוטומטית של תרגומים מושתקת",
+    "liveListening": "מאזין בשידור חי",
+    "livePaused": "שידור חי מושהה"
   },
   "ka": {
     "searchLanguages": "ძებნა ენებში",
@@ -4549,7 +4719,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "ფრაზის მოსმენა",
     "playTranslation": "თარგმანის მოსმენა",
     "addTranslationWhenEditing": "დაამატეთ თარგმანი რედაქტირებისას.",
-    "close": "დახურვა"
+    "close": "დახურვა",
+    "modeLive": "პირდაპირი",
+    "liveAutoPlayOn": "თარგმანების ავტომატური დაკვრა ჩართულია",
+    "liveAutoPlayOff": "თარგმანების ავტომატური დაკვრა გამორთულია",
+    "liveListening": "პირდაპირი მოსმენა",
+    "livePaused": "პირდაპირი შეჩერებულია"
   },
   "id": {
     "searchLanguages": "Cari bahasa",
@@ -4679,7 +4854,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "Putar frasa",
     "playTranslation": "Putar terjemahan",
     "addTranslationWhenEditing": "Tambahkan terjemahan saat mengubah.",
-    "close": "Tutup"
+    "close": "Tutup",
+    "modeLive": "Langsung",
+    "liveAutoPlayOn": "Putar otomatis terjemahan aktif",
+    "liveAutoPlayOff": "Putar otomatis terjemahan dibisukan",
+    "liveListening": "Mendengarkan langsung",
+    "livePaused": "Langsung dijeda"
   },
   "te": {
     "searchLanguages": "భాషలు శోధించండి",
@@ -4809,7 +4989,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "వాక్యం విను",
     "playTranslation": "అనువాదం విను",
     "addTranslationWhenEditing": "సవరించేటప్పుడు అనువాదం జోడించండి.",
-    "close": "మూసివేయి"
+    "close": "మూసివేయి",
+    "modeLive": "లైవ్",
+    "liveAutoPlayOn": "అనువాదాల స్వీయ-ప్లే ఆన్‌లో ఉంది",
+    "liveAutoPlayOff": "అనువాదాల స్వీయ-ప్లే మ్యూట్ చేయబడింది",
+    "liveListening": "లైవ్‌గా వింటోంది",
+    "livePaused": "లైవ్ విరామం చేయబడింది"
   },
   "gu": {
     "searchLanguages": "ભાષાઓ શોધો",
@@ -4939,7 +5124,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "વાક્ય સાંભળો",
     "playTranslation": "અનુવાદ સાંભળો",
     "addTranslationWhenEditing": "સંપાદિત કરતી વખતે અનુવાદ ઉમેરો.",
-    "close": "બંધ કરો"
+    "close": "બંધ કરો",
+    "modeLive": "લાઇવ",
+    "liveAutoPlayOn": "અનુવાદ આપમેળે ચલાવવાનું ચાલુ છે",
+    "liveAutoPlayOff": "અનુવાદ આપમેળે ચલાવવાનું મ્યૂટ છે",
+    "liveListening": "લાઇવ સાંભળી રહ્યું છે",
+    "livePaused": "લાઇવ થોભાવ્યું"
   },
   "kn": {
     "searchLanguages": "ಭಾಷೆಗಳ ಹುಡುಕು",
@@ -5069,7 +5259,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "ವಾಕ್ಯ ಕೇಳಿ",
     "playTranslation": "ಅನುವಾದ ಕೇಳಿ",
     "addTranslationWhenEditing": "ತಿದ್ದುಪಡಿ ಮಾಡುವಾಗ ಅನುವಾದ ಸೇರಿಸಿ.",
-    "close": "ಮುಚ್ಚಿ"
+    "close": "ಮುಚ್ಚಿ",
+    "modeLive": "ಲೈವ್",
+    "liveAutoPlayOn": "ಅನುವಾದಗಳ ಸ್ವಯಂ-ಪ್ಲೇ ಆನ್ ಆಗಿದೆ",
+    "liveAutoPlayOff": "ಅನುವಾದಗಳ ಸ್ವಯಂ-ಪ್ಲೇ ಮ್ಯೂಟ್ ಆಗಿದೆ",
+    "liveListening": "ಲೈವ್ ಆಲಿಸುತ್ತಿದೆ",
+    "livePaused": "ಲೈವ್ ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ"
   },
   "ml": {
     "searchLanguages": "ഭാഷകൾ തിരയുക",
@@ -5199,7 +5394,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "വാക്യം കേൾക്കുക",
     "playTranslation": "വിവർത്തനം കേൾക്കുക",
     "addTranslationWhenEditing": "എഡിറ്റ് ചെയ്യുമ്പോൾ വിവർത്തനം ചേർക്കുക.",
-    "close": "അടയ്ക്കുക"
+    "close": "അടയ്ക്കുക",
+    "modeLive": "ലൈവ്",
+    "liveAutoPlayOn": "വിവർത്തനങ്ങൾ സ്വയം പ്ലേ ചെയ്യുന്നത് ഓൺ",
+    "liveAutoPlayOff": "വിവർത്തനങ്ങൾ സ്വയം പ്ലേ ചെയ്യുന്നത് മ്യൂട്ട്",
+    "liveListening": "ലൈവായി കേൾക്കുന്നു",
+    "livePaused": "ലൈവ് താൽക്കാലികമായി നിർത്തി"
   },
   "mr": {
     "searchLanguages": "भाषा शोधा",
@@ -5329,7 +5529,12 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "वाक्य ऐका",
     "playTranslation": "भाषांतर ऐका",
     "addTranslationWhenEditing": "संपादन करताना भाषांतर जोडा.",
-    "close": "बंद करा"
+    "close": "बंद करा",
+    "modeLive": "थेट",
+    "liveAutoPlayOn": "भाषांतर स्वयं-प्ले सुरू",
+    "liveAutoPlayOff": "भाषांतर स्वयं-प्ले म्यूट",
+    "liveListening": "थेट ऐकत आहे",
+    "livePaused": "थेट थांबवले"
   },
   "pa": {
     "searchLanguages": "ਭਾਸ਼ਾਵਾਂ ਖੋਜੋ",
@@ -5459,6 +5664,11 @@ export const BUNDLED_UI_STRINGS: Record<string, Record<string, string>> = {
     "playPhrase": "ਵਾਕ ਸੁਣੋ",
     "playTranslation": "ਅਨੁਵਾਦ ਸੁਣੋ",
     "addTranslationWhenEditing": "ਸੋਧਦੇ ਸਮੇਂ ਅਨੁਵਾਦ ਸ਼ਾਮਲ ਕਰੋ।",
-    "close": "ਬੰਦ ਕਰੋ"
+    "close": "ਬੰਦ ਕਰੋ",
+    "modeLive": "ਲਾਈਵ",
+    "liveAutoPlayOn": "ਅਨੁਵਾਦ ਆਟੋ-ਪਲੇ ਚਾਲੂ",
+    "liveAutoPlayOff": "ਅਨੁਵਾਦ ਆਟੋ-ਪਲੇ ਮਿਊਟ",
+    "liveListening": "ਲਾਈਵ ਸੁਣਿਆ ਜਾ ਰਿਹਾ ਹੈ",
+    "livePaused": "ਲਾਈਵ ਰੁਕਿਆ"
   }
 };

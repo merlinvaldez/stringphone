@@ -8,11 +8,13 @@ export function ChatComposer({
   setText,
   recordingStatus,
   recordingTimer,
+  recordingBannerText = "",
   sourceLanguage,
   uiStrings,
   onSendText,
   onStartRecording,
   onStopRecording,
+  extraAction = null,
   supportsVoiceInput = true,
   disabled = false,
   disabledPlaceholder = "",
@@ -66,7 +68,8 @@ export function ChatComposer({
         <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           <div className="text-sm text-zinc-200">
             {recordingStatus === "recording"
-              ? interpolateTemplate(uiStrings.secondsLeft, {
+              ? recordingBannerText ||
+                interpolateTemplate(uiStrings.secondsLeft, {
                   seconds: recordingTimer,
                 })
               : recordingStatus === "starting"
@@ -107,6 +110,8 @@ export function ChatComposer({
           }
           className="h-14 flex-1 rounded-[1.5rem] border border-white/10 bg-black/20 px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
         />
+
+        {extraAction}
 
         <button
           type="button"

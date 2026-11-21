@@ -10,8 +10,16 @@ const calls = [];
 const logs = [];
 let fail = false;
 const secret = 'PRIVATE_TRANSCRIPT_TOKEN_PROVIDER_BODY';
-const provider = async () => {
+const provider = async (input) => {
   if (fail) throw new Error(secret);
+  if (input && typeof input === 'object' && input.jsonObject) {
+    return JSON.stringify({
+      detectedLanguageCode: 'es',
+      detectedLanguageName: 'Spanish',
+      isListenerLanguage: false,
+      translatedText: 'Hello',
+    });
+  }
   return 'Hola';
 };
 const db = Object.fromEntries(['getConversation', 'createMessage', 'updateConversationLanguages'].map(name => [name,
@@ -26,11 +34,25 @@ function load(file) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const require = specifier => {
+    if (specifier === 'node:crypto') return { randomUUID: () => 'audit-uuid' };
     if (specifier.endsWith('/openai.js')) return { createOpenAiResponse: provider };
     if (specifier.includes('db/queries/conversations')) return db;
     if (specifier.includes('refreshConversationTitle')) return { refreshConversationTitle: async () => calls.push('title') };
     if (specifier.includes('services/translateText')) return { translateText: provider };
     if (specifier.includes('services/transcribeAudio')) return { transcribeAudio: provider };
+    if (specifier.includes('services/transcribeVoxtral')) {
+      return {
+        sanitizeContextBias: list => Array.isArray(list) ? list : [],
+        transcribeWithVoxtral: async () => ({
+          text: fail ? secret : 'Hola',
+          detectedLanguage: 'es',
+          segments: [{ speakerId: 'speaker_0', text: fail ? secret : 'Hola', languageCode: 'es', startSecond: 0, endSecond: 1 }],
+          distinctSpeakerCount: 1,
+          durationInSeconds: 1,
+          model: 'mistral/voxtral-mini-transcribe-3',
+        }),
+      };
+    }
     if (specifier.includes('services/translateLiveDraft')) return { translateLiveDraft: provider };
     if (specifier.includes('services/classifyLiveSegmentLanguage')) return { classifyLiveSegmentLanguage: async () => ({ languageCode: 'en', confidence: 1 }) };
     if (specifier.endsWith('runSpeechTranslation.js')) return { runSpeechTranslation: async () => ({ ok: true, transcript: 'Hello', translation: await provider(), audioBuffer: Buffer.from('audio') }) };
@@ -48,6 +70,7 @@ const { runTextChatMessage } = load('src/lib/runTextChatMessage.ts');
 const { runVoiceChatMessage } = load('src/lib/runVoiceChatMessage.ts');
 const { runLiveConversationSegment } = load('src/lib/runLiveConversationSegment.ts');
 const { runLiveConversationTranscript } = load('src/lib/runLiveConversationTranscript.ts');
+const { runLiveListenChunk } = load('src/lib/runLiveListenChunk.ts');
 const pair = { sourceLanguage: 'en', targetLanguage: 'es' };
 const sourceAudioFile = { buffer: Buffer.from('recording'), filename: 'turn.m4a' };
 for (const userId of [null, 7]) {
@@ -55,6 +78,9 @@ for (const userId of [null, 7]) {
   assert.equal((await runTextChatMessage({ ...pair, text: 'Hello' })).ok, true);
   assert.equal((await runVoiceChatMessage({ ...pair, sourceAudioFile })).ok, true);
   assert.equal((await runLiveConversationSegment({ ...pair, sourceAudioFile, userId })).savedMessage, null);
+  const listenResult = await runLiveListenChunk({ listenerLanguage: 'en', sourceAudioFile, userId });
+  assert.equal(listenResult.ok, true);
+  assert.equal(listenResult.segments[0].savedMessage, null);
   const result = await runLiveConversationTranscript({ ...pair, userId, utteranceId: 'turn', revision: 1,
     transcript: 'Hello', translatedText: 'Hola', liveMode: 'realtime-translation', sourceAudioFile });
   assert.equal(result.ok, true);
@@ -70,6 +96,13 @@ for (const runner of [runLiveConversationSegment, runLiveConversationTranscript]
   assert.equal((await runner({ ...input, userId: 7 })).savedMessage.id, 'web-message');
   assert.ok(calls.includes('createMessage'), 'Authenticated web history must remain supported');
 }
+calls.length = 0;
+assert.equal((await runLiveListenChunk({ listenerLanguage: 'en', conversationId: 'web-conversation', sourceAudioFile })).status, 401);
+assert.deepEqual(calls, []);
+const webListen = await runLiveListenChunk({ listenerLanguage: 'en', conversationId: 'web-conversation', userId: 7, sourceAudioFile });
+assert.equal(webListen.ok, true);
+assert.equal(webListen.segments[0].savedMessage.id, 'web-message');
+assert.ok(calls.includes('createMessage'), 'Authenticated web live-listen history must remain supported');
 fail = true;
 await assert.rejects(runTextChatMessage({ ...pair, text: secret }), /PRIVATE/);
 await runLiveConversationTranscript({ sourceLanguage: 'en', targetLanguage: 'ar',
@@ -86,11 +119,12 @@ assert.ok(!JSON.stringify(logs).includes(secret));
 // Guard every reachable processing diagnostic: only fixed literal messages.
 const files = ['src/lib/runTextChatMessage.ts', 'src/lib/runVoiceChatMessage.ts',
   'src/lib/runLiveConversationSegment.ts', 'src/lib/runLiveConversationTranscript.ts',
+  'src/lib/runLiveListenChunk.ts', 'src/services/transcribeVoxtral.ts',
   'src/lib/createLiveTranscriptionClientSecret.ts', 'src/services/generatePronunciationGuidance.ts',
   'src/services/classifyLiveSegmentLanguage.ts', 'src/services/translateLiveDraft.ts',
   'src/services/refreshConversationTitle.ts', 'src/auth/vercel.ts', 'src/db/client.ts',
   'src/db/queries/conversations.ts', 'api/speech/output.ts', 'api/chat/live-transcription/token.ts',
-  ...['text', 'voice', 'live-segment', 'live-transcript', 'live-translation'].map(name => `api/chat/messages/${name}.ts`)];
+  ...['text', 'voice', 'live-segment', 'live-transcript', 'live-translation', 'live-listen'].map(name => `api/chat/messages/${name}.ts`)];
 for (const file of files) {
   for (const match of readFileSync(file, 'utf8').matchAll(/console\.(?:error|warn|log)\(([\s\S]*?)\);/g)) {
     assert.match(match[1], /^"[^"\n]*"$/, `Sensitive diagnostic arguments in ${file}`);

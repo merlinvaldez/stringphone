@@ -12,6 +12,8 @@ export function TextToSpeechButton({
   text,
   languageCode,
   onPlay,
+  isExternalPlaying = false,
+  onStopExternal = null,
   uiStrings = FALLBACK_UI_STRINGS,
   className = "",
 }) {
@@ -20,6 +22,7 @@ export function TextToSpeechButton({
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState("");
+  const effectiveIsPlaying = isPlaying || isExternalPlaying;
   const canPlay =
     typeof text === "string" &&
     text.trim().length > 0 &&
@@ -31,7 +34,7 @@ export function TextToSpeechButton({
     ? error
     : isLoading
       ? uiStrings.generatingAudio || FALLBACK_UI_STRINGS.generatingAudio
-      : isPlaying
+      : effectiveIsPlaying
         ? uiStrings.pauseAudio || "Pause audio"
       : canPlay
         ? uiStrings.playAudio || FALLBACK_UI_STRINGS.playAudio
@@ -96,6 +99,11 @@ export function TextToSpeechButton({
       return;
     }
 
+    if (isExternalPlaying && typeof onStopExternal === "function") {
+      onStopExternal();
+      return;
+    }
+
     try {
       setError("");
       setIsLoading(true);
@@ -131,7 +139,9 @@ export function TextToSpeechButton({
       className={`${BASE_AUDIO_ICON_BUTTON_CLASSNAME} ${
         error
           ? "border-rose-400/30 text-rose-200 hover:bg-rose-500/10 hover:text-rose-100"
-          : ""
+          : effectiveIsPlaying
+            ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+            : ""
       } ${
         !canPlay
           ? "cursor-not-allowed opacity-60"
@@ -142,7 +152,7 @@ export function TextToSpeechButton({
     >
       {isLoading ? (
         <Loader2 size={14} className="animate-spin" />
-      ) : isPlaying ? (
+      ) : effectiveIsPlaying ? (
         <Pause size={14} fill="currentColor" />
       ) : (
         <Volume2 size={14} />

@@ -26,6 +26,8 @@ export function MessageBubble({
   baseLanguageCode = "",
   isSaved = false,
   isSaving = false,
+  isLivePlaying = false,
+  onStopLivePlayback = null,
 }) {
   const resolvedSender = message.sender || message.speaker || "self";
   const isSelf = resolvedSender === "self";
@@ -33,6 +35,11 @@ export function MessageBubble({
     message.kind === "voice" ||
     (message.originMode === "live" && Boolean(message.audioUrl));
   const showEmbeddedVoicePlayer = isVoice && Boolean(message.audioUrl);
+  const isSameLanguageReady =
+    message.status === "ready" &&
+    Boolean(message.sourceLanguageCode) &&
+    message.sourceLanguageCode === message.targetLanguageCode &&
+    !message.translatedText;
   const isLanguageOne = baseLanguageCode
     ? message.sourceLanguageCode === baseLanguageCode
     : isSelf;
@@ -54,6 +61,7 @@ export function MessageBubble({
   const canSaveToCollection =
     typeof onSaveToCollection === "function" &&
     message.status === "ready" &&
+    !isSameLanguageReady &&
     Boolean(
       (isSelf ? message.translatedText : message.originalText) &&
       (isSelf ? message.originalText : message.translatedText),
@@ -219,6 +227,8 @@ export function MessageBubble({
                       <TextToSpeechButton
                         text={message.translatedText}
                         languageCode={message.targetLanguageCode}
+                        isExternalPlaying={isLivePlaying}
+                        onStopExternal={isLivePlaying ? onStopLivePlayback : null}
                         onPlay={(input) =>
                           onPlayTranslatedSpeech({
                             ...input,
@@ -274,44 +284,48 @@ export function MessageBubble({
                 </div>
               </div>
 
-              <div className="border-t border-white/10 pt-3">
-                <div className="flex items-end gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p
-                      dir={targetAttrs.dir}
-                      className={`text-sm leading-6 text-zinc-200 ${targetAttrs.className}`.trim()}
-                    >
-                      {message.translatedText ||
-                        (message.status === "error"
-                          ? uiStrings.translationFailed
-                          : "Translating")}
-                    </p>
-                    {showTranslatedPronunciation ? (
-                      <PronunciationGuide
-                        value={message.translatedPronunciation}
-                        className={`mt-2 text-xs leading-5 text-zinc-400 ${targetAttrs.className}`.trim()}
+              {!isSameLanguageReady ? (
+                <div className="border-t border-white/10 pt-3">
+                  <div className="flex items-end gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p
+                        dir={targetAttrs.dir}
+                        className={`text-sm leading-6 text-zinc-200 ${targetAttrs.className}`.trim()}
+                      >
+                        {message.translatedText ||
+                          (message.status === "error"
+                            ? uiStrings.translationFailed
+                            : "Translating")}
+                      </p>
+                      {showTranslatedPronunciation ? (
+                        <PronunciationGuide
+                          value={message.translatedPronunciation}
+                          className={`mt-2 text-xs leading-5 text-zinc-400 ${targetAttrs.className}`.trim()}
+                        />
+                      ) : null}
+                    </div>
+                    {canPlayTranslatedSpeech ? (
+                      <TextToSpeechButton
+                        text={message.translatedText}
+                        languageCode={message.targetLanguageCode}
+                        isExternalPlaying={isLivePlaying}
+                        onStopExternal={isLivePlaying ? onStopLivePlayback : null}
+                        onPlay={(input) =>
+                          onPlayTranslatedSpeech({
+                            ...input,
+                            ownerKind: "message",
+                            ownerId: message.id,
+                            role: "translated",
+                            sourceLanguageCode: message.sourceLanguageCode,
+                          })
+                        }
+                        uiStrings={translatedSpeechUiStrings}
+                        className="shrink-0"
                       />
                     ) : null}
                   </div>
-                  {canPlayTranslatedSpeech ? (
-                    <TextToSpeechButton
-                      text={message.translatedText}
-                      languageCode={message.targetLanguageCode}
-                      onPlay={(input) =>
-                        onPlayTranslatedSpeech({
-                          ...input,
-                          ownerKind: "message",
-                          ownerId: message.id,
-                          role: "translated",
-                          sourceLanguageCode: message.sourceLanguageCode,
-                        })
-                      }
-                      uiStrings={translatedSpeechUiStrings}
-                      className="shrink-0"
-                    />
-                  ) : null}
                 </div>
-              </div>
+              ) : null}
             </div>
           )}
 

@@ -20,6 +20,7 @@ export function LiveTranslationDock({
   status,
   isExpanded,
   onToggleExpanded,
+  uiStrings,
 }) {
   const transcriptRef = useRef(null);
   const isActive =
@@ -43,7 +44,14 @@ export function LiveTranslationDock({
 
   const sourceLanguage = draft?.sourceLanguage;
   const targetLanguage = draft?.targetLanguage;
-  const statusLabel = isActive ? "Live" : "Live paused";
+  const statusLabel = isActive
+    ? uiStrings?.liveListening ?? "Live"
+    : uiStrings?.livePaused ?? "Live paused";
+  const sameLanguage =
+    Boolean(draft?.sourceLanguageCode || sourceLanguage?.code) &&
+    (draft?.sourceLanguageCode || sourceLanguage?.code) ===
+      (draft?.targetLanguageCode || targetLanguage?.code) &&
+    !draft?.translatedText;
 
   return (
     <section
@@ -85,16 +93,23 @@ export function LiveTranslationDock({
         {draft?.transcript || draft?.translatedText ? (
           <div className="space-y-3">
             <LanguageLine
-              label={sourceLanguage?.name ?? draft.sourceLanguageLabel ?? "Spoken"}
+              label={
+                sourceLanguage?.name ??
+                draft.sourceLanguageLabel ??
+                draft.speakerLabel ??
+                "Spoken"
+              }
               text={draft.transcript}
             />
-            <div className="border-t border-white/10 pt-3">
-              <LanguageLine
-                label={targetLanguage?.name ?? draft.targetLanguageLabel ?? "Translation"}
-                text={draft.translatedText}
-                tone="text-zinc-200"
-              />
-            </div>
+            {!sameLanguage ? (
+              <div className="border-t border-white/10 pt-3">
+                <LanguageLine
+                  label={targetLanguage?.name ?? draft.targetLanguageLabel ?? "Translation"}
+                  text={draft.translatedText}
+                  tone="text-zinc-200"
+                />
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="flex min-h-16 items-center justify-center">

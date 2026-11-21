@@ -64,6 +64,76 @@ export function createProcessingTransport(
       }
       return response;
     },
+    async postLiveListenChunk(
+      input: {
+        uri: string;
+        mimeType: string;
+        filename: string;
+        listenerLanguage: string;
+        theirLanguage?: string;
+        chunkId?: string;
+        isPreview?: boolean;
+        contextBias?: string[];
+        onResponse?: () => void;
+      },
+      signal?: AbortSignal,
+    ): Promise<Response> {
+      if (
+        !input.uri.startsWith('file://') ||
+        !/^audio\/[a-zA-Z0-9.+-]+$/.test(input.mimeType) ||
+        !/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(input.filename) ||
+        typeof input.listenerLanguage !== 'string' ||
+        !input.listenerLanguage.trim()
+      ) {
+        throw new Error('Invalid native live-listen recording metadata.');
+      }
+      const sourceFile = await openUploadFile(input.uri);
+      if (!sourceFile.exists || sourceFile.size <= 0) {
+        throw new Error('Live recording chunk is missing or empty.');
+      }
+      if (sourceFile.size > 3_000_000) {
+        throw new Error('Live recording chunk exceeds the 3 MB mobile upload limit.');
+      }
+      // Explicitly allowlist only stateless audio processing fields; never send conversationId or userId.
+      const parameters: Record<string, string> = {
+        listenerLanguage: input.listenerLanguage.trim(),
+        isPreview: input.isPreview ? 'true' : 'false',
+      };
+      if (typeof input.theirLanguage === 'string' && input.theirLanguage.trim()) {
+        parameters.theirLanguage = input.theirLanguage.trim();
+      }
+      if (typeof input.chunkId === 'string' && input.chunkId.trim()) {
+        parameters.chunkId = input.chunkId.trim();
+      }
+      if (Array.isArray(input.contextBias)) {
+        const sanitizedBias = input.contextBias
+          .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          .map(item => item.trim())
+          .slice(0, 25);
+        if (sanitizedBias.length > 0) {
+          parameters.contextBias = JSON.stringify(sanitizedBias);
+        }
+      }
+      const uploaded = await sourceFile.upload(endpointUrl('/chat/messages/live-listen'), {
+        fieldName: 'sourceAudio',
+        mimeType: input.mimeType,
+        parameters,
+        signal,
+      });
+      input.onResponse?.();
+      const response = new Response(uploaded.body, { status: uploaded.status, headers: uploaded.headers });
+      if (!response.ok) {
+        let message = `Request failed (${response.status}).`;
+        try {
+          const error = await response.json();
+          if (typeof error?.error === 'string' && error.error.trim()) message = error.error;
+        } catch {
+          /* Safe proxy fallback. */
+        }
+        throw new ProcessingApiError(response.status, message);
+      }
+      return response;
+    },
     async post<E extends ProcessingEndpoint>(
       endpoint: E, input: Payloads[E], signal?: AbortSignal,
     ): Promise<Response> {

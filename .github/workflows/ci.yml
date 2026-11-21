@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - feature/apk-ui-localization
+      - feature/live-multilingual-listening
   pull_request:
     branches:
       - main
@@ -42,6 +43,9 @@ jobs:
           npx tsx scripts/verify-mobile-phrasebook.mjs
           npx tsx scripts/verify-mobile-text-chat.mjs
           npx tsx scripts/verify-mobile-mic-listening-state.mjs
+          npx tsx scripts/verify-voxtral-live-listen.mjs
+          node scripts/verify-web-live-listen.mjs
+          npx tsx scripts/verify-mobile-live-listen.mjs
           DATABASE_URL=postgres://ci:ci@127.0.0.1:5432/stringphone npx tsx scripts/verify-collection-update-validation.mjs
           npx tsx scripts/verify-web-local-store.mjs
           npx tsx scripts/verify-web-shell-parity.mjs
@@ -65,7 +69,7 @@ jobs:
                 assert.match(res.headers.get("cache-control") ?? "", /max-age=3600/, `${lang} cache-control`);
                 const payload = await res.json();
                 assert.equal(payload.targetLanguage?.code, lang, `${lang} code`);
-                assert.equal(Object.keys(payload.strings ?? {}).length, 128, `${lang} key count`);
+                assert.equal(Object.keys(payload.strings ?? {}).length, 133, `${lang} key count`);
                 if (lang === "en") {
                   assert.equal(payload.strings.modePhrasebook, "Phrasebook");
                 } else {

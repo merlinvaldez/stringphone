@@ -25,6 +25,7 @@ import { palette } from '../theme';
 
 const MODES = [
   { route: '/', labelKey: 'modeChat', icon: 'message-square' },
+  { route: '/live', labelKey: 'modeLive', icon: 'radio' },
   { route: '/single', labelKey: 'modeSingle', icon: 'user' },
   { route: '/conversation', labelKey: 'modeConversation', icon: 'users' },
   { route: '/phrasebook', labelKey: 'modePhrasebook', icon: 'bookmark' },
@@ -265,7 +266,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    padding: 4,
+    padding: 3,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
@@ -277,11 +278,11 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   modeButton: {
-    width: 39,
-    height: 39,
+    width: 34,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    borderRadius: 18,
   },
   modeButtonSelected: {
     borderWidth: 1,

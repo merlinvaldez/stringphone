@@ -27,7 +27,10 @@ function safePausePlayer(player: { pause: () => void }) {
   }
 }
 
-export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
+export function useAudioPlayback(
+  speechVoice?: 'marin' | 'onyx',
+  options?: { onBeforeManualPlay?: () => void },
+) {
   const player = useNativeAudioPlayer(null);
   const playback = useNativeAudioPlayerStatus(player);
   const [activeAudio, setActiveAudio] = useState<ActivePlayback>(null);
@@ -35,6 +38,11 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   const [generatingSourceId, setGeneratingSourceId] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const busy = useRef(false);
+  const onBeforeManualPlayRef = useRef(options?.onBeforeManualPlay);
+
+  useEffect(() => {
+    onBeforeManualPlayRef.current = options?.onBeforeManualPlay;
+  }, [options?.onBeforeManualPlay]);
 
   // When player naturally finishes, clear active state
   useEffect(() => {
@@ -54,11 +62,13 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   }, [player]);
 
   const playSource = useCallback(async (messageId: string, generateIfMissing = false) => {
-    if (busy.current || AudioPlaybackCoordinator.isRecording()) return;
+    const liveListenActive = AudioPlaybackCoordinator.isLiveListenActive();
+    if (busy.current || (!liveListenActive && AudioPlaybackCoordinator.isRecording())) return;
     if (activeAudio?.messageId === messageId && activeAudio.role === 'source' && playback.playing) {
       stop();
       return;
     }
+    onBeforeManualPlayRef.current?.();
     busy.current = true;
     setErrorNotice(null);
     try {
@@ -75,11 +85,16 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       if (!resolved?.uri || resolved.availability !== 'available') {
         throw new Error('Original audio is unavailable.');
       }
-      await configureNativeAudioSession(false);
-      const allowed = AudioPlaybackCoordinator.startPlayback(`${messageId}:source`, () => {
+      if (!AudioPlaybackCoordinator.isLiveListenActive()) {
+        await configureNativeAudioSession(false);
+      }
+      const stopCallback = () => {
         safePausePlayer(player);
         setActiveAudio(null);
-      });
+      };
+      const allowed = AudioPlaybackCoordinator.isLiveListenActive()
+        ? AudioPlaybackCoordinator.startLivePlayback(`${messageId}:source`, stopCallback)
+        : AudioPlaybackCoordinator.startPlayback(`${messageId}:source`, stopCallback);
       if (!allowed || AppState.currentState !== 'active') return;
       player.replace({ uri: resolved.uri });
       player.play();
@@ -94,11 +109,13 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
   }, [activeAudio, playback.playing, player, speechVoice, stop]);
 
   const playTranslated = useCallback(async (messageId: string) => {
-    if (busy.current || AudioPlaybackCoordinator.isRecording()) return;
+    const liveListenActive = AudioPlaybackCoordinator.isLiveListenActive();
+    if (busy.current || (!liveListenActive && AudioPlaybackCoordinator.isRecording())) return;
     if (activeAudio?.messageId === messageId && activeAudio.role === 'translated' && playback.playing) {
       stop();
       return;
     }
+    onBeforeManualPlayRef.current?.();
     busy.current = true;
     setErrorNotice(null);
     try {
@@ -117,11 +134,16 @@ export function useAudioPlayback(speechVoice?: 'marin' | 'onyx') {
       if (!resolved?.uri || resolved.availability !== 'available') {
         throw new Error('Translated speech is unavailable.');
       }
-      await configureNativeAudioSession(false);
-      const allowed = AudioPlaybackCoordinator.startPlayback(`${messageId}:translated`, () => {
+      if (!AudioPlaybackCoordinator.isLiveListenActive()) {
+        await configureNativeAudioSession(false);
+      }
+      const stopCallback = () => {
         safePausePlayer(player);
         setActiveAudio(null);
-      });
+      };
+      const allowed = AudioPlaybackCoordinator.isLiveListenActive()
+        ? AudioPlaybackCoordinator.startLivePlayback(`${messageId}:translated`, stopCallback)
+        : AudioPlaybackCoordinator.startPlayback(`${messageId}:translated`, stopCallback);
       if (!allowed || AppState.currentState !== 'active') return;
       player.replace({ uri: resolved.uri });
       player.play();

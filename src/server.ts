@@ -50,6 +50,7 @@ import { createLiveTranscriptionClientSecret } from "./lib/createLiveTranscripti
 import { runLiveConversationSegment } from "./lib/runLiveConversationSegment.js";
 import { runLiveConversationTranslation } from "./lib/runLiveConversationTranslation.js";
 import { runLiveConversationTranscript } from "./lib/runLiveConversationTranscript.js";
+import { runLiveListenChunk } from "./lib/runLiveListenChunk.js";
 import { runTextChatMessage } from "./lib/runTextChatMessage.js";
 import { runSpeechTranslation } from "./lib/runSpeechTranslation.js";
 import { runUiTranslations } from "./lib/runUiTranslations.js";
@@ -1137,6 +1138,41 @@ app.post("/chat/messages/live-translation", async (req, res) => {
     return res.status(502).json({ error: "Live draft translation failed." });
   }
 });
+
+app.post(
+  "/chat/messages/live-listen",
+  upload.single("sourceAudio"),
+  async (req, res) => {
+    try {
+      const authenticatedRequest = await getOptionalAuthenticatedAppRequest(req);
+      const result = await runLiveListenChunk({
+        listenerLanguage: req.body?.listenerLanguage,
+        theirLanguage: req.body?.theirLanguage,
+        chunkId: req.body?.chunkId,
+        isPreview: req.body?.isPreview,
+        contextBias: req.body?.contextBias,
+        conversationId: req.body?.conversationId,
+        userId: authenticatedRequest?.appUser?.id ?? null,
+        sourceAudioFile: req.file
+          ? {
+              buffer: req.file.buffer,
+              filename: req.file.originalname,
+              mimeType: req.file.mimetype,
+            }
+          : undefined,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json(result.body);
+      }
+
+      return res.status(200).json(result);
+    } catch {
+      console.error("Live listen chunk failed");
+      return res.status(502).json({ error: "Live listen chunk failed" });
+    }
+  },
+);
 
 app.post(
   "/speech/translate",

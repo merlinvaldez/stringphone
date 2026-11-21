@@ -1,6 +1,32 @@
 import { getApiUrl } from '../config/api';
+import { createProcessingTransport } from './processingTransport';
 
 export type LiveLanguage = { code: string; label: string };
+export type LiveListenSegment = {
+  segmentId: string;
+  speakerId: string;
+  sender: 'self' | 'partner';
+  detectedLanguage: LiveLanguage & { isSupportedTts: boolean };
+  sourceLanguage: LiveLanguage;
+  targetLanguage: LiveLanguage;
+  transcript: string;
+  translatedText: string;
+  originalPronunciation: string;
+  translatedPronunciation: string;
+  startSecond: number;
+  endSecond: number;
+  needsPlayback: boolean;
+  singleSpeakerAudioEligible: boolean;
+};
+
+export type LiveListenResult = {
+  ok: true;
+  chunkId: string;
+  isPreview: boolean;
+  listenerLanguage: LiveLanguage;
+  segments: LiveListenSegment[];
+};
+
 export type LiveTranslationResult = {
   utteranceId: string;
   revision: number;
@@ -64,7 +90,56 @@ function asLiveTranslation(value: Record<string, unknown>): LiveTranslationResul
   };
 }
 
-export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
+function asLiveListenSegment(raw: unknown): LiveListenSegment {
+  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  const detected = value?.detectedLanguage as Record<string, unknown> | undefined;
+  const source = value?.sourceLanguage as Record<string, unknown> | undefined;
+  const target = value?.targetLanguage as Record<string, unknown> | undefined;
+  if (
+    !value ||
+    typeof value.segmentId !== 'string' ||
+    typeof value.speakerId !== 'string' ||
+    (value.sender !== 'self' && value.sender !== 'partner') ||
+    typeof source?.code !== 'string' ||
+    typeof source.label !== 'string' ||
+    typeof target?.code !== 'string' ||
+    typeof target.label !== 'string' ||
+    typeof value.transcript !== 'string' ||
+    typeof value.translatedText !== 'string'
+  ) {
+    throw new Error('Live listening returned an incomplete segment.');
+  }
+  return {
+    segmentId: value.segmentId,
+    speakerId: value.speakerId,
+    sender: value.sender,
+    detectedLanguage: {
+      code: typeof detected?.code === 'string' ? detected.code : source.code,
+      label: typeof detected?.label === 'string' ? detected.label : source.label,
+      isSupportedTts: Boolean(detected?.isSupportedTts),
+    },
+    sourceLanguage: { code: source.code, label: source.label },
+    targetLanguage: { code: target.code, label: target.label },
+    transcript: value.transcript,
+    translatedText: value.translatedText,
+    originalPronunciation:
+      typeof value.originalPronunciation === 'string' ? value.originalPronunciation : '',
+    translatedPronunciation:
+      typeof value.translatedPronunciation === 'string' ? value.translatedPronunciation : '',
+    startSecond: Number(value.startSecond) || 0,
+    endSecond: Number(value.endSecond) || 0,
+    needsPlayback: Boolean(value.needsPlayback),
+    singleSpeakerAudioEligible: Boolean(value.singleSpeakerAudioEligible),
+  };
+}
+
+export function createNativeLiveApi(
+  fetchRequest: typeof fetch = fetch,
+  uploadLiveListen?: ReturnType<typeof createProcessingTransport>['postLiveListenChunk'],
+) {
+  const postLiveListen =
+    uploadLiveListen ?? createProcessingTransport(getApiUrl, fetchRequest).postLiveListenChunk;
+
   return {
     async createTranscriptionSecret(sourceLanguage: string, targetLanguage: string) {
       const value = await postJson('/chat/live-transcription/token', {
@@ -118,6 +193,41 @@ export function createNativeLiveApi(fetchRequest: typeof fetch = fetch) {
         sender: input.sender ?? 'self',
       }, fetchRequest);
       return asLiveTranslation(value);
+    },
+    async processLiveListenChunk(
+      input: {
+        uri: string;
+        mimeType: string;
+        filename: string;
+        listenerLanguage: string;
+        theirLanguage?: string;
+        chunkId?: string;
+        isPreview?: boolean;
+        contextBias?: string[];
+        onResponse?: () => void;
+      },
+      signal?: AbortSignal,
+    ): Promise<LiveListenResult> {
+      const response = await postLiveListen(input, signal);
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      const listener = body?.listenerLanguage as Record<string, unknown> | undefined;
+      if (
+        !body ||
+        body.ok !== true ||
+        typeof body.chunkId !== 'string' ||
+        typeof listener?.code !== 'string' ||
+        typeof listener.label !== 'string' ||
+        !Array.isArray(body.segments)
+      ) {
+        throw new Error('Live listening returned an incomplete response.');
+      }
+      return {
+        ok: true,
+        chunkId: body.chunkId,
+        isPreview: Boolean(body.isPreview),
+        listenerLanguage: { code: listener.code, label: listener.label },
+        segments: body.segments.map(asLiveListenSegment),
+      };
     },
   };
 }

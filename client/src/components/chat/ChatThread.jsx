@@ -12,6 +12,8 @@ export function ChatThread({
   baseLanguageCode,
   savedSourceMessageIds = null,
   savingMessageId = null,
+  activePlayingMessageId = null,
+  onStopLivePlayback = null,
 }) {
   const threadRef = useRef(null);
   const messageContentVersion = messages
@@ -65,6 +67,8 @@ export function ChatThread({
             baseLanguageCode={baseLanguageCode}
             isSaved={checkIsSaved(message.id)}
             isSaving={savingMessageId === message.id}
+            isLivePlaying={activePlayingMessageId === message.id}
+            onStopLivePlayback={onStopLivePlayback}
           />
         ))}
       </div>

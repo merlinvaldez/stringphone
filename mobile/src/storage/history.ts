@@ -121,14 +121,25 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
       });
     },
     async saveReadyLiveMessage(input: ReadyLiveMessageInput) {
-      for (const value of [input.id,input.requestId,input.conversationId,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText]) required(value);
+      const sameLanguage =
+        input.sourceLanguage.trim().toLowerCase() === input.targetLanguage.trim().toLowerCase();
+      for (const value of [
+        input.id,
+        input.requestId,
+        input.conversationId,
+        input.sourceLanguage,
+        input.targetLanguage,
+        input.originalText,
+        ...(sameLanguage ? [] : [input.translatedText]),
+      ]) required(value);
+      const storedTranslatedText = sameLanguage ? (input.translatedText.trim() || null) : input.translatedText;
       let created = false;
       await database.withExclusiveTransactionAsync(async transaction => {
         const existing = await transaction.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id=? OR request_id=?',input.id,input.requestId);
         if (existing) {
           if (existing.id !== input.id || existing.request_id !== input.requestId || existing.conversation_id !== input.conversationId ||
               existing.speaker !== input.speaker || existing.origin_mode !== input.originMode || existing.source_language !== input.sourceLanguage ||
-              existing.target_language !== input.targetLanguage || existing.original_text !== input.originalText || existing.translated_text !== input.translatedText ||
+              existing.target_language !== input.targetLanguage || existing.original_text !== input.originalText || existing.translated_text !== storedTranslatedText ||
               existing.original_pronunciation !== (input.originalPronunciation ?? null) || existing.translated_pronunciation !== (input.translatedPronunciation ?? null) ||
               existing.status !== 'ready' || existing.input_kind !== 'voice') {
             throw new Error('Live message identity does not match the saved message.');
@@ -138,14 +149,25 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         const time = now();
         await touch(transaction,input.conversationId,time);
         await transaction.runAsync(`INSERT INTO messages (id,request_id,conversation_id,speaker,origin_mode,source_language,target_language,original_text,translated_text,original_pronunciation,translated_pronunciation,input_kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'voice','ready',?,?)`,
-          input.id,input.requestId,input.conversationId,input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText,
+          input.id,input.requestId,input.conversationId,input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,storedTranslatedText,
           input.originalPronunciation ?? null,input.translatedPronunciation ?? null,time,time);
         created = true;
       });
       return created;
     },
     async finishLiveDraft(input: ReadyLiveMessageInput) {
-      for (const value of [input.id,input.requestId,input.conversationId,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText]) required(value);
+      const sameLanguage =
+        input.sourceLanguage.trim().toLowerCase() === input.targetLanguage.trim().toLowerCase();
+      for (const value of [
+        input.id,
+        input.requestId,
+        input.conversationId,
+        input.sourceLanguage,
+        input.targetLanguage,
+        input.originalText,
+        ...(sameLanguage ? [] : [input.translatedText]),
+      ]) required(value);
+      const storedTranslatedText = sameLanguage ? (input.translatedText.trim() || null) : input.translatedText;
       let changed = false;
       await database.withExclusiveTransactionAsync(async transaction => {
         const row = await transaction.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id=? AND request_id=?',input.id,input.requestId);
@@ -153,7 +175,7 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         if (row.conversation_id !== input.conversationId || row.input_kind !== 'voice') throw new Error('Live source recording draft identity does not match.');
         if (row.status === 'ready') {
           if (row.speaker !== input.speaker || row.origin_mode !== input.originMode || row.source_language !== input.sourceLanguage || row.target_language !== input.targetLanguage ||
-              row.original_text !== input.originalText || row.translated_text !== input.translatedText ||
+              row.original_text !== input.originalText || row.translated_text !== storedTranslatedText ||
               row.original_pronunciation !== (input.originalPronunciation ?? null) || row.translated_pronunciation !== (input.translatedPronunciation ?? null)) {
             throw new Error('Live finalization identity does not match the saved message.');
           }
@@ -162,7 +184,7 @@ export function createHistoryRepository(database: SQLiteDatabase, now: () => num
         if (row.status !== 'draft') throw new Error('Only a saved live audio draft can be finalized.');
         const time = now();
         await transaction.runAsync(`UPDATE messages SET speaker=?,origin_mode=?,source_language=?,target_language=?,original_text=?,translated_text=?,original_pronunciation=?,translated_pronunciation=?,status='ready',error_code=NULL,error_message=NULL,updated_at=max(updated_at,?) WHERE id=? AND request_id=? AND status='draft'`,
-          input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,input.translatedText,input.originalPronunciation ?? null,input.translatedPronunciation ?? null,time,input.id,input.requestId);
+          input.speaker,input.originMode,input.sourceLanguage,input.targetLanguage,input.originalText,storedTranslatedText,input.originalPronunciation ?? null,input.translatedPronunciation ?? null,time,input.id,input.requestId);
         await touch(transaction,input.conversationId,time);
         changed = true;
       });

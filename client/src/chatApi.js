@@ -242,6 +242,66 @@ export async function processLiveConversationDraftTranslation({
   return response.json();
 }
 
+export async function processLiveListenChunk({
+  audioBlob,
+  listenerLanguage,
+  theirLanguage = null,
+  chunkId = "",
+  isPreview = false,
+  contextBias = [],
+  conversationId = null,
+  authFetch,
+  signal,
+}) {
+  const formData = new FormData();
+  const listenerCode =
+    typeof listenerLanguage === "string"
+      ? listenerLanguage
+      : listenerLanguage?.code || "";
+  const theirCode =
+    typeof theirLanguage === "string"
+      ? theirLanguage
+      : theirLanguage?.code || "";
+  const extension = audioBlob?.type?.includes("mp4") ? "m4a" : "webm";
+
+  formData.append("listenerLanguage", listenerCode);
+  formData.append("sourceAudio", audioBlob, `stringphone-live-listen.${extension}`);
+
+  if (theirCode) {
+    formData.append("theirLanguage", theirCode);
+  }
+
+  if (chunkId) {
+    formData.append("chunkId", String(chunkId));
+  }
+
+  formData.append("isPreview", isPreview ? "true" : "false");
+
+  if (Array.isArray(contextBias) && contextBias.length > 0) {
+    formData.append("contextBias", JSON.stringify(contextBias));
+  }
+
+  if (conversationId) {
+    formData.append("conversationId", String(conversationId));
+  }
+
+  const request = typeof authFetch === "function" ? authFetch : fetch;
+  const response = await request(`${API_BASE_URL}/chat/messages/live-listen`, {
+    method: "POST",
+    body: formData,
+    signal,
+  });
+
+  if (!response.ok) {
+    const message = await parseApiError(response, "Live listening failed.");
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.json();
+}
+
 export async function fetchConversations(authFetch) {
   const response = await authFetch(`${API_BASE_URL}/chat/conversations`);
   if (!response.ok) throw new Error(await parseApiError(response, "Failed to fetch conversations"));
