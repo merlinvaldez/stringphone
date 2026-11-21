@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createProcessingTransport } from '../mobile/src/adapters/processingTransport.ts';
-import { AudioPlaybackCoordinator } from '../mobile/src/adapters/playbackCoordinator.ts';
-import { createHistoryRepository } from '../mobile/src/storage/history.ts';
+import transportModule from '../mobile/src/adapters/processingTransport.ts';
+import playbackCoordinatorModule from '../mobile/src/adapters/playbackCoordinator.ts';
+import historyModule from '../mobile/src/storage/history.ts';
 import migrations from '../mobile/src/storage/migrations.ts';
-import { createNativeLivePlaybackQueue } from '../mobile/src/live/livePlaybackQueue.ts';
-import { selectNativeSegmentAudioForPersistence } from '../mobile/src/live/liveListenHelpers.ts';
+import livePlaybackQueueModule from '../mobile/src/live/livePlaybackQueue.ts';
+import liveListenHelpersModule from '../mobile/src/live/liveListenHelpers.ts';
 
+const { createProcessingTransport } = transportModule;
+const { AudioPlaybackCoordinator } = playbackCoordinatorModule;
+const { createHistoryRepository } = historyModule;
 const { historyMigrations, migrateHistoryDatabase, HISTORY_SCHEMA_VERSION } = migrations;
+const { createNativeLivePlaybackQueue } = livePlaybackQueueModule;
+const { selectNativeSegmentAudioForPersistence } = liveListenHelpersModule;
 const ROOT_DIR = resolve(import.meta.dirname, '..');
 
 // 1. SQLite HISTORY_SCHEMA_VERSION stays 4 and same-language ready live messages store NULL translated_text
